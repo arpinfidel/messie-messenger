@@ -22,6 +22,7 @@
     "@types/uuid": "^10.0.0",
     "idb": "^8.0.3",
     "matrix-js-sdk": "^37.13.0",
+    "svelte-routing": "^2.13.0",
     "uuid": "^11.1.0"
   }
 }
