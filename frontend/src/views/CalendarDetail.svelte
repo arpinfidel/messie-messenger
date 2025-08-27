@@ -1,12 +1,5 @@
 <script lang="ts">
-  interface TimelineItem {
-    id: number | string;
-    type: 'Message' | 'Call' | 'email' | 'calendar' | 'chat';
-    title?: string;
-    description?: string;
-    content?: string;
-    timestamp: string;
-  }
+  import type { TimelineItem } from '../models/shared/TimelineItem';
 
   export let item: TimelineItem;
 </script>

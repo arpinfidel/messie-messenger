@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import UnifiedTimeline from './views/UnifiedTimeline.svelte';
-  import DetailPanel from './views/DetailPanel.svelte';
+  import DetailPanel from './views/shared/DetailPanel.svelte';
   import { MatrixViewModel } from './viewmodels/matrix/MatrixViewModel';
   import SettingsPopup from './views/shared/SettingsPopup.svelte';
   import MatrixSettingsTab from './views/matrix/MatrixSettingsTab.svelte';
@@ -43,9 +43,13 @@
   }
 </script>
 
-<main class="flex h-screen bg-gray-100">
-  <UnifiedTimeline on:itemSelected={handleTimelineItemSelected} on:openSettings={() => showSettingsPopup = true} />
-  <DetailPanel selectedItem={selectedTimelineItem} />
+<main class="grid grid-cols-[1fr_2fr] h-screen bg-gray-100">
+  <div class="overflow-y-auto overflow-x-hidden border-r border-gray-300">
+    <UnifiedTimeline on:itemSelected={handleTimelineItemSelected} on:openSettings={() => showSettingsPopup = true} />
+  </div>
+  <div class="flex flex-col h-full overflow-auto">
+    <DetailPanel selectedItem={selectedTimelineItem} />
+  </div>
 </main>
 
 <SettingsPopup show={showSettingsPopup} on:close={() => showSettingsPopup = false} tabs={[

@@ -58,9 +58,9 @@
           class="bg-white p-4 rounded-lg shadow-md cursor-pointer hover:bg-gray-50"
           on:click={() => selectItem(item)}
         >
-          <h2 class="text-xl font-semibold">{item.title}</h2>
+          <h2 class="text-xl font-semibold truncate">{item.title}</h2>
           <p class="text-gray-600 text-sm">{new Date(item.timestamp).toLocaleString()}</p>
-          <p class="mt-2 text-gray-700">{item.description}</p>
+          <p class="mt-2 text-gray-700 truncate">{item.description}</p>
           <span class="inline-block mt-2 px-3 py-1 text-xs font-semibold text-white bg-blue-500 rounded-full">{item.type}</span>
         </div>
       {/each}
