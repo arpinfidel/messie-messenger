@@ -1,0 +1,638 @@
+openapi: 3.0.0
+info:
+  title: Todo Microservice API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080/api/v1
+paths:
+  /register:
+    post:
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: User with email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /login:
+    post:
+      summary: Log in a user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: User logged in successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /users/{id}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get user by ID
+      parameters:
+        - in: path
+          name: id
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: User ID
+      responses:
+        '200':
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /users/me:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get current user profile
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /todolists:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create a new todo list
+      operationId: createTodoList
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewTodoList'
+      responses:
+        '201':
+          description: Todo list created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoList'
+        '400':
+          description: Invalid input
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get todo lists by owner ID
+      operationId: getTodoListsByUserId
+      parameters:
+        - in: query
+          name: userId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the user to retrieve todo lists for
+      responses:
+        '200':
+          description: A list of todo lists
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TodoList'
+  /todolists/{listId}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get a todo list by ID
+      operationId: getTodoListById
+      parameters:
+        - in: path
+          name: listId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo list to retrieve
+      responses:
+        '200':
+          description: Todo list found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoList'
+        '404':
+          description: Todo list not found
+    put:
+      security:
+        - bearerAuth: []
+      summary: Update a todo list
+      operationId: updateTodoList
+      parameters:
+        - in: path
+          name: listId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo list to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTodoList'
+      responses:
+        '200':
+          description: Todo list updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoList'
+        '400':
+          description: Invalid input
+        '404':
+          description: Todo list not found
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Delete a todo list
+      operationId: deleteTodoList
+      parameters:
+        - in: path
+          name: listId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo list to delete
+      responses:
+        '204':
+          description: Todo list deleted successfully
+        '404':
+          description: Todo list not found
+  /todolists/{listId}/items:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Create a new todo item in a list
+      operationId: createTodoItem
+      parameters:
+        - in: path
+          name: listId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo list
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewTodoItem'
+      responses:
+        '201':
+          description: Todo item created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoItem'
+        '400':
+          description: Invalid input
+        '404':
+          description: Todo list not found
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get todo items by list ID
+      operationId: getTodoItemsByListId
+      parameters:
+        - in: path
+          name: listId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo list to retrieve items for
+      responses:
+        '200':
+          description: A list of todo items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TodoItem'
+        '404':
+          description: Todo list not found
+  /todolists/{listId}/items/{itemId}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get a todo item by ID
+      operationId: getTodoItemById
+      parameters:
+        - in: path
+          name: listId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo list
+        - in: path
+          name: itemId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo item to retrieve
+      responses:
+        '200':
+          description: Todo item found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoItem'
+        '404':
+          description: Todo item or list not found
+    put:
+      security:
+        - bearerAuth: []
+      summary: Update a todo item
+      operationId: updateTodoItem
+      parameters:
+        - in: path
+          name: listId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo list
+        - in: path
+          name: itemId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo item to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTodoItem'
+      responses:
+        '200':
+          description: Todo item updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TodoItem'
+        '400':
+          description: Invalid input
+        '404':
+          description: Todo item or list not found
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Delete a todo item
+      operationId: deleteTodoItem
+      parameters:
+        - in: path
+          name: listId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo list
+        - in: path
+          name: itemId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo item to delete
+      responses:
+        '204':
+          description: Todo item deleted successfully
+        '404':
+          description: Todo item or list not found
+  /todolists/{listId}/collaborators:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Add a collaborator to a todo list
+      operationId: addCollaborator
+      parameters:
+        - in: path
+          name: listId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo list
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewCollaborator'
+      responses:
+        '201':
+          description: Collaborator added successfully
+        '400':
+          description: Invalid input
+        '404':
+          description: Todo list or user not found
+        '409':
+          description: User is already a collaborator
+  /todolists/{listId}/collaborators/{userId}:
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Remove a collaborator from a todo list
+      operationId: removeCollaborator
+      parameters:
+        - in: path
+          name: listId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the todo list
+        - in: path
+          name: userId
+          schema:
+            type: string
+            format: uuid
+          required: true
+          description: ID of the user to remove as collaborator
+      responses:
+        '204':
+          description: Collaborator removed successfully
+        '404':
+          description: Todo list or collaborator not found
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "123e4567-e89b-12d3-a456-426614174000"
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        created_at:
+          type: string
+          format: date-time
+          example: "2023-01-01T12:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2023-01-01T12:00:00Z"
+    RegisterRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: "newuser@example.com"
+        password:
+          type: string
+          format: password
+          minLength: 8
+          example: "securepassword123"
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        password:
+          type: string
+          format: password
+          example: "securepassword123"
+    AuthResponse:
+      type: object
+      required:
+        - user
+        - token
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        token:
+          type: string
+          description: JWT token
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    Error:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: "Something went wrong"
+    TodoList:
+      type: object
+      required:
+        - id
+        - owner_id
+        - title
+      properties:
+        id:
+          type: string
+          format: uuid
+        owner_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NewTodoList:
+      type: object
+      required:
+        - owner_id
+        - title
+      properties:
+        owner_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+    UpdateTodoList:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+    TodoItem:
+      type: object
+      required:
+        - id
+        - list_id
+        - title
+        - completed
+      properties:
+        id:
+          type: string
+          format: uuid
+        list_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        completed:
+          type: boolean
+        due_date:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NewTodoItem:
+      type: object
+      required:
+        - list_id
+        - title
+      properties:
+        list_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        description:
+          type: string
+        completed:
+          type: boolean
+          default: false
+        due_date:
+          type: string
+          format: date-time
+    UpdateTodoItem:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        completed:
+          type: boolean
+        due_date:
+          type: string
+          format: date-time
+    NewCollaborator:
+      type: object
+      required:
+        - user_id
+      properties:
+        user_id:
+          type: string
+          format: uuid
