@@ -1,17 +1,36 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
-  import { UnifiedTimelineViewModel } from '../viewmodels/shared/UnifiedTimelineViewModel';
-  import type { TimelineItem } from 'models/shared/TimelineItem'
+import { UnifiedTimelineViewModel } from '../../viewmodels/shared/UnifiedTimelineViewModel';
+import { MatrixViewModel } from '../../viewmodels/matrix/MatrixViewModel';
+import { EmailViewModel } from '../../viewmodels/shared/EmailViewModel';
+import type { TimelineItem } from '../../models/shared/TimelineItem'
+import LoadingIndicator from './LoadingIndicator.svelte';
 
   const dispatch = createEventDispatcher();
 
-  let items: TimelineItem[] = [];
-  let loading = true;
-  let error: string | null = null;
+  export let timelineWidth: number;
+  export let timelineLeft: number;
 
-  const unifiedTimelineViewModel = new UnifiedTimelineViewModel();
+  let items: TimelineItem[] = [];
+  let isLoading = true; // Renamed from 'loading' for consistency
+  let error: string | null = null;
+  let loadingModuleNames: string[] = []; // Declare at top level
+  let loadingText = "Loading timeline items..."; // New variable for loading text
+
+  const unifiedTimelineViewModel = new UnifiedTimelineViewModel([
+    MatrixViewModel.getInstance(),
+    new EmailViewModel()
+  ]);
 
   onMount(async () => {
+    unifiedTimelineViewModel.isLoading.subscribe((value) => {
+      isLoading = value;
+    });
+
+    unifiedTimelineViewModel.loadingModuleNames.subscribe((value) => {
+        loadingModuleNames = value;
+    });
+
     try {
       unifiedTimelineViewModel.getSortedTimelineStore().subscribe((value: TimelineItem[]) => {
         items = value;
@@ -19,10 +38,12 @@
       });
     } catch (e: any) {
       error = e.message;
-    } finally {
-      loading = false;
     }
   });
+
+  $: loadingText = loadingModuleNames.length > 0
+      ? `Loading: ${loadingModuleNames.join(', ')}`
+      : '';
 
   // Add a reactive statement to log items when they change
   $: {
@@ -39,17 +60,16 @@
 
 <div class="flex-1 p-4 overflow-y-auto">
   <div class="flex justify-between items-center mb-6">
-    <h1 class="text-3xl font-bold">Unified Timeline</h1>
+    <h1 class="text-3xl font-bold">Mess</h1>
     <button class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded" on:click={() => dispatch('openSettings')}>
       Settings
     </button>
   </div>
 
-  {#if loading}
-    <p>Loading timeline items...</p>
-  {:else if error}
+  {#if error}
     <p class="text-red-500">Error: {error}</p>
-  {:else if items.length === 0}
+  {:else if items.length === 0 && !isLoading}
+    <!-- Only show "No items" if no items AND nothing is loading -->
     <p>No timeline items to display.</p>
   {:else}
     <div class="space-y-4">
@@ -67,3 +87,5 @@
     </div>
   {/if}
 </div>
+
+<LoadingIndicator show={isLoading} width={`${timelineWidth + 1}px`} left={`${timelineLeft}px`} text={loadingText} />

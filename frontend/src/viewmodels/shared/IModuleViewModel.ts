@@ -1,5 +1,5 @@
-import type { Writable } from 'svelte/store';
-import type { IMatrixTimelineItem } from '../matrix/MatrixTimelineItem';
+import type { Readable } from 'svelte/store';
+import type { TimelineItem } from '../../models/shared/TimelineItem';
 
 // frontend/src/lib/matrix/IModuleViewModel.ts
 
@@ -23,7 +23,7 @@ export interface IModuleViewModel {
      * @description Retrieves a list of timeline items for the module.
      * @returns {Writable<IMatrixTimelineItem[]>} A writable store containing an array of timeline item objects.
      */
-    getTimelineItems(): Writable<IMatrixTimelineItem[]>;
+    getTimelineItems(): Readable<TimelineItem[]>;
 
     /**
      * @method getSettingsComponent

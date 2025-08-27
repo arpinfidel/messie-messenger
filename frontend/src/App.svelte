@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import UnifiedTimeline from './views/UnifiedTimeline.svelte';
+  import UnifiedTimeline from './views/shared/UnifiedTimeline.svelte';
   import DetailPanel from './views/shared/DetailPanel.svelte';
   import { MatrixViewModel } from './viewmodels/matrix/MatrixViewModel';
   import SettingsPopup from './views/shared/SettingsPopup.svelte';
   import MatrixSettingsTab from './views/matrix/MatrixSettingsTab.svelte';
+  let timelineWidth: number = 0;
+  let timelineLeft: number = 0;
+  let timelineContainer: HTMLDivElement;
 
   let selectedTimelineItem: any = null;
   let matrixViewModel: MatrixViewModel;
@@ -38,14 +41,26 @@
     }
   });
 
+  $: if (timelineContainer) {
+    timelineLeft = timelineContainer.offsetLeft;
+  }
   function handleTimelineItemSelected(event: CustomEvent) {
     selectedTimelineItem = event.detail;
   }
 </script>
 
 <main class="grid grid-cols-[1fr_2fr] h-screen bg-gray-100">
-  <div class="overflow-y-auto overflow-x-hidden border-r border-gray-300">
-    <UnifiedTimeline on:itemSelected={handleTimelineItemSelected} on:openSettings={() => showSettingsPopup = true} />
+  <div
+    class="overflow-y-auto overflow-x-hidden border-r border-gray-300"
+    bind:clientWidth={timelineWidth}
+    bind:this={timelineContainer}
+  >
+    <UnifiedTimeline
+      on:itemSelected={handleTimelineItemSelected}
+      on:openSettings={() => showSettingsPopup = true}
+      {timelineWidth}
+      {timelineLeft}
+    />
   </div>
   <div class="flex flex-col h-full overflow-auto">
     <DetailPanel selectedItem={selectedTimelineItem} />

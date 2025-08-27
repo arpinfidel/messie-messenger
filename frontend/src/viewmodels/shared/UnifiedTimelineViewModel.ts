@@ -1,36 +1,61 @@
-import { MatrixViewModel } from '../matrix/MatrixViewModel';
-import { derived, type Readable } from 'svelte/store';
+import { derived, writable, readable, type Readable, type Writable } from 'svelte/store';
 import type { TimelineItem } from 'models/shared/TimelineItem';
+import type { IModuleViewModel } from './IModuleViewModel';
 
 export class UnifiedTimelineViewModel {
-  private matrixViewModel: MatrixViewModel;
+  private modules: IModuleViewModel[] = [];
+  private _loadingModuleNames = writable<string[]>([]);
+  public loadingModuleNames: Readable<string[]> = readable([], (set: (value: string[]) => void) => this._loadingModuleNames.subscribe(set));
+  public isLoading: Readable<boolean> = derived(this._loadingModuleNames, ($names) => $names.length > 0);
 
-  constructor() {
-    this.matrixViewModel = MatrixViewModel.getInstance();
-    this.initializeMatrixClient();
+  constructor(modules: IModuleViewModel[]) {
+    this.modules = modules;
+    this.initializeModules();
     console.log('UnifiedTimelineViewModel: Initialized');
   }
 
-  private initializeMatrixClient() {
-    // This method is primarily for logging or future module-specific initialization
-    if (this.matrixViewModel.isLoggedIn()) {
-      console.log('[UnifiedTimelineViewModel] Matrix client logged in.');
-    } else {
-      console.warn('[UnifiedTimelineViewModel] Matrix client not logged in.');
+  private async initializeModules(): Promise<void> {
+    const initializationPromises: Promise<void>[] = [];
+
+    for (const module of this.modules) {
+      const moduleName = module.getModuleName();
+      this._loadingModuleNames.update(names => [...names, moduleName]); // Add module to loading list
+
+      const promise = module.initialize().then(() => {
+        this._loadingModuleNames.update(names => names.filter(name => name !== moduleName)); // Remove module from loading list
+        console.log(`[UnifiedTimelineViewModel] Module '${moduleName}' initialized.`);
+      }).catch(error => {
+        this._loadingModuleNames.update(names => names.filter(name => name !== moduleName));
+        console.error(`[UnifiedTimelineViewModel] Error initializing module '${moduleName}':`, error);
+        // Potentially handle error state for individual modules
+      });
+      initializationPromises.push(promise);
     }
+
+    // We don't need to await Promise.all(initializationPromises) here if we want optimistic updates.
+    // The isLoading derived store will handle the overall loading state.
+    // However, the constructor might still need to await something if subsequent logic depends on all modules *starting* initialization.
+    // For now, let's just let the promises run in the background.
   }
 
   /**
-   * Reactive aggregate across all modules (currently just Matrix).
-   * Add more module stores to the array as you integrate them.
+   * Reactive aggregate across all modules.
    */
   public getAggregatedTimelineStore(): Readable<TimelineItem[]> {
-    const matrixStore = this.matrixViewModel.getTimelineItems(); // Writable<TimelineItem[]>
+    const moduleTimelineStores = this.modules.map(module => module.getTimelineItems());
 
-    // If you later add more modules, include them in the array below.
-    return derived([matrixStore], ([$matrix]) => {
+    return derived(moduleTimelineStores, (stores) => {
+      const allItems: TimelineItem[] = [];
+      stores.forEach(store => {
+        // Assuming getTimelineItems returns Writable<TimelineItem[]>
+        // We need to get the current value from the store.
+        // For derived stores, the values are passed directly.
+        // For writable stores, we need to ensure they are unwrapped if necessary.
+        // In this context, 'stores' will be an array of the current values from the moduleTimelineStores.
+        allItems.push(...store);
+      });
       // Merge without sorting; keep this a pure aggregation layer.
-      return [...$matrix];
+      return allItems;
     });
   }
 
