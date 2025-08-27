@@ -1,13 +1,13 @@
 // frontend/src/lib/matrix/MatrixViewModel.ts
 import { type CryptoCallbacks, type Verifier, VerifierEvent, VerificationPhase, VerificationRequestEvent, type VerificationRequest, type ShowSasCallbacks } from 'matrix-js-sdk/lib/crypto-api';
 import { decodeRecoveryKey } from 'matrix-js-sdk/lib/crypto-api/recovery-key';
-import type { IModuleViewModel } from './IModuleViewModel';
+import type { IModuleViewModel } from '../shared/IModuleViewModel';
 import type { IMatrixTimelineItem } from './MatrixTimelineItem';
 import { MatrixTimelineItem } from './MatrixTimelineItem';
 import * as matrixSdk from 'matrix-js-sdk';
 import { RoomEvent, ClientEvent, EventType } from 'matrix-js-sdk';
 import { writable, type Writable } from 'svelte/store';
-import { matrixSettings } from './matrixSettings'; // Import the settings object
+import { matrixSettings } from './MatrixSettings'; // Import the settings object
 import { VerificationMethod } from 'matrix-js-sdk/lib/types'
 
 export class MatrixViewModel implements IModuleViewModel {

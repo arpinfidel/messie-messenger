@@ -1,5 +1,5 @@
 <script lang="ts">
-  import ChatDetail from './ChatDetail.svelte';
+  import ChatDetail from './matrix/MatrixDetail.svelte';
   import EmailDetail from './EmailDetail.svelte';
   import CalendarDetail from './CalendarDetail.svelte';
 

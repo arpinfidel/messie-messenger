@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { MatrixViewModel } from '../lib/matrix/MatrixViewModel';
-  import type { IMatrixTimelineItem } from '../lib/matrix/MatrixTimelineItem';
+  import type { TimelineItem } from 'models/shared/TimelineItem'
+  import { MatrixViewModel } from '../../viewmodels/matrix/MatrixViewModel';
 
-  // Assuming item can be an IMatrixTimelineItem for Matrix chats
-  export let item: IMatrixTimelineItem;
+  export let item: TimelineItem;
 
   let messageContent: string = '';
 

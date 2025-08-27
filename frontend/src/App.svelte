@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import UnifiedTimeline from './components/UnifiedTimeline.svelte';
-  import DetailPanel from './components/DetailPanel.svelte';
-  import { MatrixViewModel } from './lib/matrix/MatrixViewModel';
-  import SettingsPopup from './modules/shared/components/SettingsPopup.svelte';
-  import MatrixSettingsTab from './modules/matrix/components/MatrixSettingsTab.svelte';
+  import UnifiedTimeline from './views/UnifiedTimeline.svelte';
+  import DetailPanel from './views/DetailPanel.svelte';
+  import { MatrixViewModel } from './viewmodels/matrix/MatrixViewModel';
+  import SettingsPopup from './views/shared/SettingsPopup.svelte';
+  import MatrixSettingsTab from './views/matrix/MatrixSettingsTab.svelte';
 
   let selectedTimelineItem: any = null;
   let matrixViewModel: MatrixViewModel;

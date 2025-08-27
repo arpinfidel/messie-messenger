@@ -1,4 +1,4 @@
-import type { TimelineItem } from '../UnifiedTimelineViewModel';
+import type { TimelineItem } from 'models/shared/TimelineItem'
 
 /**
  * @interface IMatrixTimelineItem

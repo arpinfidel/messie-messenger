@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
-  import { UnifiedTimelineViewModel, type TimelineItem } from '../lib/UnifiedTimelineViewModel';
+  import { UnifiedTimelineViewModel } from '../viewmodels/shared/UnifiedTimelineViewModel';
+  import type { TimelineItem } from 'models/shared/TimelineItem'
 
   const dispatch = createEventDispatcher();
 
@@ -12,9 +13,9 @@
 
   onMount(async () => {
     try {
-      unifiedTimelineViewModel.getMatrixTimelineStore().subscribe((value: TimelineItem[]) => {
+      unifiedTimelineViewModel.getSortedTimelineStore().subscribe((value: TimelineItem[]) => {
         items = value;
-        console.log(`[UnifiedTimeline] Matrix timeline items updated. Count: ${items.length}`);
+        console.log(`[UnifiedTimeline] Sorted timeline items updated. Count: ${items.length}`);
       });
     } catch (e: any) {
       error = e.message;

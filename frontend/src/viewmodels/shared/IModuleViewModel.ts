@@ -1,5 +1,5 @@
 import type { Writable } from 'svelte/store';
-import type { IMatrixTimelineItem } from './MatrixTimelineItem';
+import type { IMatrixTimelineItem } from '../matrix/MatrixTimelineItem';
 
 // frontend/src/lib/matrix/IModuleViewModel.ts
 
