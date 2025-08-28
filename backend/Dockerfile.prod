@@ -1,0 +1,31 @@
+########################
+# Builder
+########################
+FROM golang:1.24.6-alpine AS builder
+WORKDIR /src
+RUN apk add --no-cache git
+
+ENV CGO_ENABLED=0
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+COPY . .
+ARG VERSION=dev
+ARG COMMIT=none
+ARG DATE=unknown
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    go build -trimpath -ldflags="-s -w \
+      -X main.version=${VERSION} \
+      -X main.commit=${COMMIT} \
+      -X main.buildDate=${DATE}" \
+      -o /out/service ./main.go
+
+########################
+# Runtime
+########################
+FROM gcr.io/distroless/static-debian12:nonroot
+WORKDIR /app
+COPY --from=builder /out/service /app/service
+USER nonroot:nonroot
+EXPOSE 8080
+ENTRYPOINT ["/app/service"]

@@ -1,0 +1,26 @@
+FROM golang:1.24.6-alpine AS dev
+WORKDIR /app
+
+# Optional tools for live-reload/debug
+RUN apk add --no-cache git curl build-base \
+ && go install github.com/air-verse/air@latest \
+ && go install github.com/go-delve/delve/cmd/dlv@latest
+
+# Cache deps
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+# App source (usually also bind-mounted in compose)
+COPY . .
+
+ENV CGO_ENABLED=1 GOFLAGS="-tags=dev"
+
+EXPOSE 8080 40000
+# If you have .air.toml, you can simply: CMD ["air"]
+CMD ["air",
+     "--build.cmd", "go build -o /tmp/app ./...",
+     "--build.bin", "/tmp/app",
+     "--build.delay", "100ms",
+     "--watch_dir", ".",
+     "--exclude_dir", "vendor,tmp,.git",
+     "--include_ext", "go,tpl,tmpl,html,env"]

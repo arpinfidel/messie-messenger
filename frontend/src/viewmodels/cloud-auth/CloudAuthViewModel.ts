@@ -24,7 +24,7 @@ export class CloudAuthViewModel {
 
   async authenticateWithTodoService(tokenData: IOpenIDToken): Promise<void> {
     try {
-      const response = await fetch('/api/auth/matrix/openid', {
+      const response = await fetch('/api/v1/auth/matrix/openid', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

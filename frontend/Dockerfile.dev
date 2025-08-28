@@ -1,0 +1,12 @@
+FROM node:20-alpine
+WORKDIR /app
+
+# Install deps once; source will be bind-mounted in compose for live reload
+COPY package*.json ./
+RUN npm ci
+
+# If you DO want to bake the source too (optional):
+# COPY . .
+
+EXPOSE 5173
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
