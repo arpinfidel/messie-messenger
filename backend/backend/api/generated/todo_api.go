@@ -36,6 +36,24 @@ type LoginRequest struct {
 	Password string              `json:"password"`
 }
 
+// MatrixAuthResponse defines model for MatrixAuthResponse.
+type MatrixAuthResponse struct {
+	// Mxid Matrix user ID
+	Mxid string `json:"mxid"`
+
+	// Token JWT token for authentication
+	Token string `json:"token"`
+}
+
+// MatrixOpenIDRequest defines model for MatrixOpenIDRequest.
+type MatrixOpenIDRequest struct {
+	// AccessToken Matrix OpenID access token
+	AccessToken string `json:"access_token"`
+
+	// MatrixServerName Matrix homeserver name
+	MatrixServerName string `json:"matrix_server_name"`
+}
+
 // NewCollaborator defines model for NewCollaborator.
 type NewCollaborator struct {
 	UserId openapi_types.UUID `json:"user_id"`
@@ -113,6 +131,9 @@ type GetTodoListsByUserIdParams struct {
 	UserId openapi_types.UUID `form:"userId" json:"userId"`
 }
 
+// PostMatrixAuthJSONRequestBody defines body for PostMatrixAuth for application/json ContentType.
+type PostMatrixAuthJSONRequestBody = MatrixOpenIDRequest
+
 // PostLoginJSONRequestBody defines body for PostLogin for application/json ContentType.
 type PostLoginJSONRequestBody = LoginRequest
 
@@ -136,6 +157,9 @@ type UpdateTodoItemJSONRequestBody = UpdateTodoItem
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// Authenticate using Matrix OpenID
+	// (POST /auth/matrix/openid)
+	PostMatrixAuth(w http.ResponseWriter, r *http.Request)
 	// Log in a user
 	// (POST /login)
 	PostLogin(w http.ResponseWriter, r *http.Request)
@@ -189,6 +213,12 @@ type ServerInterface interface {
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
 
 type Unimplemented struct{}
+
+// Authenticate using Matrix OpenID
+// (POST /auth/matrix/openid)
+func (_ Unimplemented) PostMatrixAuth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
 
 // Log in a user
 // (POST /login)
@@ -294,6 +324,20 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// PostMatrixAuth operation middleware
+func (siw *ServerInterfaceWrapper) PostMatrixAuth(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostMatrixAuth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // PostLogin operation middleware
 func (siw *ServerInterfaceWrapper) PostLogin(w http.ResponseWriter, r *http.Request) {
@@ -893,6 +937,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/auth/matrix/openid", wrapper.PostMatrixAuth)
+	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/login", wrapper.PostLogin)
 	})

@@ -2,15 +2,17 @@ package userhandler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/oapi-codegen/runtime/types"
 
 	"messenger/backend/todo-service/api/generated"
 	userusecase "messenger/backend/todo-service/internal/user/usecase"
-	middleware "messenger/backend/todo-service/pkg/middleware"
+	"messenger/backend/todo-service/pkg/middleware"
 )
 
 // AuthHandler implements the generated.ServerInterface.
@@ -23,6 +25,51 @@ func NewAuthHandler(authUsecase userusecase.AuthUsecase) *AuthHandler {
 	return &AuthHandler{
 		authUsecase: authUsecase,
 	}
+}
+
+// PostMatrixOpenIDAuth handles Matrix OpenID token verification and authentication
+func (h *AuthHandler) PostMatrixOpenIDAuth(w http.ResponseWriter, r *http.Request) {
+	var req generated.MatrixOpenIDRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSONError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Resolve federation base URL
+	federationBase, err := resolveFederationBase(req.MatrixServerName)
+	if err != nil {
+		writeJSONError(w, "Failed to resolve Matrix homeserver", http.StatusBadRequest)
+		return
+	}
+
+	// Verify token with Matrix homeserver
+	userInfo, err := verifyMatrixToken(federationBase, req.AccessToken)
+	if err != nil {
+		writeJSONError(w, "Matrix token verification failed", http.StatusUnauthorized)
+		return
+	}
+
+	// Validate MXID matches server name
+	if !validateMXID(userInfo.Sub, req.MatrixServerName) {
+		writeJSONError(w, "MXID homeserver mismatch", http.StatusUnauthorized)
+		return
+	}
+
+	// Create or get existing user
+	user, token, err := h.authUsecase.CreateOrGetMatrixUser(r.Context(), userInfo.Sub)
+	if err != nil {
+		writeJSONError(w, "Failed to authenticate user", http.StatusInternalServerError)
+		return
+	}
+
+	response := generated.MatrixAuthResponse{
+		Token: token,
+		Mxid:  user.MatrixID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
 }
 
 // PostRegister handles user registration.
@@ -142,6 +189,65 @@ func (h *AuthHandler) GetUsersMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("Successfully returned user profile for ID: %s", userID)
+}
+
+// resolveFederationBase determines the federation base URL for a Matrix homeserver
+func resolveFederationBase(serverName string) (string, error) {
+	wellKnownURL := fmt.Sprintf("https://%s/.well-known/matrix/server", serverName)
+	resp, err := http.Get(wellKnownURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch .well-known: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Sprintf("https://%s", serverName), nil
+	}
+
+	var result struct {
+		MServer string `json:"m.server"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("failed to decode .well-known response: %w", err)
+	}
+
+	if result.MServer == "" {
+		return "", fmt.Errorf("empty m.server in .well-known")
+	}
+
+	return fmt.Sprintf("https://%s", result.MServer), nil
+}
+
+// verifyMatrixToken validates the access token with the Matrix homeserver
+func verifyMatrixToken(federationBase, accessToken string) (*matrixUserInfo, error) {
+	userInfoURL := fmt.Sprintf("%s/_matrix/federation/v1/openid/userinfo?access_token=%s", federationBase, accessToken)
+	resp, err := http.Get(userInfoURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch userinfo: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("invalid token status: %d", resp.StatusCode)
+	}
+
+	var userInfo matrixUserInfo
+	if err := json.NewDecoder(resp.Body).Decode(&userInfo); err != nil {
+		return nil, fmt.Errorf("failed to decode userinfo: %w", err)
+	}
+
+	return &userInfo, nil
+}
+
+// validateMXID ensures the MXID matches the expected homeserver
+func validateMXID(mxid, serverName string) bool {
+	parts := strings.Split(mxid, ":")
+	return len(parts) == 2 && parts[1] == serverName
+}
+
+// matrixUserInfo represents the response from Matrix's userinfo endpoint
+type matrixUserInfo struct {
+	Sub string `json:"sub"`
 }
 
 // Helper function to write JSON errors

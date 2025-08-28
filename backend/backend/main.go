@@ -111,6 +111,11 @@ func main() {
 	// r.Mount("/", api)
 
 	// Start HTTP server
+	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080" // Default port

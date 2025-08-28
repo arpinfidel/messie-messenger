@@ -901,4 +901,8 @@ async initialize(): Promise<void> {
 
 	console.log('Matrix event listeners set up.');
   }
+
+  public getOpenIdToken(): Promise<matrixSdk.IOpenIDToken> {
+	return this.client!.getOpenIdToken();
+  }
 }

@@ -445,6 +445,41 @@ paths:
           description: Collaborator removed successfully
         '404':
           description: Todo list or collaborator not found
+  /auth/matrix/openid:
+    post:
+      summary: Authenticate using Matrix OpenID
+      operationId: PostMatrixAuth
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatrixOpenIDRequest'
+      responses:
+        '200':
+          description: Matrix authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatrixAuthResponse'
+        '400':
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized - Matrix token verification failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
 components:
   securitySchemes:
     bearerAuth:
@@ -636,3 +671,31 @@ components:
         user_id:
           type: string
           format: uuid
+    MatrixOpenIDRequest:
+      type: object
+      required:
+        - access_token
+        - matrix_server_name
+      properties:
+        access_token:
+          type: string
+          description: Matrix OpenID access token
+          example: "matrix_access_token_123"
+        matrix_server_name:
+          type: string
+          description: Matrix homeserver name
+          example: "matrix.example.com"
+    MatrixAuthResponse:
+      type: object
+      required:
+        - token
+        - mxid
+      properties:
+        token:
+          type: string
+          description: JWT token for authentication
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        mxid:
+          type: string
+          description: Matrix user ID
+          example: "@user:matrix.example.com"

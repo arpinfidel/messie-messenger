@@ -5,6 +5,7 @@
   import { MatrixViewModel } from './viewmodels/matrix/MatrixViewModel';
   import SettingsPopup from './views/shared/SettingsPopup.svelte';
   import MatrixSettingsTab from './views/matrix/MatrixSettingsTab.svelte';
+  import CloudAuthTab from './views/auth/CloudAuthTab.svelte';
   let timelineWidth: number = 0;
   let timelineLeft: number = 0;
   let timelineContainer: HTMLDivElement;
@@ -68,7 +69,8 @@
 </main>
 
 <SettingsPopup show={showSettingsPopup} on:close={() => showSettingsPopup = false} tabs={[
-  { name: 'Matrix', component: MatrixSettingsTab }
+  { name: 'Matrix', component: MatrixSettingsTab },
+  { name: 'Cloud Auth', component: CloudAuthTab }
 ]} />
 
 <style>
