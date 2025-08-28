@@ -1,0 +1,28 @@
+# Where Air should run your app
+root = "."
+tmp_dir = "tmp"
+
+[build]
+# Command to build your app (adjust if your entrypoint isn’t main.go)
+cmd = "go build -o /tmp/app ./..."
+bin = "/tmp/app"
+delay = "100ms"      # wait before rebuilding
+kill_delay = "200ms" # give old process a moment to exit
+exclude_regex = ["_test.go"] # don’t rebuild on test-only changes
+
+[watcher]
+watcher = "poll"       # force polling instead of fsnotify (better for WSL2)
+poll_interval = 500    # ms between scans
+include_dir = ["."]
+exclude_dir = ["vendor", "tmp", ".git"]
+include_ext = ["go", "tpl", "tmpl", "html", "env"]
+
+[color]
+main = "yellow"
+watcher = "cyan"
+build = "green"
+runner = "magenta"
+app = "white"
+
+[misc]
+clean_on_exit = true

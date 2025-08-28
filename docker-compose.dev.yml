@@ -18,7 +18,7 @@ services:
       DATABASE_URL: postgres://user:password@postgres:5432/todo_db?sslmode=disable
       JWT_SECRET: supersecretjwtkey
     volumes:
-      - ./backend:/app
+      - ./backend:/backend
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
     healthcheck:
