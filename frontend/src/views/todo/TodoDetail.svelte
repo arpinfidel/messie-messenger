@@ -35,7 +35,7 @@
             createdAt: item.createdAt,
             updatedAt: item.updatedAt,
             dueDate: item.dueDate,
-            position: (item as any).position, // Access position
+            position: item.position, // Access position
           }))
           .sort((a, b) => (a.position || '').localeCompare(b.position || '')); // Sort by position, handle undefined
       }
@@ -70,6 +70,9 @@
   async function handleToggleComplete(item: TodoItem) {
     try {
       const updatedItem: UpdateTodoItem = {
+        description: item.description,
+        position: (item as any).position,
+        title: item.title!,
         completed: !item.completed,
       };
       await todoViewModel.updateTodoItem(todoList!.id, item.id!, updatedItem);
@@ -100,6 +103,8 @@
         title: editedItemTitle,
         description: editedItemDescription,
         dueDate: dueDate,
+        completed: item.completed,
+        position: item.position
       };
       await todoViewModel.updateTodoItem(todoList!.id, item.id!, updatedItem);
       editingItemId = null;

@@ -42,7 +42,7 @@ export interface TodoList {
    * @type {string}
    * @memberof TodoList
    */
-  description?: string;
+  description: string;
   /**
    *
    * @type {Date}
@@ -64,6 +64,7 @@ export function instanceOfTodoList(value: object): value is TodoList {
   if (!('id' in value) || value['id'] === undefined) return false;
   if (!('ownerId' in value) || value['ownerId'] === undefined) return false;
   if (!('title' in value) || value['title'] === undefined) return false;
+  if (!('description' in value) || value['description'] === undefined) return false;
   return true;
 }
 
@@ -79,7 +80,7 @@ export function TodoListFromJSONTyped(json: any, ignoreDiscriminator: boolean): 
     id: json['id'],
     ownerId: json['owner_id'],
     title: json['title'],
-    description: json['description'] == null ? undefined : json['description'],
+    description: json['description'],
     createdAt: json['created_at'] == null ? undefined : new Date(json['created_at']),
     updatedAt: json['updated_at'] == null ? undefined : new Date(json['updated_at']),
   };

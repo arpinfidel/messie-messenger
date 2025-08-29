@@ -86,8 +86,8 @@ type NewTodoItem struct {
 
 // NewTodoList defines model for NewTodoList.
 type NewTodoList struct {
-	Description *string `json:"description,omitempty"`
-	Title       string  `json:"title"`
+	Description string `json:"description"`
+	Title       string `json:"title"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
@@ -100,7 +100,7 @@ type RegisterRequest struct {
 type TodoItem struct {
 	Completed   bool               `json:"completed"`
 	CreatedAt   *time.Time         `json:"created_at,omitempty"`
-	Description *string            `json:"description,omitempty"`
+	Description string             `json:"description"`
 	DueDate     *time.Time         `json:"due_date,omitempty"`
 	Id          openapi_types.UUID `json:"id"`
 	ListId      openapi_types.UUID `json:"list_id"`
@@ -114,7 +114,7 @@ type TodoItem struct {
 // TodoList defines model for TodoList.
 type TodoList struct {
 	CreatedAt   *time.Time         `json:"created_at,omitempty"`
-	Description *string            `json:"description,omitempty"`
+	Description string             `json:"description"`
 	Id          openapi_types.UUID `json:"id"`
 	OwnerId     openapi_types.UUID `json:"owner_id"`
 	Title       string             `json:"title"`
@@ -132,8 +132,8 @@ type UpdateTodoItem struct {
 
 // UpdateTodoList defines model for UpdateTodoList.
 type UpdateTodoList struct {
-	Description *string `json:"description,omitempty"`
-	Title       *string `json:"title,omitempty"`
+	Description string `json:"description"`
+	Title       string `json:"title"`
 }
 
 // User defines model for User.

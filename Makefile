@@ -56,3 +56,15 @@ migrate-status:
 .PHONY: migrate-reset
 migrate-reset: migrate-down migrate-up
 	@echo "Database reset complete (down then up)."
+
+gen-fe:
+	@echo "Generating frontend API client..."
+	cd frontend && openapi-generator-cli generate -i ../docs/openapi.yaml -g typescript-fetch -o src/api/generated
+	cd frontend && npx prettier --write src/api/generated
+
+gen-be:
+	@echo "Generating backend API server stubs..."
+	cd backend && go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen -package generated -generate types,chi-server -o api/generated/todo_api.go ../docs/openapi.yaml
+
+gen: gen-fe gen-be
+	@echo "Code generation complete."

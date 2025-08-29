@@ -30,7 +30,7 @@ export interface NewTodoList {
    * @type {string}
    * @memberof NewTodoList
    */
-  description?: string;
+  description: string;
 }
 
 /**
@@ -38,6 +38,7 @@ export interface NewTodoList {
  */
 export function instanceOfNewTodoList(value: object): value is NewTodoList {
   if (!('title' in value) || value['title'] === undefined) return false;
+  if (!('description' in value) || value['description'] === undefined) return false;
   return true;
 }
 
@@ -51,7 +52,7 @@ export function NewTodoListFromJSONTyped(json: any, ignoreDiscriminator: boolean
   }
   return {
     title: json['title'],
-    description: json['description'] == null ? undefined : json['description'],
+    description: json['description'],
   };
 }
 

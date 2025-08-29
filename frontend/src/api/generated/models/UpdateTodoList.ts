@@ -24,19 +24,21 @@ export interface UpdateTodoList {
    * @type {string}
    * @memberof UpdateTodoList
    */
-  title?: string;
+  title: string;
   /**
    *
    * @type {string}
    * @memberof UpdateTodoList
    */
-  description?: string;
+  description: string;
 }
 
 /**
  * Check if a given object implements the UpdateTodoList interface.
  */
 export function instanceOfUpdateTodoList(value: object): value is UpdateTodoList {
+  if (!('title' in value) || value['title'] === undefined) return false;
+  if (!('description' in value) || value['description'] === undefined) return false;
   return true;
 }
 
@@ -52,8 +54,8 @@ export function UpdateTodoListFromJSONTyped(
     return json;
   }
   return {
-    title: json['title'] == null ? undefined : json['title'],
-    description: json['description'] == null ? undefined : json['description'],
+    title: json['title'],
+    description: json['description'],
   };
 }
 

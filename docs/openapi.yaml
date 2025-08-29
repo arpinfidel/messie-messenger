@@ -624,6 +624,7 @@ components:
         - id
         - owner_id
         - title
+        - description
       properties:
         id:
           type: string
@@ -645,6 +646,7 @@ components:
       type: object
       required:
         - title
+        - description
       properties:
         title:
           type: string
@@ -652,6 +654,9 @@ components:
           type: string
     UpdateTodoList:
       type: object
+      required:
+        - title
+        - description
       properties:
         title:
           type: string
@@ -665,6 +670,7 @@ components:
         - title
         - completed
         - position
+        - description
       properties:
         id:
           type: string

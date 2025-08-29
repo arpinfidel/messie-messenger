@@ -53,7 +53,7 @@ func NewUsecase(
 }
 
 // Implementations for TodoListUsecase
-func (uc *Usecase) CreateTodoList(ctx context.Context, title string, description *string, userID string) (*entity.TodoList, error) {
+func (uc *Usecase) CreateTodoList(ctx context.Context, title string, description string, userID string) (*entity.TodoList, error) {
 	todoList := &entity.TodoList{
 		ID:          uuid.New().String(),
 		OwnerID:     userID,
@@ -94,7 +94,7 @@ func (uc *Usecase) GetTodoListsByUser(ctx context.Context, userID string) ([]ent
 	return todoLists, nil
 }
 
-func (uc *Usecase) UpdateTodoList(ctx context.Context, id string, title string, description *string, userID string) (*entity.TodoList, error) {
+func (uc *Usecase) UpdateTodoList(ctx context.Context, id string, title string, description string, userID string) (*entity.TodoList, error) {
 	todoList, err := uc.TodoListRepo.GetTodoListByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get todo list by ID for update: %w", err)

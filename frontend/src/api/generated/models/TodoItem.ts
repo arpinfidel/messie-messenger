@@ -42,7 +42,7 @@ export interface TodoItem {
    * @type {string}
    * @memberof TodoItem
    */
-  description?: string;
+  description: string;
   /**
    *
    * @type {boolean}
@@ -82,6 +82,7 @@ export function instanceOfTodoItem(value: object): value is TodoItem {
   if (!('id' in value) || value['id'] === undefined) return false;
   if (!('listId' in value) || value['listId'] === undefined) return false;
   if (!('title' in value) || value['title'] === undefined) return false;
+  if (!('description' in value) || value['description'] === undefined) return false;
   if (!('completed' in value) || value['completed'] === undefined) return false;
   if (!('position' in value) || value['position'] === undefined) return false;
   return true;
@@ -99,7 +100,7 @@ export function TodoItemFromJSONTyped(json: any, ignoreDiscriminator: boolean): 
     id: json['id'],
     listId: json['list_id'],
     title: json['title'],
-    description: json['description'] == null ? undefined : json['description'],
+    description: json['description'],
     completed: json['completed'],
     dueDate: json['due_date'] == null ? undefined : new Date(json['due_date']),
     createdAt: json['created_at'] == null ? undefined : new Date(json['created_at']),

@@ -154,10 +154,7 @@ func (h *TodoHandler) UpdateTodoList(w http.ResponseWriter, r *http.Request, lis
 		return
 	}
 
-	title := ""
-	if updateTodoList.Title != nil {
-		title = *updateTodoList.Title
-	}
+		title := updateTodoList.Title
 	description := updateTodoList.Description
 
 	todoList, err := h.Usecases.UpdateTodoList(r.Context(), listId.String(), title, description, userID)
@@ -295,7 +292,7 @@ func (h *TodoHandler) CreateTodoItem(w http.ResponseWriter, r *http.Request, lis
 	responseTodoItem := generated.TodoItem{
 		Id:          openapi_types.UUID(uuid.MustParse(todoItem.ID)),
 		ListId:      openapi_types.UUID(uuid.MustParse(todoItem.ListID)),
-		Description: &todoItem.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
+		Description: todoItem.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
 		Completed:   todoItem.Completed,
 		DueDate:     todoItem.Deadline,
 		Position:    todoItem.Position,
@@ -331,7 +328,7 @@ func (h *TodoHandler) GetTodoItemsByListId(w http.ResponseWriter, r *http.Reques
 		responseTodoItems[i] = generated.TodoItem{
 			Id:          openapi_types.UUID(uuid.MustParse(item.ID)),
 			ListId:      openapi_types.UUID(uuid.MustParse(item.ListID)),
-			Description: &item.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
+			Description: item.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
 			Completed:   item.Completed,
 			DueDate:     item.Deadline,
 			CreatedAt:   &item.CreatedAt,
@@ -366,7 +363,7 @@ func (h *TodoHandler) GetTodoItemById(w http.ResponseWriter, r *http.Request, li
 	responseTodoItem := generated.TodoItem{
 		Id:          openapi_types.UUID(uuid.MustParse(todoItem.ID)),
 		ListId:      openapi_types.UUID(uuid.MustParse(todoItem.ListID)),
-		Description: &todoItem.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
+		Description: todoItem.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
 		Completed:   todoItem.Completed,
 		DueDate:     todoItem.Deadline,
 		CreatedAt:   &todoItem.CreatedAt,
@@ -410,7 +407,7 @@ func (h *TodoHandler) UpdateTodoItem(w http.ResponseWriter, r *http.Request, lis
 	responseTodoItem := generated.TodoItem{
 		Id:          openapi_types.UUID(uuid.MustParse(todoItem.ID)),
 		ListId:      openapi_types.UUID(uuid.MustParse(todoItem.ListID)),
-		Description: &todoItem.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
+		Description: todoItem.Description,
 		Completed:   todoItem.Completed,
 		DueDate:     todoItem.Deadline,
 		Position:    todoItem.Position,
