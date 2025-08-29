@@ -140,7 +140,8 @@ export class TodoViewModel implements IModuleViewModel {
         title,
         description,
         position,
-        dueDate: dueDate, // dueDate is already a Date object
+        completed: false,
+        dueDate: dueDate,
       };
 
       await this.todoApi.createTodoItem({ listId, newTodoItem });

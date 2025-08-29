@@ -6,9 +6,13 @@ import { logger } from 'matrix-js-sdk/lib/logger.js';
 import { writable, type Writable } from 'svelte/store';
 
 import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
-import { type IMatrixTimelineItem } from '@/viewmodels/matrix/MatrixTimelineItem';
+import {
+  MatrixTimelineItem,
+  type IMatrixTimelineItem,
+} from '@/viewmodels/matrix/MatrixTimelineItem';
 import { matrixSettings } from '@/viewmodels/matrix/MatrixSettings';
 import { MatrixTimelineService } from '@/viewmodels/matrix/MatrixTimelineService';
+import { RoomPreviewCache } from '@/viewmodels/matrix/RoomPreviewCache';
 
 import { MatrixSessionStore, type MatrixSessionData } from './core/MatrixSessionStore';
 import { MatrixClientManager } from './core/MatrixClientManager';
@@ -115,6 +119,27 @@ export class MatrixViewModel implements IModuleViewModel {
       return;
     }
 
+    const cache = new RoomPreviewCache();
+    const cached = cache.load();
+    if (cached.length) {
+      console.log(`[MatrixVM] restoring ${cached.length} room previews from cache`);
+      const items = cached.map(
+        (p) =>
+          new MatrixTimelineItem({
+            id: p.id,
+            type: 'matrix',
+            title: p.title,
+            description: p.description,
+            timestamp: p.timestamp,
+          })
+      );
+      this.timelineSvc.getTimelineItemsStore().set(items);
+      this.hydrationState = 'ready'; // show UI now
+      console.log('[MatrixVM] hydrationState → ready (from cache)');
+    } else {
+      console.log('[MatrixVM] no room previews in cache');
+    }
+
     console.time('[MatrixVM] cryptoCallbacks setup');
     const cryptoCallbacks: CryptoCallbacks = {};
     if (matrixSettings.recoveryKey?.trim()) {
@@ -173,7 +198,10 @@ export class MatrixViewModel implements IModuleViewModel {
       console.timeEnd('[MatrixVM] startClient');
     }
 
-    this.hydrationState = 'syncing';
+    // Only set to 'syncing' if we haven't already set it to 'ready' from cache
+    if (this.hydrationState !== 'ready') {
+      this.hydrationState = 'syncing';
+    }
     console.time('[MatrixVM] waitForPrepared');
     await this.clientMgr.waitForPrepared();
     console.timeEnd('[MatrixVM] waitForPrepared');

@@ -4,6 +4,7 @@ import { writable, type Writable } from 'svelte/store';
 
 import type { IModuleViewModel } from '../shared/IModuleViewModel';
 import { MatrixTimelineItem, type IMatrixTimelineItem } from './MatrixTimelineItem';
+import { RoomPreviewCache } from './RoomPreviewCache';
 import type { RepoEvent, TimelineRepository } from './core/TimelineRepository';
 
 export interface MatrixMessage {
@@ -27,7 +28,25 @@ export class MatrixTimelineService {
       getHydrationState: () => 'idle' | 'syncing' | 'decrypting' | 'ready';
     },
     private readonly repo: TimelineRepository // ← inject the repo
-  ) {}
+  ) {
+    // Subscribe to timeline items and update cache
+    this._timelineItems.subscribe((items) => {
+      if (this.ctx.getHydrationState() !== 'ready') return;
+      if (!items.length) return;
+      // Save to localStorage cache
+      const cache = new RoomPreviewCache();
+      const previews = items.map((it) => ({
+        id: it.id,
+        title: it.title,
+        description: it.description || '', // Ensure description is always a string
+        timestamp: it.timestamp,
+      }));
+      // Ensure items are sorted by timestamp (latest first) before saving
+      // Also, only store the latest 100 items to avoid bloating the cache
+      previews.sort((a, b) => b.timestamp - a.timestamp).slice(0, 100);
+      cache.save(previews);
+    });
+  }
 
   private get client() {
     return this.ctx.getClient();
@@ -78,6 +97,8 @@ export class MatrixTimelineService {
         })
       );
 
+      // Sort items by timestamp in descending order (latest first)
+      items.sort((a, b) => b.timestamp - a.timestamp);
       this._timelineItems.set(items);
     } finally {
       this.listRefreshInFlight = false;
