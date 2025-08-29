@@ -1,9 +1,10 @@
+<!-- MatrixDetail.svelte -->
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
   import { MatrixViewModel } from '../../viewmodels/matrix/MatrixViewModel';
   import type { TimelineItem } from '../../models/shared/TimelineItem';
-  import type { MatrixMessage } from '../../viewmodels/matrix/MatrixViewModel';
   import { writable, get } from 'svelte/store';
+  import type { MatrixMessage } from '@/viewmodels/matrix/MatrixTimelineService';
 
   export let item: TimelineItem;
   export let className: string = '';
@@ -69,7 +70,6 @@
     const prevScrollTop = messagesContainer?.scrollTop ?? 0;
 
     const { messages: olderMessages, nextBatch } =
-      // if VM supports tokens:
       (await matrixViewModel.loadOlderMessages(item.id, nextBatchToken)) ??
       (await matrixViewModel.loadOlderMessages(item.id));
 
@@ -78,7 +78,11 @@
     );
 
     if (olderMessages?.length) {
-      messages.update((curr) => [...olderMessages, ...curr]);
+      messages.update((curr) => {
+        const existingIds = new Set(curr.map((m) => m.id));
+        const newMessages = olderMessages.filter((m) => !existingIds.has(m.id));
+        return [...newMessages, ...curr];
+      });
     }
     nextBatchToken = nextBatch ?? null;
 
@@ -94,7 +98,6 @@
     isLoadingOlderMessages = false;
   }
 
-  // Reactive: fetch whenever switching rooms
   $: if (item?.type === 'matrix' && item.id) {
     console.debug(`[MatrixDetail][reactive] item changed -> fetching messages for room=${item.id}`);
     fetchMessages(item.id);
@@ -141,22 +144,24 @@
   });
 
   let messageInput: string = '';
+  let isSending = false;
 
   async function sendMessage() {
-    if (!messageInput.trim() || !item?.id) {
+    if (!messageInput.trim() || !item?.id || isSending) {
       return;
     }
+    
     const roomId = item.id;
     const content = messageInput;
-    messageInput = ''; // Clear input immediately
+    messageInput = '';
+    isSending = true;
 
     try {
       await matrixViewModel.sendMessage(roomId, content);
-      // Optimistically add the message to the UI
       messages.update((curr) => [
         ...curr,
         {
-          id: `temp-${Date.now()}`, // Temporary ID
+          id: `temp-${Date.now()}`,
           sender: matrixViewModel.getCurrentUserId(),
           description: content,
           timestamp: Date.now(),
@@ -167,133 +172,387 @@
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     } catch (e) {
       console.error('[MatrixDetail][sendMessage] Failed to send message:', e);
-      // Revert messageInput if sending failed, or show an error
       messageInput = content;
+    } finally {
+      isSending = false;
     }
   }
+
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  }
+
+  $: formattedRoomName = item.title || 'Matrix Room';
+  $: canSend = messageInput.trim().length > 0 && !isSending;
 </script>
 
-<div class="messages-container {className}" bind:this={messagesContainer}>
-  <div bind:this={topSentinel} style="height:1px;"></div>
-
-  {#if isLoadingOlderMessages}
-    <div class="loading-indicator">Loading older messages...</div>
-  {/if}
-
-  {#if !nextBatchToken && $messages.length > 0}
-    <div class="no-more-messages">No more older messages.</div>
-  {/if}
-
-  {#each $messages as m (m.id)}
-    <div class="bubble {m.isSelf ? 'self' : 'other'}">
-      <div class="body">{m.description}</div>
-      <div class="meta">{new Date(m.timestamp).toLocaleString()}</div>
+<div class="matrix-detail-panel {className}">
+  <!-- Enhanced Header -->
+  <div class="room-header">
+    <div class="flex items-center space-x-3">
+      <!-- Room icon -->
+      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg">
+        <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+        </svg>
+      </div>
+      <div>
+        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{formattedRoomName}</h2>
+        <p class="text-sm text-gray-500 dark:text-gray-400">{$messages.length} messages</p>
+      </div>
     </div>
-  {/each}
-</div>
+    
+    <!-- Room actions -->
+    <div class="flex items-center space-x-2">
+      <button class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300">
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      </button>
+    </div>
+  </div>
 
-<div class="message-input-container">
-  <input
-    type="text"
-    placeholder="Type your message..."
-    bind:value={messageInput}
-    on:keydown={(e) => {
-      if (e.key === 'Enter') sendMessage();
-    }}
-  />
-  <button on:click={sendMessage} disabled={!messageInput.trim()}>Send</button>
+  <!-- Messages Container -->
+  <div class="messages-container" bind:this={messagesContainer}>
+    <div bind:this={topSentinel} class="sentinel"></div>
+
+    <!-- Loading indicator for older messages -->
+    {#if isLoadingOlderMessages}
+      <div class="loading-indicator">
+        <div class="flex items-center justify-center space-x-2">
+          <div class="loading-spinner"></div>
+          <span>Loading older messages...</span>
+        </div>
+      </div>
+    {/if}
+
+    <!-- No more messages indicator -->
+    {#if !nextBatchToken && $messages.length > 0}
+      <div class="no-more-messages">
+        <div class="flex items-center justify-center">
+          <div class="rounded-full bg-gray-200 px-4 py-2 text-sm text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+            Beginning of conversation
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- Messages -->
+    {#each $messages as message, index (message.id)}
+      {@const isFirstInGroup = index === 0 || $messages[index - 1].sender !== message.sender}
+      {@const isLastInGroup = index === $messages.length - 1 || $messages[index + 1].sender !== message.sender}
+      
+      <div class="message-wrapper {message.isSelf ? 'self' : 'other'}">
+        <div class="message-bubble {message.isSelf ? 'self' : 'other'} {isFirstInGroup ? 'first-in-group' : ''} {isLastInGroup ? 'last-in-group' : ''}">
+          <!-- Sender name (only for first message in group from others) -->
+          {#if !message.isSelf && isFirstInGroup}
+            <div class="sender-name">{message.sender}</div>
+          {/if}
+          
+          <!-- Message content -->
+          <div class="message-content">{message.description}</div>
+          
+          <!-- Timestamp (only on last message in group) -->
+          {#if isLastInGroup}
+            <div class="message-timestamp">
+              {new Date(message.timestamp).toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: false 
+              })}
+            </div>
+          {/if}
+        </div>
+      </div>
+    {/each}
+  </div>
+
+  <!-- Enhanced Message Input -->
+  <div class="message-input-container">
+    <div class="input-wrapper">
+      <textarea
+        bind:value={messageInput}
+        on:keydown={handleKeydown}
+        placeholder="Type your message... (Shift+Enter for new line)"
+        class="message-input"
+        rows="1"
+        disabled={isSending}
+      ></textarea>
+      
+      <button
+        on:click={sendMessage}
+        disabled={!canSend}
+        class="send-button {canSend ? 'enabled' : 'disabled'}"
+        title={isSending ? 'Sending...' : 'Send message'}
+      >
+        {#if isSending}
+          <div class="loading-spinner small"></div>
+        {:else}
+          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+          </svg>
+        {/if}
+      </button>
+    </div>
+    
+    <!-- Input helper text -->
+    <div class="input-helper">
+      <span class="text-xs text-gray-500 dark:text-gray-400">
+        Press Enter to send • Shift+Enter for new line
+      </span>
+    </div>
+  </div>
 </div>
 
 <style>
-  .messages-container {
-    height: 100%;
-    overflow-y: auto;
+  .matrix-detail-panel {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 8px;
-    flex-grow: 1; /* Allow it to grow and take available space */
-  }
-
-  .bubble {
-    max-width: 92%;
-    width: max-content;
-    padding: 10px 12px;
-    border-radius: 14px;
-    background: #2a2a2a;
+    height: 100%;
+    background: #1e1e1e;
     color: #e5e7eb;
-    box-sizing: border-box;
-    line-height: 1.35;
-    word-break: break-word;
-  }
-  .bubble.self {
-    align-self: flex-end;
-    background: #3b82f6;
-    color: white;
-  }
-  .bubble.other {
-    align-self: flex-start;
-    background: #1f2937;
   }
 
-  .body {
-    white-space: pre-wrap;
+  .room-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.5rem;
+    background: #1e1e1e;
+    border-bottom: 1px solid #333;
+    position: sticky;
+    top: 0;
+    z-index: 10;
   }
-  .meta {
-    font-size: 11px;
-    opacity: 0.7;
-    margin-top: 4px;
-    text-align: right;
+
+  .messages-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    scroll-behavior: smooth;
+    background: #1e1e1e;
+  }
+
+  .sentinel {
+    height: 1px;
+    opacity: 0;
   }
 
   .loading-indicator,
   .no-more-messages {
-    text-align: center;
-    padding: 8px;
-    color: gray;
-    font-size: 13px;
+    display: flex;
+    justify-content: center;
+    padding: 1rem 0;
+    margin: 0.5rem 0;
+    color: #9ca3af;
+  }
+
+  .loading-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #4a5568;
+    border-top: 2px solid #3b82f6;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+  }
+  
+  .loading-spinner.small {
+    width: 12px;
+    height: 12px;
+    border-width: 1.5px;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  .message-wrapper {
+    display: flex;
+    margin-bottom: 2px;
+  }
+  
+  .message-wrapper.self {
+    justify-content: flex-end;
+  }
+  
+  .message-wrapper.other {
+    justify-content: flex-start;
+  }
+
+  .message-bubble {
+    max-width: 75%;
+    padding: 0.75rem 1rem;
+    border-radius: 1rem;
+    background: #2a2a2a;
+    color: #e5e7eb;
+    position: relative;
+    word-break: break-word;
+    transition: all 0.2s ease;
+    line-height: 1.35;
+  }
+  
+  .message-bubble:hover {
+    background: #333;
+  }
+
+  .message-bubble.self {
+    background: #3b82f6;
+    color: white;
+    margin-left: auto;
+  }
+  
+  .message-bubble.self:hover {
+    background: #2563eb;
+  }
+
+  .message-bubble.other {
+    background: #1f2937;
+    color: #e5e7eb;
+  }
+  
+  .message-bubble.other:hover {
+    background: #374151;
+  }
+
+  /* Bubble grouping styles */
+  .message-bubble.first-in-group.other {
+    border-top-left-radius: 1rem;
+  }
+  
+  .message-bubble.first-in-group.self {
+    border-top-right-radius: 1rem;
+  }
+  
+  .message-bubble.last-in-group.other {
+    border-bottom-left-radius: 1rem;
+    margin-bottom: 0.75rem;
+  }
+  
+  .message-bubble.last-in-group.self {
+    border-bottom-right-radius: 1rem;
+    margin-bottom: 0.75rem;
+  }
+  
+  .message-bubble:not(.first-in-group):not(.last-in-group).other {
+    border-top-left-radius: 0.25rem;
+    border-bottom-left-radius: 0.25rem;
+  }
+  
+  .message-bubble:not(.first-in-group):not(.last-in-group).self {
+    border-top-right-radius: 0.25rem;
+    border-bottom-right-radius: 0.25rem;
+  }
+
+  .sender-name {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #60a5fa;
+    margin-bottom: 0.25rem;
+  }
+
+  .message-content {
+    white-space: pre-wrap;
+    line-height: 1.4;
+  }
+
+  .message-timestamp {
+    font-size: 0.65rem;
+    opacity: 0.7;
+    margin-top: 0.25rem;
+    text-align: right;
   }
 
   .message-input-container {
-    display: flex;
-    padding: 8px;
+    padding: 1rem 1.5rem;
+    background: #1e1e1e;
     border-top: 1px solid #333;
-    background-color: #1e1e1e;
-    gap: 8px;
   }
 
-  .message-input-container input {
-    flex-grow: 1;
-    padding: 10px;
-    border-radius: 20px;
+  .input-wrapper {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .message-input {
+    flex: 1;
+    min-height: 2.5rem;
+    max-height: 6rem;
+    padding: 0.75rem 1rem;
     border: 1px solid #555;
-    background-color: #2a2a2a;
+    border-radius: 1.25rem;
+    background: #2a2a2a;
     color: #e5e7eb;
-    font-size: 14px;
+    font-size: 0.875rem;
+    line-height: 1.4;
+    resize: none;
+    transition: all 0.2s ease;
   }
-
-  .message-input-container input:focus {
+  
+  .message-input:focus {
     outline: none;
     border-color: #3b82f6;
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
   }
-
-  .message-input-container button {
-    padding: 10px 15px;
-    border-radius: 20px;
-    border: none;
-    background-color: #3b82f6;
-    color: white;
-    font-weight: bold;
-    cursor: pointer;
-    transition: background-color 0.2s;
-  }
-
-  .message-input-container button:hover:not(:disabled) {
-    background-color: #2563eb;
-  }
-
-  .message-input-container button:disabled {
-    background-color: #4a5568;
+  
+  .message-input:disabled {
+    opacity: 0.6;
     cursor: not-allowed;
+  }
+
+  .send-button {
+    flex-shrink: 0;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: none;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+  }
+
+  .send-button.enabled {
+    background: #3b82f6;
+    color: white;
+  }
+
+  .send-button.enabled:hover {
+    background: #2563eb;
+  }
+
+  .send-button.enabled:active {
+    transform: scale(0.95);
+  }
+
+  .send-button.disabled {
+    background: #4a5568;
+    color: #9ca3af;
+    cursor: not-allowed;
+  }
+
+  .input-helper {
+    display: flex;
+    justify-content: center;
+  }
+
+  .input-helper span {
+    color: #9ca3af;
+  }
+
+  /* Auto-resize textarea */
+  .message-input {
+    field-sizing: content;
   }
 </style>

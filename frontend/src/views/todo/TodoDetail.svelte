@@ -1,9 +1,9 @@
 <script lang="ts">
-function onNewItemKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter') handleAddTodoItem();
-}
+  function onNewItemKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') handleAddTodoItem();
+  }
 
-import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
+  import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
   import type { TodoList, TodoItem, UpdateTodoItem, UpdateTodoList } from '../../api/generated/models';
   import { createEventDispatcher, tick } from 'svelte';
 
@@ -29,7 +29,6 @@ import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
       perItemDebounce.set(id, d);
     } else {
       d.cancel();
-      // re-wrap to capture latest fn and reset timer
       d = debounce(fn, ms);
       perItemDebounce.set(id, d);
     }
@@ -51,7 +50,6 @@ import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
     constructor(private put: PutFn) {}
 
     enqueue(itemId: string, payload: UpdateTodoItem) {
-      // Deduplicate identical consecutive payloads
       const key = JSON.stringify(payload);
       if (this.lastSent.get(itemId) === key && !this.inFlight.has(itemId) && !this.queued.has(itemId)) {
         return;
@@ -89,7 +87,6 @@ import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
         const cur = this.inFlight.get(itemId);
         if (!cur || cur.reqId !== id) return; // stale completion
         this.inFlight.delete(itemId);
-        // If new work queued while in-flight, run it
         if (this.queued.has(itemId)) this.runNext(itemId);
       }
     }
@@ -125,6 +122,12 @@ import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
       console.error('Error saving todo list title:', error);
     }
   }, 500);
+
+  // helper so TS narrows in event handlers
+  function saveListOnBlur() {
+    if (!todoList) return;
+    debouncedSaveTodoListTitle(todoList);
+  }
 
   $: if (listId) fetchTodoListDetails();
 
@@ -197,7 +200,6 @@ import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
   }
 
   function handleToggleComplete(item: TodoItem) {
-    // optimistic local update
     const idx = todoItems.findIndex((i) => i.id === item.id);
     if (idx !== -1) {
       const next = [...todoItems];
@@ -210,14 +212,13 @@ import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
   function onTitleInput(e: Event, item: TodoItem) {
     const el = e.currentTarget as HTMLInputElement;
     const v = el.value ?? '';
-    // optimistic local update
     const idx = todoItems.findIndex((i) => i.id === item.id);
     if (idx !== -1) {
       const next = [...todoItems];
       next[idx] = { ...next[idx], title: v };
       todoItems = next;
     }
-    if (v.trim().length === 0) return; // don't schedule empty title
+    if (v.trim().length === 0) return;
     scheduleEditSave(item, { title: v });
   }
 
@@ -225,14 +226,17 @@ import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
     const el = e.currentTarget as HTMLInputElement;
     const v = (el.value ?? '').trim();
     if (v.length === 0) {
-      // restore previous non-empty snapshot
       const cur = todoItems.find((i) => i.id === item.id);
       el.value = (cur?.title || '').trim();
       return;
     }
-    // flush immediately for deterministic final write
     cancelPerItem(item.id!);
-    const payload = buildPutPayload(item.id!, { title: v, description: item.description || '', dueDate: item.dueDate, completed: item.completed });
+    const payload = buildPutPayload(item.id!, {
+      title: v,
+      description: item.description || '',
+      dueDate: item.dueDate,
+      completed: item.completed
+    });
     if (payload) saveManager.enqueue(item.id!, payload);
   }
 
@@ -243,7 +247,6 @@ import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
   function onDescInput(e: Event, item: TodoItem) {
     const el = e.currentTarget as HTMLTextAreaElement;
     const v = el.value ?? '';
-    // optimistic local update
     const idx = todoItems.findIndex((i) => i.id === item.id);
     if (idx !== -1) {
       const next = [...todoItems];
@@ -257,7 +260,6 @@ import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
     const el = e.currentTarget as HTMLInputElement;
     const v = el.value;
     const date = v ? new Date(v) : undefined;
-    // optimistic local update
     const idx = todoItems.findIndex((i) => i.id === item.id);
     if (idx !== -1) {
       const next = [...todoItems];
@@ -272,12 +274,10 @@ import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
     if (oldIndex === -1) return;
     if (newIndex < 0 || newIndex >= todoItems.length || newIndex === oldIndex) return;
 
-    // cancel pending saves + lock this item against edits
     cancelPerItem(itemId);
     saveManager.cancel(itemId);
     posLock.add(itemId);
 
-    // optimistic local reorder
     const before = [...todoItems];
     const moving = todoItems[oldIndex];
     const next = [...todoItems];
@@ -335,143 +335,175 @@ import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
   }
 </script>
 
-<div class="todo-detail-panel rounded-lg bg-white p-4 shadow-lg">
-  <button on:click={closeDetailPanel} class="float-right text-gray-500 hover:text-gray-700">X</button>
+<!-- Panel -->
+<div class="flex h-full flex-col bg-[#1e1e1e] text-gray-200">
+  <!-- Header -->
+  <div class="flex items-center justify-between border-b border-[#333] px-6 py-4">
+    <div class="flex items-center space-x-3">
+      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg">
+        <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+      </div>
+      <div>
+        <h2 class="text-lg font-semibold text-gray-100">{todoList?.title || 'Todo List'}</h2>
+        <p class="text-sm text-gray-400">{todoItems.length} items</p>
+      </div>
+    </div>
 
-  {#if todoList}
-    <input
-      type="text"
-      class="mb-4 w-full text-2xl font-bold text-gray-800 focus:outline-none"
-      bind:value={todoList.title}
-      on:blur={() => todoList && debouncedSaveTodoListTitle(todoList)}
-    />
-    <textarea
-      class="mb-4 w-full resize-none text-gray-800 focus:outline-none"
-      bind:value={todoList.description}
-      on:blur={() => todoList && debouncedSaveTodoListTitle(todoList)}
-    ></textarea>
+    <div class="flex items-center space-x-2">
+      <button
+        on:click={closeDetailPanel}
+        class="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200"
+        title="Close panel"
+      >
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+  </div>
 
-    <ul class="space-y-2 pt-4">
-      {#each todoItems as item, i (item.id)}
-        <li class="group relative flex items-center justify-between rounded-md bg-gray-50 p-2 hover:bg-gray-100">
-          <div class="flex items-center w-full">
-            <!-- Checkbox -->
-            <div
-              class="flex h-5 w-5 items-center justify-center rounded border-2 {item.completed ? 'border-blue-500 bg-blue-500' : 'border-gray-300'}"
-              on:click={() => handleToggleComplete(item)}
-            >
-              {#if item.completed}
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
-                </svg>
-              {/if}
+  <!-- Body -->
+  <div class="flex flex-1 flex-col gap-4 overflow-y-auto px-6 py-4">
+    {#if todoList}
+      <!-- List title -->
+      <input
+        type="text"
+        bind:value={todoList.title}
+        on:blur={saveListOnBlur}
+        placeholder="List title"
+        class="w-full bg-transparent text-xl font-semibold text-white outline-none placeholder:text-gray-500"
+      />
+
+      <!-- List description -->
+      <textarea
+        bind:value={todoList.description}
+        on:blur={saveListOnBlur}
+        placeholder="List description..."
+        class="w-full resize-none rounded-xl border border-[#444] bg-[#2a2a2a] p-3 text-gray-200 outline-none transition-[box-shadow,border-color] focus:border-blue-500 focus:shadow-[0_0_0_2px_rgba(59,130,246,0.2)]"
+      ></textarea>
+
+      <!-- Items -->
+      <ul class="flex flex-col gap-2">
+        {#each todoItems as item, i (item.id)}
+          <li class="group relative flex items-center justify-between rounded-xl bg-[#2a2a2a] p-2 transition-colors hover:bg-[#333]">
+            <div class="flex w-full items-center">
+              <!-- Checkbox -->
+              <div
+                class="flex h-5 w-5 items-center justify-center rounded border-2 transition-colors
+                       {item.completed ? 'border-blue-500 bg-blue-500' : 'border-gray-500'}"
+                on:click={() => handleToggleComplete(item)}
+              >
+                {#if item.completed}
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                  </svg>
+                {/if}
+              </div>
+
+              <!-- Title -->
+              <input
+                type="text"
+                id={"item-title-" + item.id}
+                bind:value={item.title}
+                minlength="1"
+                on:keydown={onTitleKeydown}
+                on:input={(e) => onTitleInput(e, item)}
+                on:blur={(e) => onTitleBlur(e, item)}
+                class="ml-2 w-full bg-transparent text-gray-200 outline-none placeholder:text-gray-500 {item.completed ? 'text-gray-400 line-through' : ''}"
+                placeholder="Untitled item"
+              />
             </div>
 
-            <!-- Title -->
+            <!-- Reorder controls -->
+            <div class="absolute right-2 top-1/2 flex -translate-y-1/2 transform flex-col opacity-0 transition-opacity group-hover:opacity-100">
+              <button
+                on:mousedown|preventDefault
+                on:click|stopPropagation={() => handleReorderTodoItem(item.id, i - 1)}
+                disabled={i === 0}
+                class="rounded p-1 text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200 disabled:opacity-40"
+                aria-label="Move up"
+                title="Move up"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clip-rule="evenodd"/>
+                </svg>
+              </button>
+              <button
+                on:mousedown|preventDefault
+                on:click|stopPropagation={() => handleReorderTodoItem(item.id, i + 1)}
+                disabled={i === todoItems.length - 1}
+                class="rounded p-1 text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200 disabled:opacity-40"
+                aria-label="Move down"
+                title="Move down"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                </svg>
+              </button>
+            </div>
+          </li>
+
+          <!-- Expanded editor -->
+          {#if editingItemId === item.id}
+            <li class="rounded-xl bg-[#2a2a2a] p-3">
+              <textarea
+                bind:value={item.description}
+                on:input={(e) => onDescInput(e, item)}
+                on:blur={() => {
+                  const payload = buildPutPayload(item.id, {
+                    title: item.title,
+                    description: item.description || '',
+                    dueDate: item.dueDate,
+                    completed: item.completed
+                  });
+                  if (payload) saveManager.enqueue(item.id, payload);
+                }}
+                placeholder="Item description (optional)"
+                class="mb-2 w-full resize-none rounded-lg border border-[#444] bg-[#1f2937] p-2 text-gray-200 outline-none transition-[box-shadow,border-color] focus:border-blue-500 focus:shadow-[0_0_0_2px_rgba(59,130,246,0.2)]"
+              ></textarea>
+
+              <input
+                type="date"
+                value={item.dueDate ? item.dueDate.toISOString().split('T')[0] : ''}
+                on:input={(e) => onDueInput(e, item)}
+                on:blur={() => {
+                  const payload = buildPutPayload(item.id, {
+                    title: item.title,
+                    description: item.description || '',
+                    dueDate: item.dueDate,
+                    completed: item.completed
+                  });
+                  if (payload) saveManager.enqueue(item.id, payload);
+                }}
+                class="w-full rounded-lg border border-[#444] bg-[#1f2937] p-2 text-gray-200 outline-none transition-[box-shadow,border-color] focus:border-blue-500 focus:shadow-[0_0_0_2px_rgba(59,130,246,0.2)]"
+              />
+            </li>
+          {/if}
+        {/each}
+
+        <!-- New Todo Item Input (moved inside ul, no mt-[-1]) -->
+        <li class="group relative flex items-center justify-between rounded-xl bg-[#2a2a2a] p-2 transition-colors hover:bg-[#333]">
+          <div class="flex w-full items-center">
+            <div class="flex h-5 w-5 items-center justify-center rounded {newTodoItemTitle.trim() !== '' ? 'border-2 border-gray-500' : ''}"></div>
             <input
               type="text"
-              id={"item-title-" + item.id}
-              bind:value={item.title}
-              minlength="1"
-              on:keydown={onTitleKeydown}
-              on:input={(e) => onTitleInput(e, item)}
-              on:blur={(e) => onTitleBlur(e, item)}
-              class="ml-2 w-full bg-transparent text-gray-800 focus:outline-none {item.completed ? 'text-gray-500 line-through' : ''}"
+              bind:value={newTodoItemTitle}
+              on:keydown={onNewItemKeydown}
+              on:blur={handleAddTodoItem}
+              placeholder="Add a new todo item... (Enter to add)"
+              class="ml-2 w-full bg-transparent text-gray-200 outline-none placeholder:text-gray-500"
             />
-          </div>
-
-          <!-- Reorder controls -->
-          <div class="absolute right-0 top-1/2 -translate-y-1/2 transform flex flex-col space-y-2 opacity-0 group-hover:opacity-100">
-            <button
-              on:mousedown|preventDefault
-              on:click|stopPropagation={() => handleReorderTodoItem(item.id, i - 1)}
-              disabled={i === 0}
-              class="text-gray-500 hover:text-gray-700 disabled:opacity-50"
-              aria-label="Move up"
-              title="Move up"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clip-rule="evenodd"/>
-              </svg>
-            </button>
-            <button
-              on:mousedown|preventDefault
-              on:click|stopPropagation={() => handleReorderTodoItem(item.id, i + 1)}
-              disabled={i === todoItems.length - 1}
-              class="text-gray-500 hover:text-gray-700 disabled:opacity-50"
-              aria-label="Move down"
-              title="Move down"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" viewBox="0 0 20 20" fill="currentColor">
-                <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
-              </svg>
-            </button>
           </div>
         </li>
-
-        <!-- Expanded editor -->
-        {#if editingItemId === item.id}
-          <li class="mb-2 mt-1 rounded-md bg-gray-100 p-2">
-            <textarea
-              bind:value={item.description}
-              on:input={(e) => onDescInput(e, item)}
-              on:blur={() => {
-                // final save on blur
-                const payload = buildPutPayload(item.id, {
-                  title: item.title,
-                  description: item.description || '',
-                  dueDate: item.dueDate,
-                  completed: item.completed
-                });
-                if (payload) saveManager.enqueue(item.id, payload);
-              }}
-              placeholder="Item description (optional)"
-              class="mb-1 w-full resize-none rounded-md border p-1 text-gray-800"
-            ></textarea>
-            <input
-              type="date"
-              value={item.dueDate ? item.dueDate.toISOString().split('T')[0] : ''}
-              on:input={(e) => onDueInput(e, item)}
-              on:blur={() => {
-                const payload = buildPutPayload(item.id, {
-                  title: item.title,
-                  description: item.description || '',
-                  dueDate: item.dueDate,
-                  completed: item.completed
-                });
-                if (payload) saveManager.enqueue(item.id, payload);
-              }}
-              class="mb-1 w-full rounded-md border p-1 text-gray-800"
-            />
-          </li>
-        {/if}
-      {/each}
-    </ul>
-
-    <!-- New Todo Item Input -->
-    <li class="group mt-2 flex items-center justify-between rounded-md bg-gray-50 p-2 hover:bg-gray-100">
-      <div class="flex items-center w-full">
-        <div class="flex h-5 w-5 items-center justify-center">
-          {#if newTodoItemTitle.trim() !== ''}
-            <div class="flex h-5 w-5 items-center justify-center rounded border-2 border-gray-300"></div>
-          {/if}
-        </div>
-
-        <input
-          type="text"
-          bind:value={newTodoItemTitle}
-          on:keydown={onNewItemKeydown}
-          on:blur={handleAddTodoItem}
-          placeholder="Add a new todo item..."
-          class="ml-2 w-full bg-transparent text-gray-800 focus:outline-none"
-        />
-      </div>
-    </li>
-  {:else}
-    <p>Loading todo list details...</p>
-  {/if}
+      </ul>
+    {:else}
+      <p class="text-gray-400">Loading todo list details...</p>
+    {/if}
+  </div>
 </div>
 
 <style>
-  /* Tailwind handles styling */
+  /* No custom selectors needed; Tailwind-only to avoid css-unused-selector warnings. */
 </style>

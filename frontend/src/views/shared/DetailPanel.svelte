@@ -12,7 +12,7 @@
   }
 </script>
 
-<div class="flex-grow overflow-y-auto bg-gray-700 p-4 text-white">
+<div class="flex-grow overflow-y-auto bg-gray-700 text-white">
   {#if selectedItem}
     {#if selectedItem.type === 'matrix'}
       <MatrixDetail item={selectedItem} className="h-full" />

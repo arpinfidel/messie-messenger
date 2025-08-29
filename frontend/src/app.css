@@ -1,3 +1,45 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+html,
+body {
+  overscroll-behavior: none;
+}
+
+html {
+  color-scheme: dark; /* Chrome/Edge/Firefox/Safari: native dark scrollbars */
+}
+/* WebKit (Chrome, Edge, Safari) */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent !important; /* fully transparent track */
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.2); /* slate-400 @ 20% opacity */
+  border-radius: 9999px;
+  transition: background 0.25s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(
+    180deg,
+    rgba(31, 41, 55, 0.9),
+    rgba(55, 65, 81, 0.9)
+  ); /* dark gradient */
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(30, 30, 32, 0.9) rgba(31, 41, 55, 0.9); /* thumb | track */
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent !important;
+}

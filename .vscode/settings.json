@@ -11,5 +11,8 @@
   "prettier.resolveGlobalModules": false,
 
   // Ensure no stale global path is set (leave it empty)
-  "prettier.prettierPath": ""
+  "prettier.prettierPath": "",
+  "[svelte]": {
+    "editor.defaultFormatter": "svelte.svelte-vscode"
+  }
 }
