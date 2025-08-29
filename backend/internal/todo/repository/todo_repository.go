@@ -6,7 +6,7 @@ import (
 	"messenger/backend/internal/todo/entity"
 	userentity "messenger/backend/internal/user/entity"
 
-	"github.com/jmoiron/sqlx"
+	"gorm.io/gorm"
 )
 
 // TodoItemRepository defines the interface for todo item data operations.
@@ -42,7 +42,7 @@ type repository struct {
 }
 
 // NewRepository creates a new repository.
-func NewRepository(db *sqlx.DB) Repository {
+func NewRepository(db *gorm.DB) Repository {
 	return &repository{
 		TodoListRepository:             NewTodoListRepository(db),
 		TodoItemRepository:             NewTodoItemRepository(db),

@@ -8,16 +8,19 @@ COMPOSE = docker compose -f docker-compose.$(STACK).yml
 .PHONY: up down build ps logs sh
 
 up:
-	$(COMPOSE) up -d
+	$(COMPOSE) up -d $(ARGS)
 
 down:
-	$(COMPOSE) down
+	$(COMPOSE) down $(ARGS)
 
 up-build:
-	$(COMPOSE) up --build -d
+	$(COMPOSE) up --build -d $(ARGS)
+
+restart:
+	$(COMPOSE) restart $(ARGS)
 
 build:
-	$(COMPOSE) build
+	$(COMPOSE) build $(ARGS)
 
 ps:
 	$(COMPOSE) ps
@@ -56,6 +59,10 @@ migrate-status:
 .PHONY: migrate-reset
 migrate-reset: migrate-down migrate-up
 	@echo "Database reset complete (down then up)."
+
+psql:
+	@echo "Connecting to PostgreSQL database..."
+	$(COMPOSE) exec -it postgres psql -U user -d todo_db
 
 gen-fe:
 	@echo "Generating frontend API client..."

@@ -104,18 +104,18 @@ export class MatrixViewModel implements IModuleViewModel {
     if (!c) throw new Error('Matrix client not initialized.');
     return c.getOpenIdToken();
   }
-
   /* ---------- Orchestration ---------- */
-
   async initialize(): Promise<void> {
     (logger as any).setLevel('warn');
+    console.time('[MatrixVM] initialize total');
 
     const restored = this.sessionStore.restore();
     if (!restored?.accessToken || !restored.userId || !restored.homeserverUrl) {
-      // no session; defer to login()
+      console.warn('[MatrixVM] no session data → skipping init');
       return;
     }
 
+    console.time('[MatrixVM] cryptoCallbacks setup');
     const cryptoCallbacks: CryptoCallbacks = {};
     if (matrixSettings.recoveryKey?.trim()) {
       (cryptoCallbacks as any).getSecretStorageKey = async ({
@@ -129,29 +129,82 @@ export class MatrixViewModel implements IModuleViewModel {
         return [keyId, decoded];
       };
     }
+    console.timeEnd('[MatrixVM] cryptoCallbacks setup');
 
-    // build client, init, start, bind
-    this.clientMgr.createFromSession(restored, cryptoCallbacks);
+    console.time('[MatrixVM] create client');
+    await this.clientMgr.createFromSession(restored, cryptoCallbacks);
+    console.timeEnd('[MatrixVM] create client');
+
+    console.time('[MatrixVM] initRustCrypto');
     await this.clientMgr.initCryptoIfNeeded();
+    console.timeEnd('[MatrixVM] initRustCrypto');
+
+    console.time('[MatrixVM] bind listeners');
     this.binder.bind();
+    console.timeEnd('[MatrixVM] bind listeners');
 
     if (!this.clientMgr.isStarted()) {
-      await this.clientMgr.start();
+      console.time('[MatrixVM] startClient');
+
+      // const minimalFilterDef: matrixSdk.IFilterDefinition = {
+      //   room: {
+      //     timeline: {
+      //       limit: 1,
+      //       types: ['m.room.message', 'm.room.encrypted'],
+      //     },
+      //     state: { lazy_load_members: true },
+      //     ephemeral: { types: [] },
+      //   },
+      //   presence: { types: [] },
+      //   event_format: 'client',
+      //   event_fields: ['type', 'content', 'sender', 'origin_server_ts', 'event_id', 'room_id'],
+      // };
+
+      // // Wrap in a Filter instance
+      // const filter = new matrixSdk.Filter(this.clientMgr.getClient()?.getUserId(), undefined);
+      // filter.setDefinition(minimalFilterDef);
+
+      await this.clientMgr.start({
+        // filter: filter,
+        // pollTimeout: 0,
+        // lazyLoadMembers: true,
+        // initialSyncLimit: 1,
+      });
+      console.timeEnd('[MatrixVM] startClient');
     }
 
     this.hydrationState = 'syncing';
+    console.time('[MatrixVM] waitForPrepared');
     await this.clientMgr.waitForPrepared();
+    console.timeEnd('[MatrixVM] waitForPrepared');
 
     this.hydrationState = 'decrypting';
+    console.time('[MatrixVM] crypto.ensureVerificationAndKeys');
     await this.cryptoMgr.ensureVerificationAndKeys();
-    await this.cryptoMgr.debugSecrets();
-    await this.cryptoMgr.restoreFromRecoveryKey();
-    await this.cryptoMgr.retryDecryptAllRooms();
+    console.timeEnd('[MatrixVM] crypto.ensureVerificationAndKeys');
 
+    console.time('[MatrixVM] crypto.debugSecrets');
+    await this.cryptoMgr.debugSecrets();
+    console.timeEnd('[MatrixVM] crypto.debugSecrets');
+
+    console.time('[MatrixVM] crypto.restoreFromRecoveryKey');
+    await this.cryptoMgr.restoreFromRecoveryKey();
+    console.timeEnd('[MatrixVM] crypto.restoreFromRecoveryKey');
+
+    console.time('[MatrixVM] crypto.retryDecryptAllRooms');
+    await this.cryptoMgr.retryDecryptAllRooms();
+    console.timeEnd('[MatrixVM] crypto.retryDecryptAllRooms');
+
+    console.time('[MatrixVM] fetch timeline items');
     await this.timelineSvc.fetchAndSetTimelineItems();
+    console.timeEnd('[MatrixVM] fetch timeline items');
 
     this.hydrationState = 'ready';
+    console.time('[MatrixVM] flush pending events');
     await this.timelineSvc.flushPendingLiveEvents();
+    console.timeEnd('[MatrixVM] flush pending events');
+
+    console.timeEnd('[MatrixVM] initialize total');
   }
 
   async login(homeserverUrl: string, username: string, password: string): Promise<void> {

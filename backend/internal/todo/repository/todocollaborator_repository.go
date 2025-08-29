@@ -3,36 +3,22 @@ package repository
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"messenger/backend/internal/todo/entity"
 	userentity "messenger/backend/internal/user/entity"
 
-	"github.com/jmoiron/sqlx"
+	"gorm.io/gorm"
 )
 
 type todoListCollaboratorRepository struct {
-	db *sqlx.DB
+	db *gorm.DB
 }
 
-func NewTodoListCollaboratorRepository(db *sqlx.DB) TodoListCollaboratorRepository {
+func NewTodoListCollaboratorRepository(db *gorm.DB) TodoListCollaboratorRepository {
 	return &todoListCollaboratorRepository{db: db}
 }
 
 func (r *todoListCollaboratorRepository) AddCollaborator(ctx context.Context, collaborator *entity.TodoListCollaborator) error {
-	query := `
-		INSERT INTO todo_list_collaborators (
-			todo_list_id
-			, collaborator_id
-			, created_at
-			, updated_at
-		)
-		VALUES ($1, $2, $3, $4)`
-
-	collaborator.CreatedAt = time.Now()
-	collaborator.UpdatedAt = time.Now()
-
-	_, err := r.db.ExecContext(ctx, query, collaborator.TodoListID, collaborator.CollaboratorID, collaborator.CreatedAt, collaborator.UpdatedAt)
+	err := r.db.WithContext(ctx).Create(collaborator).Error
 	if err != nil {
 		return fmt.Errorf("failed to add collaborator: %w", err)
 	}
@@ -40,8 +26,7 @@ func (r *todoListCollaboratorRepository) AddCollaborator(ctx context.Context, co
 }
 
 func (r *todoListCollaboratorRepository) RemoveCollaborator(ctx context.Context, todoListID, userID string) error {
-	query := `DELETE FROM todo_list_collaborators WHERE todo_list_id = $1 AND user_id = $2`
-	_, err := r.db.ExecContext(ctx, query, todoListID, userID)
+	err := r.db.WithContext(ctx).Where("todo_list_id = ? AND collaborator_id = ?", todoListID, userID).Delete(&entity.TodoListCollaborator{}).Error
 	if err != nil {
 		return fmt.Errorf("failed to remove collaborator: %w", err)
 	}
@@ -49,9 +34,8 @@ func (r *todoListCollaboratorRepository) RemoveCollaborator(ctx context.Context,
 }
 
 func (r *todoListCollaboratorRepository) IsCollaborator(ctx context.Context, todoListID, userID string) (bool, error) {
-	var count int
-	query := `SELECT COUNT(*) FROM todo_list_collaborators WHERE todo_list_id = $1 AND user_id = $2`
-	err := r.db.GetContext(ctx, &count, query, todoListID, userID)
+	var count int64
+	err := r.db.WithContext(ctx).Model(&entity.TodoListCollaborator{}).Where("todo_list_id = ? AND collaborator_id = ?", todoListID, userID).Count(&count).Error
 	if err != nil {
 		return false, fmt.Errorf("failed to check if user is collaborator: %w", err)
 	}
@@ -60,12 +44,11 @@ func (r *todoListCollaboratorRepository) IsCollaborator(ctx context.Context, tod
 
 func (r *todoListCollaboratorRepository) GetCollaboratorsByTodoListID(ctx context.Context, todoListID string) ([]userentity.User, error) {
 	var users []userentity.User
-	query := `
-		SELECT u.id, u.username, u.email, u.created_at, u.updated_at
-		FROM users u
-		JOIN todo_list_collaborators tlc ON u.id = tlc.collaborator_id
-		WHERE tlc.todo_list_id = $1`
-	err := r.db.SelectContext(ctx, &users, query, todoListID)
+	err := r.db.WithContext(ctx).
+		Table("users").
+		Joins("JOIN todo_list_collaborators tlc ON users.id = tlc.collaborator_id").
+		Where("tlc.todo_list_id = ?", todoListID).
+		Find(&users).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get collaborators by todo list ID: %w", err)
 	}
@@ -74,12 +57,11 @@ func (r *todoListCollaboratorRepository) GetCollaboratorsByTodoListID(ctx contex
 
 func (r *todoListCollaboratorRepository) GetTodoListsByCollaboratorID(ctx context.Context, userID string) ([]entity.TodoList, error) {
 	var todoLists []entity.TodoList
-	query := `
-		SELECT tl.id, tl.owner_id, tl.title, tl.description, tl.created_at, tl.updated_at
-		FROM todo_lists tl
-		JOIN todo_list_collaborators tlc ON tl.id = tlc.todo_list_id
-		WHERE tlc.collaborator_id = $1`
-	err := r.db.SelectContext(ctx, &todoLists, query, userID)
+	err := r.db.WithContext(ctx).
+		Table("todo_lists").
+		Joins("JOIN todo_list_collaborators tlc ON todo_lists.id = tlc.todo_list_id").
+		Where("tlc.collaborator_id = ?", userID).
+		Find(&todoLists).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get todo lists by collaborator ID: %w", err)
 	}
@@ -88,8 +70,7 @@ func (r *todoListCollaboratorRepository) GetTodoListsByCollaboratorID(ctx contex
 
 func (r *todoListCollaboratorRepository) GetCollaboratorIDsByTodoListID(ctx context.Context, todoListID string) ([]string, error) {
 	var userIDs []string
-	query := `SELECT user_id FROM todo_list_collaborators WHERE todo_list_id = $1`
-	err := r.db.SelectContext(ctx, &userIDs, query, todoListID)
+	err := r.db.WithContext(ctx).Model(&entity.TodoListCollaborator{}).Where("todo_list_id = ?", todoListID).Select("collaborator_id").Find(&userIDs).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get collaborator IDs by todo list ID: %w", err)
 	}

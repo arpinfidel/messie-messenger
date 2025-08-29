@@ -5,28 +5,24 @@ import (
 	"log"
 	"os"
 
-	"github.com/jmoiron/sqlx"
-	_ "github.com/lib/pq" // PostgreSQL driver
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
-var DB *sqlx.DB
+var DB *gorm.DB
 
-func InitDB() (*sqlx.DB, error) {
+func InitDB() (*gorm.DB, error) {
 	databaseURL := os.Getenv("DATABASE_URL")
 	if databaseURL == "" {
 		return nil, fmt.Errorf("DATABASE_URL environment variable not set")
 	}
 
 	var err error
-	DB, err = sqlx.Connect("postgres", databaseURL)
+	DB, err = gorm.Open(postgres.Open(databaseURL), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	if err = DB.Ping(); err != nil {
-		return nil, fmt.Errorf("failed to ping database: %w", err)
-	}
-
-	log.Println("Successfully connected to the database!")
+	log.Println("Successfully connected to the database with GORM!")
 	return DB, nil
 }

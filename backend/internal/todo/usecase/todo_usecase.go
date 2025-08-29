@@ -13,10 +13,10 @@ import (
 
 // TodoListUsecase defines the interface for todo list business logic.
 type TodoListUsecase interface {
-	CreateTodoList(ctx context.Context, title string, description *string, userID string) (*entity.TodoList, error)
+	CreateTodoList(ctx context.Context, title string, description string, userID string) (*entity.TodoList, error)
 	GetTodoListByID(ctx context.Context, id string, userID string) (*entity.TodoList, error)
 	GetTodoListsByUser(ctx context.Context, userID string) ([]entity.TodoList, error)
-	UpdateTodoList(ctx context.Context, id string, title string, description *string, userID string) (*entity.TodoList, error)
+	UpdateTodoList(ctx context.Context, id string, title string, description string, userID string) (*entity.TodoList, error)
 	DeleteTodoList(ctx context.Context, id string, userID string) error
 	AddCollaborator(ctx context.Context, todoListID, collaboratorID, requestingUserID string) error
 	RemoveCollaborator(ctx context.Context, todoListID, collaboratorID, requestingUserID string) error
@@ -184,7 +184,7 @@ func (uc *Usecase) RemoveCollaborator(ctx context.Context, todoListID, collabora
 	return nil
 }
 
-func (uc *Usecase) GetCollaboratorDetailss(ctx context.Context, todoListID string, requestingUserID string) ([]entity.TodoListCollaboratorDetail, error) {
+func (uc *Usecase) GetCollaboratorDetails(ctx context.Context, todoListID string, requestingUserID string) ([]entity.TodoListCollaboratorDetail, error) {
 	todoList, err := uc.TodoListRepo.GetTodoListByID(ctx, todoListID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get todo list by ID: %w", err)
@@ -208,14 +208,14 @@ func (uc *Usecase) GetCollaboratorDetailss(ctx context.Context, todoListID strin
 }
 
 // Implementations for TodoItemUsecase
-func (uc *Usecase) CreateTodoItem(ctx context.Context, listID string, description string, deadline *time.Time, position string, userID string) (*entity.TodoItem, error) {
-	todoList, err := uc.TodoListRepo.GetTodoListByID(ctx, listID)
+func (uc *Usecase) CreateTodoItem(ctx context.Context, userID string, newItem entity.TodoItem) (*entity.TodoItem, error) {
+	todoList, err := uc.TodoListRepo.GetTodoListByID(ctx, newItem.ListID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get todo list by ID: %w", err)
 	}
 
 	if todoList.OwnerID != userID {
-		isCollab, err := uc.TodoListCollabRepo.IsCollaborator(ctx, listID, userID)
+		isCollab, err := uc.TodoListCollabRepo.IsCollaborator(ctx, newItem.ListID, userID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to check collaborator status: %w", err)
 		}
@@ -224,20 +224,13 @@ func (uc *Usecase) CreateTodoItem(ctx context.Context, listID string, descriptio
 		}
 	}
 
-	todoItem := &entity.TodoItem{
-		ID:          uuid.New().String(),
-		ListID:      listID,
-		Description: description,
-		Deadline:    deadline,
-		Completed:   false,
-		Position:    position,
-	}
+	newItem.ID = uuid.New().String()
 
-	err = uc.TodoItemRepo.CreateTodoItem(ctx, todoItem)
+	err = uc.TodoItemRepo.CreateTodoItem(ctx, &newItem)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create todo item in repository: %w", err)
 	}
-	return todoItem, nil
+	return &newItem, nil
 }
 
 func (uc *Usecase) GetTodoItemByID(ctx context.Context, id string, listID string, userID string) (*entity.TodoItem, error) {
@@ -306,11 +299,20 @@ func (uc *Usecase) UpdateTodoItem(ctx context.Context, id string, listID string,
 	if err != nil {
 		return nil, fmt.Errorf("failed to get todo item by ID for update: %w", err)
 	}
+	if todoItem.ListID != listID {
+		return nil, fmt.Errorf("todo item does not belong to the specified list")
+	}
 
-	todoItem.Description = newItem.Description
-	todoItem.Deadline = newItem.Deadline
-	todoItem.Completed = newItem.Completed
-	todoItem.Position = newItem.Position
+	todoItem = &entity.TodoItem{
+		ID: 		todoItem.ID,
+		ListID: 	todoItem.ListID,
+		
+		Title: 		newItem.Title,
+		Description: newItem.Description,
+		Deadline: 	newItem.Deadline,
+		Completed: 	newItem.Completed,
+		Position: 	newItem.Position,
+	}
 
 	err = uc.TodoItemRepo.UpdateTodoItem(ctx, todoItem)
 	if err != nil {

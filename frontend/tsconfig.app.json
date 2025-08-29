@@ -22,5 +22,13 @@
     "moduleDetection": "force",
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "src/**/*.d.ts", "vite-env.d.ts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.js",
+    "src/**/*.svelte",
+    "src/**/*.d.ts",
+    "vite-env.d.ts",
+    "src/utils/**/*.ts",
+    "src/utils/debounce.ts"
+  ]
 }

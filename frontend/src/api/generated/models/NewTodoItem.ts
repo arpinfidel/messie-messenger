@@ -36,13 +36,13 @@ export interface NewTodoItem {
    * @type {string}
    * @memberof NewTodoItem
    */
-  description?: string;
+  description: string;
   /**
    *
    * @type {boolean}
    * @memberof NewTodoItem
    */
-  completed?: boolean;
+  completed: boolean;
   /**
    *
    * @type {Date}
@@ -63,6 +63,8 @@ export interface NewTodoItem {
 export function instanceOfNewTodoItem(value: object): value is NewTodoItem {
   if (!('listId' in value) || value['listId'] === undefined) return false;
   if (!('title' in value) || value['title'] === undefined) return false;
+  if (!('description' in value) || value['description'] === undefined) return false;
+  if (!('completed' in value) || value['completed'] === undefined) return false;
   if (!('position' in value) || value['position'] === undefined) return false;
   return true;
 }
@@ -78,8 +80,8 @@ export function NewTodoItemFromJSONTyped(json: any, ignoreDiscriminator: boolean
   return {
     listId: json['list_id'],
     title: json['title'],
-    description: json['description'] == null ? undefined : json['description'],
-    completed: json['completed'] == null ? undefined : json['completed'],
+    description: json['description'],
+    completed: json['completed'],
     dueDate: json['due_date'] == null ? undefined : new Date(json['due_date']),
     position: json['position'],
   };

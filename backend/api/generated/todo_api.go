@@ -76,8 +76,8 @@ type NewCollaborator struct {
 
 // NewTodoItem defines model for NewTodoItem.
 type NewTodoItem struct {
-	Completed   *bool              `json:"completed,omitempty"`
-	Description *string            `json:"description,omitempty"`
+	Completed   bool               `json:"completed"`
+	Description string             `json:"description"`
 	DueDate     *time.Time         `json:"due_date,omitempty"`
 	ListId      openapi_types.UUID `json:"list_id"`
 	Position    string             `json:"position"`

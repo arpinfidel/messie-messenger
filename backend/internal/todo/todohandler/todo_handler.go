@@ -269,15 +269,14 @@ func (h *TodoHandler) CreateTodoItem(w http.ResponseWriter, r *http.Request, lis
 		return
 	}
 
-	description := newTodoItem.Description
-	dueDate := newTodoItem.DueDate
-
-	descriptionVal := ""
-	if description != nil {
-		descriptionVal = *description
-	}
-
-	todoItem, err := h.Usecases.CreateTodoItem(r.Context(), listId.String(), descriptionVal, dueDate, newTodoItem.Position, userID)
+	todoItem, err := h.Usecases.CreateTodoItem(r.Context(), userID, entity.TodoItem{
+		Completed:   newTodoItem.Completed,
+		Title: 	 newTodoItem.Title,
+		ListID:      listId.String(),
+		Description: newTodoItem.Description,
+		Deadline:    newTodoItem.DueDate,
+		Position:    newTodoItem.Position,
+	})
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			sendErrorResponse(w, http.StatusNotFound, fmt.Sprintf("Todo list not found: %v", err))
@@ -292,7 +291,8 @@ func (h *TodoHandler) CreateTodoItem(w http.ResponseWriter, r *http.Request, lis
 	responseTodoItem := generated.TodoItem{
 		Id:          openapi_types.UUID(uuid.MustParse(todoItem.ID)),
 		ListId:      openapi_types.UUID(uuid.MustParse(todoItem.ListID)),
-		Description: todoItem.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
+		Title: 	 todoItem.Title,
+		Description: todoItem.Description,
 		Completed:   todoItem.Completed,
 		DueDate:     todoItem.Deadline,
 		Position:    todoItem.Position,
@@ -328,7 +328,9 @@ func (h *TodoHandler) GetTodoItemsByListId(w http.ResponseWriter, r *http.Reques
 		responseTodoItems[i] = generated.TodoItem{
 			Id:          openapi_types.UUID(uuid.MustParse(item.ID)),
 			ListId:      openapi_types.UUID(uuid.MustParse(item.ListID)),
-			Description: item.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
+			Position:   item.Position,
+			Title: 	 item.Title,
+			Description: item.Description,
 			Completed:   item.Completed,
 			DueDate:     item.Deadline,
 			CreatedAt:   &item.CreatedAt,
@@ -363,6 +365,8 @@ func (h *TodoHandler) GetTodoItemById(w http.ResponseWriter, r *http.Request, li
 	responseTodoItem := generated.TodoItem{
 		Id:          openapi_types.UUID(uuid.MustParse(todoItem.ID)),
 		ListId:      openapi_types.UUID(uuid.MustParse(todoItem.ListID)),
+		Position:    todoItem.Position,
+		Title: 	 todoItem.Title,
 		Description: todoItem.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
 		Completed:   todoItem.Completed,
 		DueDate:     todoItem.Deadline,
@@ -388,10 +392,11 @@ func (h *TodoHandler) UpdateTodoItem(w http.ResponseWriter, r *http.Request, lis
 	}
 
 	todoItem, err := h.Usecases.UpdateTodoItem(r.Context(), itemId.String(), listId.String(), userID, &entity.TodoItem{
+		Position:    updateTodoItem.Position,
+		Title: 	 updateTodoItem.Title,
 		Description: updateTodoItem.Description,
 		Deadline:    updateTodoItem.DueDate,
 		Completed:   updateTodoItem.Completed,
-		Position:    updateTodoItem.Position,
 	})
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -407,10 +412,11 @@ func (h *TodoHandler) UpdateTodoItem(w http.ResponseWriter, r *http.Request, lis
 	responseTodoItem := generated.TodoItem{
 		Id:          openapi_types.UUID(uuid.MustParse(todoItem.ID)),
 		ListId:      openapi_types.UUID(uuid.MustParse(todoItem.ListID)),
+		Title: 	 todoItem.Title,
+		Position:    todoItem.Position,
 		Description: todoItem.Description,
 		Completed:   todoItem.Completed,
 		DueDate:     todoItem.Deadline,
-		Position:    todoItem.Position,
 		CreatedAt:   &todoItem.CreatedAt,
 		UpdatedAt:   &todoItem.UpdatedAt,
 	}
@@ -448,7 +454,7 @@ func (h *TodoHandler) GetCollaborators(w http.ResponseWriter, r *http.Request, l
 		return
 	}
 
-	collaborators, err := h.Usecases.GetCollaboratorDetailss(r.Context(), listId.String(), userID)
+	collaborators, err := h.Usecases.GetCollaboratorDetails(r.Context(), listId.String(), userID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			sendErrorResponse(w, http.StatusNotFound, fmt.Sprintf("Todo list not found: %v", err))

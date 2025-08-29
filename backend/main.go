@@ -7,19 +7,22 @@ import (
 
 	"messenger/backend/api/generated"
 	"messenger/backend/pkg/auth"
-	"messenger/backend/pkg/database"
 	middlewarePkg "messenger/backend/pkg/middleware"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
-	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
 	// Added for uuid.Parse
+
+	todoEntity "messenger/backend/internal/todo/entity"
 	"messenger/backend/internal/todo/repository"
 	"messenger/backend/internal/todo/todohandler"
 	"messenger/backend/internal/todo/usecase"
+	userEntity "messenger/backend/internal/user/entity"
 	authHandler "messenger/backend/internal/user/handler"
 	userRepo "messenger/backend/internal/user/repository"
 	authUsecase "messenger/backend/internal/user/usecase"
@@ -28,28 +31,27 @@ import (
 func main() {
 	log.Printf("Starting backend service initialization...")
 
-	// Initialize database connection
-	log.Printf("Initializing database connection...")
-	db, err := database.InitDB()
+	// Initialize GORM database connection
+	log.Printf("Initializing GORM database connection...")
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		log.Fatal("DATABASE_URL environment variable not set")
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
-	defer db.Close()
-	log.Printf("Database connection initialized successfully.")
+	log.Printf("GORM database connection initialized successfully.")
 
-	// Apply database migrations
-	log.Printf("Applying database migrations...")
-	m, err := migrate.New(
-		"file://migrations",
-		os.Getenv("DATABASE_URL"))
+	// AutoMigrate GORM models
+	log.Printf("Auto-migrating GORM models...")
+	err = db.AutoMigrate(&todoEntity.TodoList{}, &todoEntity.TodoItem{}, &todoEntity.TodoListCollaborator{}, &userEntity.User{})
 	if err != nil {
-		log.Fatalf("Failed to create migrate instance: %v", err)
+		log.Fatalf("Failed to auto-migrate GORM models: %v", err)
 	}
-	if err := m.Up(); err != nil && err != migrate.ErrNoChange {
-		log.Fatalf("Failed to apply migrations: %v", err)
-	}
-	log.Println("Database migrations applied successfully!")
+	log.Printf("GORM models auto-migrated successfully.")
 
+	
 	// Initialize JWT Service
 	log.Printf("Initializing JWT Service...")
 	jwtSecret := os.Getenv("JWT_SECRET")

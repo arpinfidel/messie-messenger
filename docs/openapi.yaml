@@ -634,6 +634,8 @@ components:
           format: uuid
         title:
           type: string
+          minLength: 1
+          default: ""
         description:
           type: string
         created_at:
@@ -650,6 +652,8 @@ components:
       properties:
         title:
           type: string
+          minLength: 1
+          default: ""
         description:
           type: string
     UpdateTodoList:
@@ -660,6 +664,8 @@ components:
       properties:
         title:
           type: string
+          minLength: 1
+          default: ""
         description:
           type: string
     TodoItem:
@@ -680,6 +686,8 @@ components:
           format: uuid
         title:
           type: string
+          minLength: 1
+          default: ""
         description:
           type: string
         completed:
@@ -702,12 +710,16 @@ components:
         - list_id
         - title
         - position
+        - description
+        - completed
       properties:
         list_id:
           type: string
           format: uuid
         title:
           type: string
+          minLength: 1
+          default: ""
         description:
           type: string
         completed:
@@ -728,6 +740,8 @@ components:
       properties:
         title:
           type: string
+          minLength: 1
+          default: ""
         description:
           type: string
         completed:

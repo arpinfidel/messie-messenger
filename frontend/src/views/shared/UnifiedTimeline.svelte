@@ -10,6 +10,8 @@
   import { CloudAuthViewModel } from '@/viewmodels/cloud-auth/CloudAuthViewModel';
   import { Configuration, DefaultConfig } from '@/api/generated';
   import { TodoViewModel } from '@/viewmodels/todo/TodoViewModel';
+  import TodoTimelineItem from './timeline/TodoTimelineItem.svelte';
+  import GenericTimelineItem from './timeline/GenericTimelineItem.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -73,8 +75,8 @@
     // console.log(`[UnifiedTimeline] Current items array length: ${items.length}`);
   }
 
-  function selectItem(item: TimelineItem) {
-    dispatch('itemSelected', item);
+  function selectItem(event: CustomEvent<TimelineItem>) {
+    dispatch('itemSelected', event.detail);
   }
 
   async function createTodoList() {
@@ -88,7 +90,7 @@
       accessToken: () => cloudAuthViewModel.jwtToken || '',
     });
     const api = new DefaultApi(config);
-    const newTodoList: NewTodoList = { title: 'New Todo List' };
+    const newTodoList: NewTodoList = { title: 'New Todo List', description: '' };
 
     try {
       const response = await api.createTodoList({ newTodoList });
@@ -104,7 +106,7 @@
 
 <div class="flex-1 overflow-y-auto p-4">
   <div class="mb-6 flex items-center justify-between">
-    <h1 class="text-3xl font-bold">Mess</h1>
+    <h1 class="text-3xl font-bold">Messie</h1>
     <div class="relative">
       <button
         bind:this={createButton}
@@ -148,49 +150,9 @@
     <div class="space-y-4">
       {#each items as item (item.id)}
         {#if item.type === 'todo'}
-          <div
-            class="cursor-pointer rounded-lg bg-white p-4 shadow-md hover:bg-gray-50"
-            on:click={() => selectItem(item)}
-          >
-            <div class="flex items-center justify-between">
-              <h2 class="truncate text-xl font-semibold">{item.title}</h2>
-              {#if item.completed}
-                <span class="text-sm font-medium text-green-500">Completed</span>
-              {:else}
-                <span class="text-sm font-medium text-yellow-500">Pending</span>
-              {/if}
-            </div>
-            {#if item.description}
-              <p class="mt-2 truncate text-gray-700">{item.description}</p>
-            {/if}
-            {#if item.dueDate}
-              <p class="text-sm text-gray-600">
-                Due: {new Date(item.dueDate).toLocaleString()}
-              </p>
-            {/if}
-            <p class="text-sm text-gray-600">
-              Created: {new Date(item.timestamp).toLocaleString()}
-            </p>
-            <span
-              class="mt-2 inline-block rounded-full bg-purple-500 px-3 py-1 text-xs font-semibold text-white"
-              >{item.type}</span
-            >
-          </div>
+          <TodoTimelineItem {item} on:itemSelected={selectItem} />
         {:else}
-          <div
-            class="cursor-pointer rounded-lg bg-white p-4 shadow-md hover:bg-gray-50"
-            on:click={() => selectItem(item)}
-          >
-            <h2 class="truncate text-xl font-semibold">{item.title}</h2>
-            <p class="text-sm text-gray-600">
-              {new Date(item.timestamp).toLocaleString()}
-            </p>
-            <p class="mt-2 truncate text-gray-700">{item.description}</p>
-            <span
-              class="mt-2 inline-block rounded-full bg-blue-500 px-3 py-1 text-xs font-semibold text-white"
-              >{item.type}</span
-            >
-          </div>
+          <GenericTimelineItem {item} on:itemSelected={selectItem} />
         {/if}
       {/each}
     </div>

@@ -17,17 +17,24 @@ export class MatrixClientManager {
     return this.started;
   }
 
-  createFromSession(
+  async createFromSession(
     session: MatrixSessionData,
     cryptoCallbacks?: CryptoCallbacks | Record<string, unknown>
   ) {
+    const store = new matrixSdk.IndexedDBStore({
+      indexedDB: window.indexedDB,
+      dbName: 'matrix-js-sdk',
+    });
+    await store.startup();
     const opts: matrixSdk.ICreateClientOpts = {
       baseUrl: session.homeserverUrl,
       accessToken: session.accessToken,
       userId: session.userId,
       deviceId: session.deviceId,
       cryptoCallbacks: cryptoCallbacks as CryptoCallbacks | undefined,
+      store,
     };
+
     this.client = matrixSdk.createClient(opts);
   }
 
@@ -41,9 +48,9 @@ export class MatrixClientManager {
     await this.client.initRustCrypto();
   }
 
-  async start() {
+  async start(opts?: matrixSdk.IStartClientOpts) {
     if (!this.client || this.started) return;
-    await this.client.startClient();
+    await this.client.startClient(opts);
     this.started = true;
   }
 

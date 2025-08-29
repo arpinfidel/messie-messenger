@@ -8,6 +8,7 @@ import type {
   TodoList,
   TodoItem,
   User,
+  UpdateTodoList,
 } from '../../api/generated/models';
 import { generatePosition, getInitialPosition } from '../../utils/fractionalIndexing';
 import { CloudAuthViewModel } from '@/viewmodels/cloud-auth/CloudAuthViewModel';
@@ -66,25 +67,6 @@ export class TodoViewModel implements IModuleViewModel {
               : 0,
           listId: list.id,
         });
-
-        const todoItems: TodoItem[] = await this.todoApi.getTodoItemsByListId({ listId: list.id });
-
-        const transformedItems: TimelineItem[] = todoItems.map((item) => ({
-          id: item.id,
-          type: 'todo',
-          title: item.title,
-          description: item.description,
-          timestamp: item.updatedAt
-            ? item.updatedAt.getTime()
-            : item.createdAt
-              ? item.createdAt.getTime()
-              : 0,
-          completed: item.completed,
-          dueDate: item.dueDate ? item.dueDate.getTime() : undefined,
-          listId: item.listId,
-          position: (item as any).position, // Cast to any to access position
-        }));
-        allTimelineItems = allTimelineItems.concat(transformedItems);
       }
 
       // Sort all timeline items by timestamp (last opened/updated)
@@ -117,6 +99,16 @@ export class TodoViewModel implements IModuleViewModel {
       await this.fetchAndTransformTodos(); // Refresh the list
     } catch (error) {
       console.error(`Error updating todo item ${itemId}:`, error);
+      throw error;
+    }
+  }
+
+  async updateTodoList(listId: string, updateTodoList: UpdateTodoList): Promise<void> {
+    try {
+      await this.todoApi.updateTodoList({ listId, updateTodoList });
+      await this.fetchAndTransformTodos(); // Refresh the list
+    } catch (error) {
+      console.error(`Error updating todo list ${listId}:`, error);
       throw error;
     }
   }
