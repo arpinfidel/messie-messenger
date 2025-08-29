@@ -88,11 +88,16 @@
 
     await tick();
     if (messagesContainer) {
+      // Temporarily disable smooth scroll behavior for instant jump
+      messagesContainer.style.scrollBehavior = 'auto';
       const newScrollHeight = messagesContainer.scrollHeight;
       messagesContainer.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
       console.debug(
         `[MatrixDetail][loadMoreMessages] Adjusted scrollTop to preserve viewport (prevTop=${prevScrollTop}, delta=${newScrollHeight - prevScrollHeight})`
       );
+      // Re-enable smooth scroll behavior after adjustment
+      await tick(); // Ensure the scroll adjustment has been applied
+      messagesContainer.style.scrollBehavior = 'smooth';
     }
 
     isLoadingOlderMessages = false;
@@ -163,6 +168,7 @@
         {
           id: `temp-${Date.now()}`,
           sender: matrixViewModel.getCurrentUserId(),
+          senderDisplayName: matrixViewModel.getCurrentUserDisplayName(), // Add senderDisplayName
           description: content,
           timestamp: Date.now(),
           isSelf: true,
@@ -249,7 +255,7 @@
         <div class="message-bubble {message.isSelf ? 'self' : 'other'} {isFirstInGroup ? 'first-in-group' : ''} {isLastInGroup ? 'last-in-group' : ''}">
           <!-- Sender name (only for first message in group from others) -->
           {#if !message.isSelf && isFirstInGroup}
-            <div class="sender-name">{message.sender}</div>
+            <div class="sender-name">{message.senderDisplayName}</div>
           {/if}
           
           <!-- Message content -->
@@ -335,7 +341,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
-    scroll-behavior: smooth;
+    /* Temporarily remove scroll-behavior: smooth from here */
     background: #1e1e1e;
   }
 

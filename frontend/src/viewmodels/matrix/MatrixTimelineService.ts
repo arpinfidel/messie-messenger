@@ -10,6 +10,7 @@ import type { RepoEvent, TimelineRepository } from './core/TimelineRepository';
 export interface MatrixMessage {
   id: string;
   sender: string;
+  senderDisplayName: string; // Add this line
   description: string;
   timestamp: number;
   isSelf: boolean;
@@ -209,9 +210,12 @@ export class MatrixTimelineService {
       .map((re) => {
         const { description } = this.repoEventToPreview(re);
         const isSelf = re.sender === currentUserId;
+        const room = this.client?.getRoom(re.roomId);
+        const senderDisplayName = room?.getMember(re.sender)?.rawDisplayName || re.sender; // Get display name
         return {
           id: re.eventId || `${Date.now()}-${Math.random()}`,
           sender: re.sender || 'unknown sender',
+          senderDisplayName, // Assign display name
           description,
           timestamp: re.originServerTs || 0,
           isSelf,

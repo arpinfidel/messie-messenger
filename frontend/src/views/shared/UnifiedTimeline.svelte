@@ -98,19 +98,17 @@
   }
 </script>
 
-<div class="timeline-container flex-1 overflow-y-auto bg-gradient-to-br from-gray-50 to-gray-100/50 dark:from-gray-900 dark:to-gray-800/50">
+<div class="timeline-container flex-1 overflow-y-auto bg-white dark:bg-gray-900">
   <!-- Enhanced Header -->
-  <div class="sticky top-0 z-20 border-b border-gray-200/80 bg-white/95 backdrop-blur-md dark:border-gray-700/80 dark:bg-gray-900/95">
+  <div class="sticky top-0 z-20 border-b border-gray-200/80 dark:border-gray-700/80">
     <div class="px-6 py-4">
       <div class="flex items-center justify-between">
-        <!-- App Title with gradient -->
+        <!-- App Title -->
         <div class="flex items-center space-x-3">
-          <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-purple-600 shadow-lg">
-            <svg class="h-6 w-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
+          <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 shadow-lg">
+            <img src="/messie-logo.svg" alt="Messie Logo" class="h-12 w-12 text-gray-600 dark:text-gray-300" />
           </div>
-          <h1 class="bg-gradient-to-r from-gray-900 to-gray-600 bg-clip-text text-3xl font-bold text-transparent dark:from-white dark:to-gray-300">
+          <h1 class="text-3xl font-bold text-gray-600 dark:text-gray-300">
             Messie
           </h1>
         </div>

@@ -89,6 +89,15 @@ export class MatrixViewModel implements IModuleViewModel {
     return this.clientMgr.getClient()?.getUserId() || 'unknown';
   }
 
+  public getCurrentUserDisplayName(): string {
+    const client = this.clientMgr.getClient();
+    if (!client) return 'unknown';
+    const userId = client.getUserId();
+    if (!userId) return 'unknown'; // Handle null userId
+    const room = client.getVisibleRooms()[0]; // Assuming any visible room will have the member info
+    return room?.getMember(userId)?.rawDisplayName || userId || 'unknown';
+  }
+
   public async getRoomMessages(roomId: string, fromToken: string | null, limit = 20) {
     return this.timelineSvc.getRoomMessages(roomId, fromToken, limit);
   }
