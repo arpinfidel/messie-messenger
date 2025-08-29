@@ -27,7 +27,7 @@
 
   const unifiedTimelineViewModel = new UnifiedTimelineViewModel();
   const cloudAuthViewModel = CloudAuthViewModel.getInstance();
-  const todoViewModel = new TodoViewModel();
+  const todoViewModel = TodoViewModel.getInstance();
 
   let createButton: HTMLButtonElement;
   let createDropdown: HTMLDivElement;

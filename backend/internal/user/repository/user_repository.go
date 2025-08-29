@@ -2,6 +2,7 @@ package userrepository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -35,7 +36,7 @@ func (r *postgresUserRepository) GetUserByMatrixID(ctx context.Context, mxid str
 	var user userentity.User
 	err := r.db.WithContext(ctx).Where("matrix_id = ?", mxid).First(&user).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, userentity.ErrNotFound
 		}
 		return nil, fmt.Errorf("failed to get user by Matrix ID: %w", err)

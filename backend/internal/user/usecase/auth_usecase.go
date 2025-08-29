@@ -2,6 +2,7 @@ package userusecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -110,7 +111,7 @@ func (uc *authUsecase) GetUserByEmail(ctx context.Context, email string) (*usere
 func (uc *authUsecase) CreateOrGetMatrixUser(ctx context.Context, mxid string) (*userentity.User, string, error) {
 	// Check for existing Matrix user
 	user, err := uc.userRepo.GetUserByMatrixID(ctx, mxid)
-	if err != nil {
+	if err != nil && !errors.Is(err, userentity.ErrNotFound) {
 		return nil, "", fmt.Errorf("failed to check for existing Matrix user: %w", err)
 	}
 
