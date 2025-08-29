@@ -17,6 +17,7 @@ type TodoListRepository interface {
 	GetTodoListsByUserID(ctx context.Context, userID string) ([]entity.TodoList, error)
 	UpdateTodoList(ctx context.Context, todoList *entity.TodoList) error
 	DeleteTodoList(ctx context.Context, id string) error
+	GetCollaboratorDetails(ctx context.Context, listID string) ([]entity.TodoListCollaboratorDetail, error)
 }
 
 type todoListRepository struct {
@@ -33,7 +34,7 @@ func (r *todoListRepository) GetTodoListsByUserID(ctx context.Context, userID st
 		SELECT tl.id, tl.owner_id, tl.title, tl.description, tl.created_at, tl.updated_at
 		FROM todo_lists tl
 		LEFT JOIN todo_list_collaborators tlc ON tl.id = tlc.todo_list_id
-		WHERE tl.owner_id = $1 OR tlc.user_id = $1
+		WHERE tl.owner_id = $1 OR tlc.collaborator_id = $1
 		GROUP BY tl.id
 		ORDER BY tl.created_at DESC`
 	err := r.db.SelectContext(ctx, &todoLists, query, userID)
@@ -101,4 +102,19 @@ func (r *todoListRepository) DeleteTodoList(ctx context.Context, id string) erro
 		return fmt.Errorf("failed to delete todo list: %w", err)
 	}
 	return nil
+}
+
+func (r *todoListRepository) GetCollaboratorDetails(ctx context.Context, listID string) ([]entity.TodoListCollaboratorDetail, error) {
+	var collaborators []entity.TodoListCollaboratorDetail
+	query := `
+		SELECT 
+			todo_list_id
+			, collaborator_id
+		FROM todo_list_collaborators
+		WHERE todo_list_id = $1`
+	err := r.db.SelectContext(ctx, &collaborators, query, listID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get collaborators for todo list %s: %w", listID, err)
+	}
+	return collaborators, nil
 }

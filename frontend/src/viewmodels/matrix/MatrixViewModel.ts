@@ -11,6 +11,8 @@ import { RoomEvent, ClientEvent, EventType } from 'matrix-js-sdk';
 import { writable, type Writable } from 'svelte/store';
 import { matrixSettings } from './MatrixSettings'; // Import the settings object
 import { VerificationMethod } from 'matrix-js-sdk/lib/types'
+import { logger } from 'matrix-js-sdk/lib/logger.js';
+
 export interface MatrixMessage {
 	id: string;
 	sender: string;
@@ -58,6 +60,7 @@ export class MatrixViewModel implements IModuleViewModel {
    */
 async initialize(): Promise<void> {
   console.log('Initializing MatrixViewModel...');
+  (logger as any).setLevel("warn");
   this.sessionData = this.restoreSession();
 
   if (this.sessionData?.accessToken && this.sessionData.userId && this.sessionData.homeserverUrl) {
@@ -895,8 +898,8 @@ async initialize(): Promise<void> {
 	});
 
 	this.client.on(ClientEvent.Room, async (room) => {
-	  console.log(`[ClientEvent.Room] New room detected: ID=${room.roomId}, Name="${room.name}". Re-fetching timeline items.`);
-	  this.scheduleTimelineRefresh(150);
+	//   console.log(`[ClientEvent.Room] New room detected: ID=${room.roomId}, Name="${room.name}". Re-fetching timeline items.`);
+	  this.scheduleTimelineRefresh(500);
 	});
 
 	console.log('Matrix event listeners set up.');

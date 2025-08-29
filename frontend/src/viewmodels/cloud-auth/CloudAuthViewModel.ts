@@ -1,14 +1,43 @@
 import { MatrixViewModel } from '../matrix/MatrixViewModel';
 import { MatrixClient, type IOpenIDToken } from 'matrix-js-sdk';
+import { DefaultApi } from '../../api/generated/apis';
+import type { MatrixOpenIDRequest } from '../../api/generated/models';
+
 
 export class CloudAuthViewModel {
+  private static instance: CloudAuthViewModel | null = null;
   private matrix: MatrixViewModel;
   public authStatus: string = 'Not authenticated';
   public jwtToken: string | null = null;
+  public userID: string | null = null;
   public mxid: string | null = null;
 
-  constructor(private matrixViewModel: MatrixViewModel) {
-    this.matrix = matrixViewModel;
+  private constructor() {
+    this.matrix = MatrixViewModel.getInstance();
+    const storedResponse = localStorage.getItem('cloud_auth');
+    if (storedResponse) {
+      try {
+        const response = JSON.parse(storedResponse);
+        this.jwtToken = response.token || null;
+        this.mxid = response.mxid || null;
+        this.userID = response.userId || null;
+        this.authStatus = 'Already authenticated';
+      } catch {
+        // fallback to old token-only storage for backward compatibility
+        const storedToken = localStorage.getItem('cloud_jwt');
+        if (storedToken) {
+          this.jwtToken = storedToken;
+          this.authStatus = 'Already authenticated';
+        }
+      }
+    }
+  }
+
+  public static getInstance(): CloudAuthViewModel {
+    if (!CloudAuthViewModel.instance) {
+      CloudAuthViewModel.instance = new CloudAuthViewModel();
+    }
+    return CloudAuthViewModel.instance;
   }
 
   async getMatrixOpenIdToken(): Promise<IOpenIDToken> {
@@ -24,27 +53,21 @@ export class CloudAuthViewModel {
 
   async authenticateWithTodoService(tokenData: IOpenIDToken): Promise<void> {
     try {
-      const response = await fetch('/api/v1/auth/matrix/openid', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          access_token: tokenData.access_token,
-          matrix_server_name: tokenData.matrix_server_name
-        })
-      });
+      const api = new DefaultApi();
+      const request: MatrixOpenIDRequest = {
+        accessToken: tokenData.access_token,
+        matrixServerName: tokenData.matrix_server_name
+      };
+      
+      const response = await api.postMatrixAuth({ matrixOpenIDRequest: request });
+      console.log('[CloudAuthViewModel] Auth response:', response);
 
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      
-      const { jwt, mxid } = await response.json();
-      this.jwtToken = jwt;
-      this.mxid = mxid;
-      localStorage.setItem('todo_jwt', jwt);
-      this.authStatus = 'Authenticated with Todo Service';
-      
-      console.log('JWT:', jwt);
-      console.log('MXID:', mxid);
+      this.jwtToken = response.token;
+      this.mxid = response.mxid;
+      this.userID = response.userId;
+
+      localStorage.setItem('cloud_auth', JSON.stringify(response));
+      this.authStatus = 'Authenticated with Backend Service';
     } catch (error) {
       this.authStatus = `Auth failed: ${error}`;
       throw error;

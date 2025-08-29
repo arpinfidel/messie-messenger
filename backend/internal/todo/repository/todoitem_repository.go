@@ -20,14 +20,14 @@ func NewTodoItemRepository(db *sqlx.DB) TodoItemRepository {
 
 func (r *todoItemRepository) CreateTodoItem(ctx context.Context, todoItem *entity.TodoItem) error {
 	query := `
-		INSERT INTO todo_items (list_id, description, deadline, completed, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO todo_items (list_id, description, deadline, completed, position, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id`
 
 	todoItem.CreatedAt = time.Now()
 	todoItem.UpdatedAt = time.Now()
 
-	err := r.db.QueryRowContext(ctx, query, todoItem.ListID, todoItem.Description, todoItem.Deadline, todoItem.Completed, todoItem.CreatedAt, todoItem.UpdatedAt).Scan(&todoItem.ID)
+	err := r.db.QueryRowContext(ctx, query, todoItem.ListID, todoItem.Description, todoItem.Deadline, todoItem.Completed, todoItem.Position, todoItem.CreatedAt, todoItem.UpdatedAt).Scan(&todoItem.ID)
 	if err != nil {
 		return fmt.Errorf("failed to create todo item: %w", err)
 	}

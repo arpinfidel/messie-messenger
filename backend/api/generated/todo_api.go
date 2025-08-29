@@ -25,6 +25,18 @@ type AuthResponse struct {
 	User  User   `json:"user"`
 }
 
+// CollaboratorDetail defines model for CollaboratorDetail.
+type CollaboratorDetail struct {
+	// CollaboratorId ID of the collaborator user
+	CollaboratorId openapi_types.UUID `json:"collaborator_id"`
+
+	// ListId ID of the todo list
+	ListId openapi_types.UUID `json:"list_id"`
+
+	// Username Collaborator username
+	Username string `json:"username"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	Message string `json:"message"`
@@ -43,6 +55,9 @@ type MatrixAuthResponse struct {
 
 	// Token JWT token for authentication
 	Token string `json:"token"`
+
+	// UserId ID of the user in the todo service
+	UserId openapi_types.UUID `json:"user_id"`
 }
 
 // MatrixOpenIDRequest defines model for MatrixOpenIDRequest.
@@ -65,14 +80,14 @@ type NewTodoItem struct {
 	Description *string            `json:"description,omitempty"`
 	DueDate     *time.Time         `json:"due_date,omitempty"`
 	ListId      openapi_types.UUID `json:"list_id"`
+	Position    string             `json:"position"`
 	Title       string             `json:"title"`
 }
 
 // NewTodoList defines model for NewTodoList.
 type NewTodoList struct {
-	Description *string            `json:"description,omitempty"`
-	OwnerId     openapi_types.UUID `json:"owner_id"`
-	Title       string             `json:"title"`
+	Description *string `json:"description,omitempty"`
+	Title       string  `json:"title"`
 }
 
 // RegisterRequest defines model for RegisterRequest.
@@ -89,8 +104,11 @@ type TodoItem struct {
 	DueDate     *time.Time         `json:"due_date,omitempty"`
 	Id          openapi_types.UUID `json:"id"`
 	ListId      openapi_types.UUID `json:"list_id"`
-	Title       string             `json:"title"`
-	UpdatedAt   *time.Time         `json:"updated_at,omitempty"`
+
+	// Position Fractional index for ordering todo items within a list.
+	Position  string     `json:"position"`
+	Title     string     `json:"title"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
 // TodoList defines model for TodoList.
@@ -105,10 +123,11 @@ type TodoList struct {
 
 // UpdateTodoItem defines model for UpdateTodoItem.
 type UpdateTodoItem struct {
-	Completed   *bool      `json:"completed,omitempty"`
-	Description *string    `json:"description,omitempty"`
+	Completed   bool       `json:"completed"`
+	Description string     `json:"description"`
 	DueDate     *time.Time `json:"due_date,omitempty"`
-	Title       *string    `json:"title,omitempty"`
+	Position    string     `json:"position"`
+	Title       string     `json:"title"`
 }
 
 // UpdateTodoList defines model for UpdateTodoList.
@@ -119,10 +138,20 @@ type UpdateTodoList struct {
 
 // User defines model for User.
 type User struct {
-	CreatedAt time.Time           `json:"created_at"`
-	Email     openapi_types.Email `json:"email"`
-	Id        openapi_types.UUID  `json:"id"`
-	UpdatedAt time.Time           `json:"updated_at"`
+	// CreatedAt Timestamp when the user was created
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// Email Email of the user
+	Email openapi_types.Email `json:"email"`
+
+	// Id ID of the user
+	Id openapi_types.UUID `json:"id"`
+
+	// MatrixId Matrix ID of the user
+	MatrixId string `json:"matrix_id"`
+
+	// UpdatedAt Timestamp when the user was last updated
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
 // GetTodoListsByUserIdParams defines parameters for GetTodoListsByUserId.
@@ -181,6 +210,9 @@ type ServerInterface interface {
 	// Update a todo list
 	// (PUT /todolists/{listId})
 	UpdateTodoList(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID)
+	// Get collaborators for a todo list
+	// (GET /todolists/{listId}/collaborators)
+	GetCollaborators(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID)
 	// Add a collaborator to a todo list
 	// (POST /todolists/{listId}/collaborators)
 	AddCollaborator(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID)
@@ -259,6 +291,12 @@ func (_ Unimplemented) GetTodoListById(w http.ResponseWriter, r *http.Request, l
 // Update a todo list
 // (PUT /todolists/{listId})
 func (_ Unimplemented) UpdateTodoList(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get collaborators for a todo list
+// (GET /todolists/{listId}/collaborators)
+func (_ Unimplemented) GetCollaborators(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -511,6 +549,37 @@ func (siw *ServerInterfaceWrapper) UpdateTodoList(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateTodoList(w, r, listId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCollaborators operation middleware
+func (siw *ServerInterfaceWrapper) GetCollaborators(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "listId" -------------
+	var listId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "listId", chi.URLParam(r, "listId"), &listId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "listId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCollaborators(w, r, listId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -960,6 +1029,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/todolists/{listId}", wrapper.UpdateTodoList)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/todolists/{listId}/collaborators", wrapper.GetCollaborators)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/todolists/{listId}/collaborators", wrapper.AddCollaborator)

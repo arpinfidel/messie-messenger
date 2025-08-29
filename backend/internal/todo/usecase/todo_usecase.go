@@ -20,15 +20,15 @@ type TodoListUsecase interface {
 	DeleteTodoList(ctx context.Context, id string, userID string) error
 	AddCollaborator(ctx context.Context, todoListID, collaboratorID, requestingUserID string) error
 	RemoveCollaborator(ctx context.Context, todoListID, collaboratorID, requestingUserID string) error
-	GetCollaborators(ctx context.Context, todoListID string, requestingUserID string) ([]string, error)
+	GetCollaborators(ctx context.Context, todoListID string, requestingUserID string) ([]entity.TodoListCollaborator, error)
 }
 
 // TodoItemUsecase defines the interface for todo item business logic.
 type TodoItemUsecase interface {
-	CreateTodoItem(ctx context.Context, listID string, description string, deadline *time.Time, userID string) (*entity.TodoItem, error)
+	CreateTodoItem(ctx context.Context, listID string, description string, deadline *time.Time, prevItemID, nextItemID *string, userID string) (*entity.TodoItem, error)
 	GetTodoItemByID(ctx context.Context, id string, listID string, userID string) (*entity.TodoItem, error)
 	GetTodoItemsByList(ctx context.Context, listID string, userID string) ([]entity.TodoItem, error)
-	UpdateTodoItem(ctx context.Context, id string, listID string, description string, deadline *time.Time, completed bool, userID string) (*entity.TodoItem, error)
+	UpdateTodoItem(ctx context.Context, id string, listID string, description string, deadline *time.Time, completed bool, newPrevItemID, newNextItemID *string, userID string) (*entity.TodoItem, error)
 	DeleteTodoItem(ctx context.Context, id string, listID string, userID string) error
 }
 
@@ -184,7 +184,7 @@ func (uc *Usecase) RemoveCollaborator(ctx context.Context, todoListID, collabora
 	return nil
 }
 
-func (uc *Usecase) GetCollaborators(ctx context.Context, todoListID string, requestingUserID string) ([]string, error) {
+func (uc *Usecase) GetCollaboratorDetailss(ctx context.Context, todoListID string, requestingUserID string) ([]entity.TodoListCollaboratorDetail, error) {
 	todoList, err := uc.TodoListRepo.GetTodoListByID(ctx, todoListID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get todo list by ID: %w", err)
@@ -200,15 +200,15 @@ func (uc *Usecase) GetCollaborators(ctx context.Context, todoListID string, requ
 		}
 	}
 
-	collaboratorIDs, err := uc.TodoListCollabRepo.GetCollaboratorIDsByTodoListID(ctx, todoListID)
+	collaborators, err := uc.TodoListRepo.GetCollaboratorDetails(ctx, todoListID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get collaborator IDs from repository: %w", err)
+		return nil, fmt.Errorf("failed to get collaborators from repository: %w", err)
 	}
-	return collaboratorIDs, nil
+	return collaborators, nil
 }
 
 // Implementations for TodoItemUsecase
-func (uc *Usecase) CreateTodoItem(ctx context.Context, listID string, description string, deadline *time.Time, userID string) (*entity.TodoItem, error) {
+func (uc *Usecase) CreateTodoItem(ctx context.Context, listID string, description string, deadline *time.Time, position string, userID string) (*entity.TodoItem, error) {
 	todoList, err := uc.TodoListRepo.GetTodoListByID(ctx, listID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get todo list by ID: %w", err)
@@ -230,6 +230,7 @@ func (uc *Usecase) CreateTodoItem(ctx context.Context, listID string, descriptio
 		Description: description,
 		Deadline:    deadline,
 		Completed:   false,
+		Position:    position,
 	}
 
 	err = uc.TodoItemRepo.CreateTodoItem(ctx, todoItem)
@@ -285,7 +286,7 @@ func (uc *Usecase) GetTodoItemsByList(ctx context.Context, listID string, userID
 	return todoItems, nil
 }
 
-func (uc *Usecase) UpdateTodoItem(ctx context.Context, id string, listID string, description string, deadline *time.Time, completed bool, userID string) (*entity.TodoItem, error) {
+func (uc *Usecase) UpdateTodoItem(ctx context.Context, id string, listID string, userID string, newItem *entity.TodoItem) (*entity.TodoItem, error) {
 	todoList, err := uc.TodoListRepo.GetTodoListByID(ctx, listID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get todo list by ID: %w", err)
@@ -306,9 +307,10 @@ func (uc *Usecase) UpdateTodoItem(ctx context.Context, id string, listID string,
 		return nil, fmt.Errorf("failed to get todo item by ID for update: %w", err)
 	}
 
-	todoItem.Description = description
-	todoItem.Deadline = deadline
-	todoItem.Completed = completed
+	todoItem.Description = newItem.Description
+	todoItem.Deadline = newItem.Deadline
+	todoItem.Completed = newItem.Completed
+	todoItem.Position = newItem.Position
 
 	err = uc.TodoItemRepo.UpdateTodoItem(ctx, todoItem)
 	if err != nil {

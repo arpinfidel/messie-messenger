@@ -10,7 +10,7 @@
   
   onMount(() => {
     matrixVm = MatrixViewModel.getInstance();
-    todoVm = new CloudAuthViewModel(matrixVm);
+    todoVm = CloudAuthViewModel.getInstance();
   });
 
   async function handleAuth() {
@@ -32,7 +32,7 @@
   
   <button 
     on:click={handleAuth}
-    class="btn-primary"
+    class=" py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
     disabled={isLoading}
   >
     {#if isLoading}
@@ -47,12 +47,6 @@
   {:else}
     <div class="mt-4">
       <p>Status: {todoVm?.authStatus}</p>
-      {#if todoVm?.jwtToken}
-        <div class="mt-2">
-          <p class="break-words">JWT: {todoVm.jwtToken.slice(0, 15)}...</p>
-          <p>MXID: {todoVm.mxid}</p>
-        </div>
-      {/if}
     </div>
   {/if}
 </div>

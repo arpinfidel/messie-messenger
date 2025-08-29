@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"messenger/backend/api/generated"
+	"messenger/backend/internal/todo/entity"
 	"messenger/backend/internal/todo/usecase"
 	"messenger/backend/pkg/middleware"
 
@@ -14,7 +15,6 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
-// TodoHandler implements the generated.ServerInterface.
 type TodoHandler struct {
 	Usecases *usecase.Usecase
 }
@@ -38,7 +38,6 @@ func sendErrorResponse(w http.ResponseWriter, statusCode int, message string) {
 	sendJSONResponse(w, statusCode, map[string]string{"error": message})
 }
 
-// CreateTodoList implements the generated.ServerInterface.
 func (h *TodoHandler) CreateTodoList(w http.ResponseWriter, r *http.Request) {
 	// User ID is expected to be in the context after authentication middleware
 	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
@@ -74,7 +73,6 @@ func (h *TodoHandler) CreateTodoList(w http.ResponseWriter, r *http.Request) {
 	sendJSONResponse(w, http.StatusCreated, responseTodoList)
 }
 
-// GetTodoListById implements the generated.ServerInterface.
 func (h *TodoHandler) GetTodoListById(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID) {
 	// User ID is expected to be in the context after authentication middleware
 	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
@@ -107,7 +105,6 @@ func (h *TodoHandler) GetTodoListById(w http.ResponseWriter, r *http.Request, li
 	sendJSONResponse(w, http.StatusOK, responseTodoList)
 }
 
-// GetTodoListsByUserId implements the generated.ServerInterface.
 func (h *TodoHandler) GetTodoListsByUserId(w http.ResponseWriter, r *http.Request, params generated.GetTodoListsByUserIdParams) {
 	// User ID is expected to be in the context after authentication middleware
 	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
@@ -143,7 +140,6 @@ func (h *TodoHandler) GetTodoListsByUserId(w http.ResponseWriter, r *http.Reques
 	sendJSONResponse(w, http.StatusOK, responseTodoLists)
 }
 
-// UpdateTodoList implements the generated.ServerInterface.
 func (h *TodoHandler) UpdateTodoList(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID) {
 	// User ID is expected to be in the context after authentication middleware
 	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
@@ -188,7 +184,6 @@ func (h *TodoHandler) UpdateTodoList(w http.ResponseWriter, r *http.Request, lis
 	sendJSONResponse(w, http.StatusOK, responseTodoList)
 }
 
-// DeleteTodoList implements the generated.ServerInterface.
 func (h *TodoHandler) DeleteTodoList(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID) {
 	// User ID is expected to be in the context after authentication middleware
 	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
@@ -211,7 +206,6 @@ func (h *TodoHandler) DeleteTodoList(w http.ResponseWriter, r *http.Request, lis
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// AddCollaborator implements the generated.ServerInterface.
 func (h *TodoHandler) AddCollaborator(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID) {
 	// User ID is expected to be in the context after authentication middleware
 	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
@@ -242,7 +236,6 @@ func (h *TodoHandler) AddCollaborator(w http.ResponseWriter, r *http.Request, li
 	w.WriteHeader(http.StatusCreated)
 }
 
-// RemoveCollaborator implements the generated.ServerInterface.
 func (h *TodoHandler) RemoveCollaborator(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID, userId openapi_types.UUID) {
 	// User ID is expected to be in the context after authentication middleware
 	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
@@ -265,7 +258,6 @@ func (h *TodoHandler) RemoveCollaborator(w http.ResponseWriter, r *http.Request,
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// CreateTodoItem implements the generated.ServerInterface.
 func (h *TodoHandler) CreateTodoItem(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID) {
 	// User ID is expected to be in the context after authentication middleware
 	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
@@ -288,7 +280,7 @@ func (h *TodoHandler) CreateTodoItem(w http.ResponseWriter, r *http.Request, lis
 		descriptionVal = *description
 	}
 
-	todoItem, err := h.Usecases.CreateTodoItem(r.Context(), listId.String(), descriptionVal, dueDate, userID)
+	todoItem, err := h.Usecases.CreateTodoItem(r.Context(), listId.String(), descriptionVal, dueDate, newTodoItem.Position, userID)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			sendErrorResponse(w, http.StatusNotFound, fmt.Sprintf("Todo list not found: %v", err))
@@ -306,6 +298,7 @@ func (h *TodoHandler) CreateTodoItem(w http.ResponseWriter, r *http.Request, lis
 		Description: &todoItem.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
 		Completed:   todoItem.Completed,
 		DueDate:     todoItem.Deadline,
+		Position:    todoItem.Position,
 		CreatedAt:   &todoItem.CreatedAt,
 		UpdatedAt:   &todoItem.UpdatedAt,
 	}
@@ -313,7 +306,6 @@ func (h *TodoHandler) CreateTodoItem(w http.ResponseWriter, r *http.Request, lis
 	sendJSONResponse(w, http.StatusCreated, responseTodoItem)
 }
 
-// GetTodoItemsByListId implements the generated.ServerInterface.
 func (h *TodoHandler) GetTodoItemsByListId(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID) {
 	// User ID is expected to be in the context after authentication middleware
 	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
@@ -345,12 +337,12 @@ func (h *TodoHandler) GetTodoItemsByListId(w http.ResponseWriter, r *http.Reques
 			CreatedAt:   &item.CreatedAt,
 			UpdatedAt:   &item.UpdatedAt,
 		}
+		responseTodoItems[i].Position = item.Position
 	}
 
 	sendJSONResponse(w, http.StatusOK, responseTodoItems)
 }
 
-// GetTodoItemById implements the generated.ServerInterface.
 func (h *TodoHandler) GetTodoItemById(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID, itemId openapi_types.UUID) {
 	// User ID is expected to be in the context after authentication middleware
 	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
@@ -384,7 +376,6 @@ func (h *TodoHandler) GetTodoItemById(w http.ResponseWriter, r *http.Request, li
 	sendJSONResponse(w, http.StatusOK, responseTodoItem)
 }
 
-// UpdateTodoItem implements the generated.ServerInterface.
 func (h *TodoHandler) UpdateTodoItem(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID, itemId openapi_types.UUID) {
 	// User ID is expected to be in the context after authentication middleware
 	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
@@ -399,19 +390,12 @@ func (h *TodoHandler) UpdateTodoItem(w http.ResponseWriter, r *http.Request, lis
 		return
 	}
 
-	description := updateTodoItem.Description
-	dueDate := updateTodoItem.DueDate
-	completed := false
-	if updateTodoItem.Completed != nil {
-		completed = *updateTodoItem.Completed
-	}
-
-	descriptionVal := ""
-	if description != nil {
-		descriptionVal = *description
-	}
-
-	todoItem, err := h.Usecases.UpdateTodoItem(r.Context(), itemId.String(), listId.String(), descriptionVal, dueDate, completed, userID)
+	todoItem, err := h.Usecases.UpdateTodoItem(r.Context(), itemId.String(), listId.String(), userID, &entity.TodoItem{
+		Description: updateTodoItem.Description,
+		Deadline:    updateTodoItem.DueDate,
+		Completed:   updateTodoItem.Completed,
+		Position:    updateTodoItem.Position,
+	})
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			sendErrorResponse(w, http.StatusNotFound, fmt.Sprintf("Todo item or list not found: %v", err))
@@ -429,6 +413,7 @@ func (h *TodoHandler) UpdateTodoItem(w http.ResponseWriter, r *http.Request, lis
 		Description: &todoItem.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
 		Completed:   todoItem.Completed,
 		DueDate:     todoItem.Deadline,
+		Position:    todoItem.Position,
 		CreatedAt:   &todoItem.CreatedAt,
 		UpdatedAt:   &todoItem.UpdatedAt,
 	}
@@ -436,7 +421,6 @@ func (h *TodoHandler) UpdateTodoItem(w http.ResponseWriter, r *http.Request, lis
 	sendJSONResponse(w, http.StatusOK, responseTodoItem)
 }
 
-// DeleteTodoItem implements the generated.ServerInterface.
 func (h *TodoHandler) DeleteTodoItem(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID, itemId openapi_types.UUID) {
 	// User ID is expected to be in the context after authentication middleware
 	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
@@ -457,4 +441,36 @@ func (h *TodoHandler) DeleteTodoItem(w http.ResponseWriter, r *http.Request, lis
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *TodoHandler) GetCollaborators(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID) {
+	// User ID is expected to be in the context after authentication middleware
+	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
+	if !ok || userID == "" {
+		sendErrorResponse(w, http.StatusUnauthorized, "User ID not found in context")
+		return
+	}
+
+	collaborators, err := h.Usecases.GetCollaboratorDetailss(r.Context(), listId.String(), userID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			sendErrorResponse(w, http.StatusNotFound, fmt.Sprintf("Todo list not found: %v", err))
+		} else if strings.Contains(err.Error(), "not authorized") {
+			sendErrorResponse(w, http.StatusForbidden, fmt.Sprintf("Forbidden: %v", err))
+		} else {
+			sendErrorResponse(w, http.StatusInternalServerError, fmt.Sprintf("Failed to get collaborators: %v", err))
+		}
+		return
+	}
+
+	responseCollaborators := make([]generated.CollaboratorDetail, len(collaborators))
+	for i, collab := range collaborators {
+		responseCollaborators[i] = generated.CollaboratorDetail{
+			ListId:         openapi_types.UUID(uuid.MustParse(collab.TodoListID)),
+			CollaboratorId: openapi_types.UUID(uuid.MustParse(collab.CollaboratorID)),
+			Username:       collab.Username,
+		}
+	}
+
+	sendJSONResponse(w, http.StatusOK, responseCollaborators)
 }

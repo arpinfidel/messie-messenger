@@ -1,6 +1,9 @@
 import { derived, writable, readable, type Readable, type Writable } from 'svelte/store';
-import type { TimelineItem } from 'models/shared/TimelineItem';
-import type { IModuleViewModel } from './IModuleViewModel';
+import type { TimelineItem } from '@/models/shared/TimelineItem';
+import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
+import { TodoViewModel } from '@/viewmodels/todo/TodoViewModel';
+import { MatrixViewModel } from '@/viewmodels/matrix/MatrixViewModel'
+import { EmailViewModel } from '@/viewmodels/email/EmailViewModel'
 
 export class UnifiedTimelineViewModel {
   private modules: IModuleViewModel[] = [];
@@ -8,8 +11,12 @@ export class UnifiedTimelineViewModel {
   public loadingModuleNames: Readable<string[]> = readable([], (set: (value: string[]) => void) => this._loadingModuleNames.subscribe(set));
   public isLoading: Readable<boolean> = derived(this._loadingModuleNames, ($names) => $names.length > 0);
 
-  constructor(modules: IModuleViewModel[]) {
-    this.modules = modules;
+  constructor() {
+    this.modules = [
+      MatrixViewModel.getInstance(),
+      new EmailViewModel(),
+      new TodoViewModel(),
+    ];
     this.initializeModules();
     console.log('UnifiedTimelineViewModel: Initialized');
   }
@@ -23,7 +30,7 @@ export class UnifiedTimelineViewModel {
 
       const promise = module.initialize().then(() => {
         this._loadingModuleNames.update(names => names.filter(name => name !== moduleName)); // Remove module from loading list
-        console.log(`[UnifiedTimelineViewModel] Module '${moduleName}' initialized.`);
+        // console.log(`[UnifiedTimelineViewModel] Module '${moduleName}' initialized.`);
       }).catch(error => {
         this._loadingModuleNames.update(names => names.filter(name => name !== moduleName));
         console.error(`[UnifiedTimelineViewModel] Error initializing module '${moduleName}':`, error);
@@ -66,7 +73,7 @@ export class UnifiedTimelineViewModel {
     const aggregated = this.getAggregatedTimelineStore();
     return derived(aggregated, ($items) => {
       const sorted = $items.slice().sort((a, b) => b.timestamp - a.timestamp);
-      console.log('UnifiedTimelineViewModel: Derived sorted count:', sorted.length);
+      // console.log('UnifiedTimelineViewModel: Derived sorted count:', sorted.length);
       return sorted;
     });
   }

@@ -72,8 +72,9 @@ func (h *AuthHandler) PostMatrixAuth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := generated.MatrixAuthResponse{
-		Token: token,
-		Mxid:  user.MatrixID,
+		Token:  token,
+		Mxid:   user.MatrixID,
+		UserId: user.ID,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -99,8 +100,9 @@ func (h *AuthHandler) PostRegister(w http.ResponseWriter, r *http.Request) {
 		User: generated.User{
 			Id:        user.ID,
 			Email:     types.Email(user.Email),
-			CreatedAt: user.CreatedAt,
-			UpdatedAt: user.UpdatedAt,
+			MatrixId:  user.MatrixID,
+			CreatedAt: &user.CreatedAt,
+			UpdatedAt: &user.UpdatedAt,
 		},
 		Token: token,
 	}
@@ -127,8 +129,9 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 		User: generated.User{
 			Id:        user.ID,
 			Email:     types.Email(user.Email),
-			CreatedAt: user.CreatedAt,
-			UpdatedAt: user.UpdatedAt,
+			MatrixId:  user.MatrixID,
+			CreatedAt: &user.CreatedAt,
+			UpdatedAt: &user.UpdatedAt,
 		},
 		Token: token,
 	}
@@ -149,8 +152,9 @@ func (h *AuthHandler) GetUsersId(w http.ResponseWriter, r *http.Request, id uuid
 	res := generated.User{
 		Id:        user.ID,
 		Email:     types.Email(user.Email),
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
+		MatrixId:  user.MatrixID,
+		CreatedAt: &user.CreatedAt,
+		UpdatedAt: &user.UpdatedAt,
 	}
 
 	w.WriteHeader(http.StatusOK)
@@ -187,8 +191,9 @@ func (h *AuthHandler) GetUsersMe(w http.ResponseWriter, r *http.Request) {
 	res := generated.User{
 		Id:        user.ID,
 		Email:     types.Email(user.Email),
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
+		MatrixId:  user.MatrixID,
+		CreatedAt: &user.CreatedAt,
+		UpdatedAt: &user.UpdatedAt,
 	}
 
 	w.WriteHeader(http.StatusOK)

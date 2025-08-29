@@ -21,13 +21,18 @@ func NewTodoListCollaboratorRepository(db *sqlx.DB) TodoListCollaboratorReposito
 
 func (r *todoListCollaboratorRepository) AddCollaborator(ctx context.Context, collaborator *entity.TodoListCollaborator) error {
 	query := `
-		INSERT INTO todo_list_collaborators (todo_list_id, user_id, created_at, updated_at)
+		INSERT INTO todo_list_collaborators (
+			todo_list_id
+			, collaborator_id
+			, created_at
+			, updated_at
+		)
 		VALUES ($1, $2, $3, $4)`
 
 	collaborator.CreatedAt = time.Now()
 	collaborator.UpdatedAt = time.Now()
 
-	_, err := r.db.ExecContext(ctx, query, collaborator.TodoListID, collaborator.UserID, collaborator.CreatedAt, collaborator.UpdatedAt)
+	_, err := r.db.ExecContext(ctx, query, collaborator.TodoListID, collaborator.CollaboratorID, collaborator.CreatedAt, collaborator.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("failed to add collaborator: %w", err)
 	}
@@ -58,7 +63,7 @@ func (r *todoListCollaboratorRepository) GetCollaboratorsByTodoListID(ctx contex
 	query := `
 		SELECT u.id, u.username, u.email, u.created_at, u.updated_at
 		FROM users u
-		JOIN todo_list_collaborators tlc ON u.id = tlc.user_id
+		JOIN todo_list_collaborators tlc ON u.id = tlc.collaborator_id
 		WHERE tlc.todo_list_id = $1`
 	err := r.db.SelectContext(ctx, &users, query, todoListID)
 	if err != nil {
@@ -73,7 +78,7 @@ func (r *todoListCollaboratorRepository) GetTodoListsByCollaboratorID(ctx contex
 		SELECT tl.id, tl.owner_id, tl.title, tl.description, tl.created_at, tl.updated_at
 		FROM todo_lists tl
 		JOIN todo_list_collaborators tlc ON tl.id = tlc.todo_list_id
-		WHERE tlc.user_id = $1`
+		WHERE tlc.collaborator_id = $1`
 	err := r.db.SelectContext(ctx, &todoLists, query, userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get todo lists by collaborator ID: %w", err)

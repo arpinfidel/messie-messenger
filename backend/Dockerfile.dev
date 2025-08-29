@@ -17,4 +17,5 @@ ENV CGO_ENABLED=1 GOFLAGS="-tags=dev"
 
 EXPOSE 8080 40000
 # If you have .air.toml, you can simply: CMD ["air"]
-CMD ["air"]
+# CMD ["air"]
+CMD ["air", "-c", ".air.toml"]

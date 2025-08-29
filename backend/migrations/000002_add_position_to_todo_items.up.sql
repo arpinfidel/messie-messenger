@@ -1,0 +1,1 @@
+ALTER TABLE todo_items ADD COLUMN position TEXT NOT NULL DEFAULT 'a';
