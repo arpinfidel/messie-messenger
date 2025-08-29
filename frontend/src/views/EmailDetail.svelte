@@ -4,8 +4,8 @@
   export let item: TimelineItem;
 </script>
 
-<div class="p-4 bg-gray-600 text-white rounded-md">
-  <h3 class="text-lg font-bold mb-2">Email Detail View</h3>
+<div class="rounded-md bg-gray-600 p-4 text-white">
+  <h3 class="mb-2 text-lg font-bold">Email Detail View</h3>
   <p><strong>ID:</strong> {item.id}</p>
   <p><strong>Title:</strong> {item.title || 'N/A'}</p>
   <p><strong>Content:</strong> {item.content || item.description || 'N/A'}</p>

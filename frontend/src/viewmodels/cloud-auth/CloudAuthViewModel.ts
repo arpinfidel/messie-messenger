@@ -3,7 +3,6 @@ import { MatrixClient, type IOpenIDToken } from 'matrix-js-sdk';
 import { DefaultApi } from '../../api/generated/apis';
 import type { MatrixOpenIDRequest } from '../../api/generated/models';
 
-
 export class CloudAuthViewModel {
   private static instance: CloudAuthViewModel | null = null;
   private matrix: MatrixViewModel;
@@ -56,9 +55,9 @@ export class CloudAuthViewModel {
       const api = new DefaultApi();
       const request: MatrixOpenIDRequest = {
         accessToken: tokenData.access_token,
-        matrixServerName: tokenData.matrix_server_name
+        matrixServerName: tokenData.matrix_server_name,
       };
-      
+
       const response = await api.postMatrixAuth({ matrixOpenIDRequest: request });
       console.log('[CloudAuthViewModel] Auth response:', response);
 

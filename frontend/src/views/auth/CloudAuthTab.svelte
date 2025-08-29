@@ -2,12 +2,12 @@
   import { CloudAuthViewModel } from '../../viewmodels/cloud-auth/CloudAuthViewModel';
   import { MatrixViewModel } from '../../viewmodels/matrix/MatrixViewModel';
   import { onMount } from 'svelte';
-  
+
   let matrixVm: MatrixViewModel;
   let todoVm: CloudAuthViewModel;
   let isLoading = false;
   let errorMessage = '';
-  
+
   onMount(() => {
     matrixVm = MatrixViewModel.getInstance();
     todoVm = CloudAuthViewModel.getInstance();
@@ -27,12 +27,12 @@
   }
 </script>
 
-<div class="p-4 max-w-md mx-auto">
-  <h2 class="text-xl font-bold mb-4">Todo Service Authentication</h2>
-  
-  <button 
+<div class="mx-auto max-w-md p-4">
+  <h2 class="mb-4 text-xl font-bold">Todo Service Authentication</h2>
+
+  <button
     on:click={handleAuth}
-    class=" py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+    class=" rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
     disabled={isLoading}
   >
     {#if isLoading}

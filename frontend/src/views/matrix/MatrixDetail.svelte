@@ -42,20 +42,28 @@
       messagesContainer.scrollHeight <= messagesContainer.clientHeight &&
       nextBatchToken
     ) {
-      console.debug(`[MatrixDetail][ensureScrollable] Container not scrollable yet (scrollHeight=${messagesContainer.scrollHeight}, clientHeight=${messagesContainer.clientHeight}), loading more...`);
+      console.debug(
+        `[MatrixDetail][ensureScrollable] Container not scrollable yet (scrollHeight=${messagesContainer.scrollHeight}, clientHeight=${messagesContainer.clientHeight}), loading more...`
+      );
       await loadMoreMessages();
       await tick();
     }
-    console.debug(`[MatrixDetail][ensureScrollable] Done. scrollHeight=${messagesContainer?.scrollHeight}, clientHeight=${messagesContainer?.clientHeight}, nextBatchToken=${nextBatchToken}`);
+    console.debug(
+      `[MatrixDetail][ensureScrollable] Done. scrollHeight=${messagesContainer?.scrollHeight}, clientHeight=${messagesContainer?.clientHeight}, nextBatchToken=${nextBatchToken}`
+    );
   }
 
   async function loadMoreMessages() {
     if (isLoadingOlderMessages || !nextBatchToken) {
-      console.debug(`[MatrixDetail][loadMoreMessages] Skipped: isLoadingOlderMessages=${isLoadingOlderMessages}, nextBatchToken=${nextBatchToken}`);
+      console.debug(
+        `[MatrixDetail][loadMoreMessages] Skipped: isLoadingOlderMessages=${isLoadingOlderMessages}, nextBatchToken=${nextBatchToken}`
+      );
       return;
     }
     isLoadingOlderMessages = true;
-    console.debug(`[MatrixDetail][loadMoreMessages] Loading older messages… currentCount=${get(messages).length}, nextBatch=${nextBatchToken}`);
+    console.debug(
+      `[MatrixDetail][loadMoreMessages] Loading older messages… currentCount=${get(messages).length}, nextBatch=${nextBatchToken}`
+    );
 
     const prevScrollHeight = messagesContainer?.scrollHeight ?? 0;
     const prevScrollTop = messagesContainer?.scrollTop ?? 0;
@@ -65,10 +73,12 @@
       (await matrixViewModel.loadOlderMessages(item.id, nextBatchToken)) ??
       (await matrixViewModel.loadOlderMessages(item.id));
 
-    console.debug(`[MatrixDetail][loadMoreMessages] got ${olderMessages?.length || 0} older messages, new nextBatch=${nextBatch}`);
+    console.debug(
+      `[MatrixDetail][loadMoreMessages] got ${olderMessages?.length || 0} older messages, new nextBatch=${nextBatch}`
+    );
 
     if (olderMessages?.length) {
-      messages.update(curr => [...olderMessages, ...curr]);
+      messages.update((curr) => [...olderMessages, ...curr]);
     }
     nextBatchToken = nextBatch ?? null;
 
@@ -76,7 +86,9 @@
     if (messagesContainer) {
       const newScrollHeight = messagesContainer.scrollHeight;
       messagesContainer.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
-      console.debug(`[MatrixDetail][loadMoreMessages] Adjusted scrollTop to preserve viewport (prevTop=${prevScrollTop}, delta=${newScrollHeight - prevScrollHeight})`);
+      console.debug(
+        `[MatrixDetail][loadMoreMessages] Adjusted scrollTop to preserve viewport (prevTop=${prevScrollTop}, delta=${newScrollHeight - prevScrollHeight})`
+      );
     }
 
     isLoadingOlderMessages = false;
@@ -94,7 +106,9 @@
     scrollObserver = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
-          console.debug('[MatrixDetail][IntersectionObserver] Top sentinel intersecting → loadMoreMessages()');
+          console.debug(
+            '[MatrixDetail][IntersectionObserver] Top sentinel intersecting → loadMoreMessages()'
+          );
           loadMoreMessages();
         }
       },
@@ -139,7 +153,7 @@
     try {
       await matrixViewModel.sendMessage(roomId, content);
       // Optimistically add the message to the UI
-      messages.update(curr => [
+      messages.update((curr) => [
         ...curr,
         {
           id: `temp-${Date.now()}`, // Temporary ID
@@ -183,7 +197,9 @@
     type="text"
     placeholder="Type your message..."
     bind:value={messageInput}
-    on:keydown={(e) => { if (e.key === 'Enter') sendMessage(); }}
+    on:keydown={(e) => {
+      if (e.key === 'Enter') sendMessage();
+    }}
   />
   <button on:click={sendMessage} disabled={!messageInput.trim()}>Send</button>
 </div>
@@ -220,7 +236,9 @@
     background: #1f2937;
   }
 
-  .body { white-space: pre-wrap; }
+  .body {
+    white-space: pre-wrap;
+  }
   .meta {
     font-size: 11px;
     opacity: 0.7;

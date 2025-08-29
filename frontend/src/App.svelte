@@ -24,7 +24,8 @@
     await matrixViewModel.initialize();
 
     // Part 1.1: Add placeholder for Matrix login
-    if (!matrixViewModel.isLoggedIn()) { // Assuming a method to check login status exists or can be added
+    if (!matrixViewModel.isLoggedIn()) {
+      // Assuming a method to check login status exists or can be added
       homeserverUrl = prompt('Enter Matrix Homeserver URL:', homeserverUrl) || homeserverUrl;
       username = prompt('Enter Matrix Username:', username) || username;
       password = prompt('Enter Matrix Password:', '') || '';
@@ -50,7 +51,7 @@
   }
 </script>
 
-<main class="grid grid-cols-[1fr_2fr] h-screen bg-gray-100">
+<main class="grid h-screen grid-cols-[1fr_2fr] bg-gray-100">
   <div
     class="overflow-y-auto overflow-x-hidden border-r border-gray-300"
     bind:clientWidth={timelineWidth}
@@ -58,20 +59,24 @@
   >
     <UnifiedTimeline
       on:itemSelected={handleTimelineItemSelected}
-      on:openSettings={() => showSettingsPopup = true}
+      on:openSettings={() => (showSettingsPopup = true)}
       {timelineWidth}
       {timelineLeft}
     />
   </div>
-  <div class="flex flex-col h-full overflow-auto">
+  <div class="flex h-full flex-col overflow-auto">
     <DetailPanel selectedItem={selectedTimelineItem} />
   </div>
 </main>
 
-<SettingsPopup show={showSettingsPopup} on:close={() => showSettingsPopup = false} tabs={[
-  { name: 'Matrix', component: MatrixSettingsTab },
-  { name: 'Cloud Auth', component: CloudAuthTab }
-]} />
+<SettingsPopup
+  show={showSettingsPopup}
+  on:close={() => (showSettingsPopup = false)}
+  tabs={[
+    { name: 'Matrix', component: MatrixSettingsTab },
+    { name: 'Cloud Auth', component: CloudAuthTab },
+  ]}
+/>
 
 <style>
   /* Your existing styles */

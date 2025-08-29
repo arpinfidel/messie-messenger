@@ -19,14 +19,25 @@
 </script>
 
 {#if show}
-  <div class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-    <div class="bg-white rounded-lg shadow-xl w-11/12 md:w-2/3 lg:w-1/2 max-h-[90vh] flex flex-col">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-600 bg-opacity-50">
+    <div class="flex max-h-[90vh] w-11/12 flex-col rounded-lg bg-white shadow-xl md:w-2/3 lg:w-1/2">
       <!-- Header -->
-      <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+      <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
         <h2 class="text-xl font-semibold text-gray-800">Settings</h2>
         <button on:click={closePopup} class="text-gray-500 hover:text-gray-700">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="h-6 w-6"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M6 18L18 6M6 6l12 12"
+            />
           </svg>
         </button>
       </div>
@@ -34,11 +45,13 @@
       <!-- Tabs and Content -->
       <div class="flex flex-grow overflow-hidden">
         <!-- Tab Navigation -->
-        <nav class="flex flex-col p-4 space-y-2 border-r border-gray-200 bg-gray-50">
+        <nav class="flex flex-col space-y-2 border-r border-gray-200 bg-gray-50 p-4">
           {#each tabs as tab}
             <button
-              class="px-4 py-2 text-sm font-medium rounded-md text-left
-                     {activeTabName === tab.name ? 'bg-blue-500 text-white' : 'text-gray-700 hover:bg-gray-200'}"
+              class="rounded-md px-4 py-2 text-left text-sm font-medium
+                     {activeTabName === tab.name
+                ? 'bg-blue-500 text-white'
+                : 'text-gray-700 hover:bg-gray-200'}"
               on:click={() => (activeTabName = tab.name)}
             >
               {tab.name}
@@ -47,7 +60,7 @@
         </nav>
 
         <!-- Tab Content -->
-        <div class="flex-grow p-6 overflow-y-auto">
+        <div class="flex-grow overflow-y-auto p-6">
           {#each tabs as tab}
             {#if activeTabName === tab.name}
               <svelte:component this={tab.component} />
