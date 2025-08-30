@@ -172,6 +172,7 @@
           description: content,
           timestamp: Date.now(),
           isSelf: true,
+          msgtype: 'm.text',
         },
       ]);
       await tick();
@@ -257,9 +258,28 @@
           {#if !message.isSelf && isFirstInGroup}
             <div class="sender-name">{message.senderDisplayName}</div>
           {/if}
-          
+
           <!-- Message content -->
-          <div class="message-content">{message.description}</div>
+          {#if message.msgtype === 'm.image'}
+            <div class="image-wrapper">
+              {#if message.imageUrl}
+                <img
+                  src={message.imageUrl}
+                  alt={message.description}
+                  class="message-image"
+                  referrerpolicy="no-referrer"
+                  loading="lazy"
+                />
+              {:else}
+                <div class="image-placeholder">
+                  <div class="loading-spinner small"></div>
+                  <span>Decrypting image…</span>
+                </div>
+              {/if}
+            </div>
+          {:else}
+            <div class="message-content">{message.description}</div>
+          {/if}
           
           <!-- Timestamp (only on last message in group) -->
           {#if isLastInGroup}
@@ -453,6 +473,37 @@
   .message-content {
     white-space: pre-wrap;
     line-height: 1.4;
+  }
+
+  .message-image {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    display: block;
+    border-radius: 0.5rem;
+  }
+
+  /* Image container with size limits */
+  .image-wrapper {
+    max-width: 360px;
+    max-height: 360px;
+    width: 100%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    border-radius: 0.5rem;
+    background: var(--color-input-bg);
+  }
+
+  .image-placeholder {
+    min-width: 180px;
+    min-height: 140px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    color: var(--color-text-muted);
   }
 
   .message-timestamp {

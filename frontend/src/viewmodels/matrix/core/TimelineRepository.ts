@@ -6,7 +6,7 @@ export interface RepoEvent {
   type: string; // SDK event.getType()
   sender: string;
   originServerTs: number;
-  content: any; // clear or encrypted content
+  content: matrixSdk.IContent; // clear or encrypted content
   unsigned?: any;
 }
 
