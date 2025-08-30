@@ -318,8 +318,8 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: #1e1e1e;
-    color: #e5e7eb;
+    background: var(--color-panel);
+    color: var(--color-text);
   }
 
   .room-header {
@@ -327,8 +327,8 @@
     align-items: center;
     justify-content: space-between;
     padding: 1rem 1.5rem;
-    background: #1e1e1e;
-    border-bottom: 1px solid #333;
+    background: var(--color-panel);
+    border-bottom: 1px solid var(--color-panel-border);
     position: sticky;
     top: 0;
     z-index: 10;
@@ -342,7 +342,7 @@
     flex-direction: column;
     gap: 0.25rem;
     /* Temporarily remove scroll-behavior: smooth from here */
-    background: #1e1e1e;
+    background: var(--color-panel);
   }
 
   .sentinel {
@@ -356,14 +356,14 @@
     justify-content: center;
     padding: 1rem 0;
     margin: 0.5rem 0;
-    color: #9ca3af;
+    color: var(--color-text-muted);
   }
 
   .loading-spinner {
     width: 16px;
     height: 16px;
     border: 2px solid #4a5568;
-    border-top: 2px solid #3b82f6;
+    border-top: 2px solid var(--color-bubble-self);
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }
@@ -396,36 +396,23 @@
     max-width: 75%;
     padding: 0.75rem 1rem;
     border-radius: 1rem;
-    background: #2a2a2a;
-    color: #e5e7eb;
+    background: var(--color-input-bg);
+    color: var(--color-text);
     position: relative;
     word-break: break-word;
     transition: all 0.2s ease;
     line-height: 1.35;
   }
   
-  .message-bubble:hover {
-    background: #333;
-  }
+  .message-bubble:hover { background: var(--color-bubble-other-hover); }
 
-  .message-bubble.self {
-    background: #3b82f6;
-    color: white;
-    margin-left: auto;
-  }
+  .message-bubble.self { background: var(--color-bubble-self); color: white; margin-left: auto; }
   
-  .message-bubble.self:hover {
-    background: #2563eb;
-  }
+  .message-bubble.self:hover { background: var(--color-bubble-self-hover); }
 
-  .message-bubble.other {
-    background: #1f2937;
-    color: #e5e7eb;
-  }
+  .message-bubble.other { background: var(--color-bubble-other); color: var(--color-text); }
   
-  .message-bubble.other:hover {
-    background: #374151;
-  }
+  .message-bubble.other:hover { background: var(--color-bubble-other-hover); }
 
   /* Bubble grouping styles */
   .message-bubble.first-in-group.other {
@@ -477,8 +464,8 @@
 
   .message-input-container {
     padding: 1rem 1.5rem;
-    background: #1e1e1e;
-    border-top: 1px solid #333;
+    background: var(--color-panel);
+    border-top: 1px solid var(--color-panel-border);
   }
 
   .input-wrapper {
@@ -493,10 +480,10 @@
     min-height: 2.5rem;
     max-height: 6rem;
     padding: 0.75rem 1rem;
-    border: 1px solid #555;
+    border: 1px solid var(--color-input-border);
     border-radius: 1.25rem;
-    background: #2a2a2a;
-    color: #e5e7eb;
+    background: var(--color-input-bg);
+    color: var(--color-text);
     font-size: 0.875rem;
     line-height: 1.4;
     resize: none;
@@ -505,7 +492,7 @@
   
   .message-input:focus {
     outline: none;
-    border-color: #3b82f6;
+    border-color: var(--color-bubble-self);
     box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
   }
   
@@ -529,14 +516,9 @@
     position: relative;
   }
 
-  .send-button.enabled {
-    background: #3b82f6;
-    color: white;
-  }
+  .send-button.enabled { background: var(--color-bubble-self); color: white; }
 
-  .send-button.enabled:hover {
-    background: #2563eb;
-  }
+  .send-button.enabled:hover { background: var(--color-bubble-self-hover); }
 
   .send-button.enabled:active {
     transform: scale(0.95);
@@ -553,9 +535,7 @@
     justify-content: center;
   }
 
-  .input-helper span {
-    color: #9ca3af;
-  }
+  .input-helper span { color: var(--color-text-muted); }
 
   /* Auto-resize textarea */
   .message-input {

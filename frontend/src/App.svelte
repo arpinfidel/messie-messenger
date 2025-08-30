@@ -6,6 +6,7 @@
   import SettingsPopup from './views/shared/SettingsPopup.svelte';
   import MatrixSettingsTab from './views/matrix/MatrixSettingsTab.svelte';
   import CloudAuthTab from './views/auth/CloudAuthTab.svelte';
+  import MatrixLogin from './views/matrix/MatrixLogin.svelte';
   let timelineWidth: number = 0;
   let timelineLeft: number = 0;
   let timelineContainer: HTMLDivElement;
@@ -13,34 +14,16 @@
   let selectedTimelineItem: any = null;
   let matrixViewModel: MatrixViewModel;
   let showSettingsPopup: boolean = false;
+  let loggedIn = false;
+  let loginStateChecked = false; // avoid showing overlay until init completes
 
-  // Temporary hardcoded credentials or prompt for them
-  let homeserverUrl: string = localStorage.getItem('matrixHomeserverUrl') || 'https://matrix.org';
-  let username: string = localStorage.getItem('matrixUsername') || '';
-  let password: string = '';
+  // Matrix login handled via MatrixLogin component now
 
   onMount(async () => {
     matrixViewModel = MatrixViewModel.getInstance(); // Use the singleton instance
     await matrixViewModel.initialize();
-
-    // Part 1.1: Add placeholder for Matrix login
-    if (!matrixViewModel.isLoggedIn()) {
-      // Assuming a method to check login status exists or can be added
-      homeserverUrl = prompt('Enter Matrix Homeserver URL:', homeserverUrl) || homeserverUrl;
-      username = prompt('Enter Matrix Username:', username) || username;
-      password = prompt('Enter Matrix Password:', '') || '';
-
-      localStorage.setItem('matrixHomeserverUrl', homeserverUrl);
-      localStorage.setItem('matrixUsername', username);
-
-      try {
-        await matrixViewModel.login(homeserverUrl, username, password);
-        console.log('Matrix login successful in App.svelte');
-      } catch (error) {
-        console.error('Matrix login failed in App.svelte:', error);
-        alert('Matrix login failed. Check console for details.');
-      }
-    }
+    loggedIn = matrixViewModel.isLoggedIn();
+    loginStateChecked = true;
   });
 
   $: if (timelineContainer) {
@@ -51,9 +34,9 @@
   }
 </script>
 
-<main class="grid h-screen grid-cols-[1fr_2fr] bg-gray-100">
+<main class="grid h-screen grid-cols-[1fr_2fr] bg-gray-900">
   <div
-    class="overflow-y-auto overflow-x-hidden border-r border-gray-300"
+    class="overflow-y-auto overflow-x-hidden border-r border-gray-800"
     bind:clientWidth={timelineWidth}
     bind:this={timelineContainer}
   >
@@ -77,6 +60,31 @@
     { name: 'Cloud Auth', component: CloudAuthTab },
   ]}
 />
+
+{#if loginStateChecked && !loggedIn}
+  <div class="fixed inset-0 z-50 bg-gray-900">
+    <MatrixLogin
+      on:login={async (e) => {
+        const { homeserverUrl, username, password, onError, onDone } = e.detail;
+        try {
+          await matrixViewModel.login(homeserverUrl, username, password);
+          loggedIn = matrixViewModel.isLoggedIn();
+          loginStateChecked = true;
+        } catch (err) {
+          console.error('Matrix login failed in App:', err);
+          const msg = err instanceof Error
+            ? err.message
+            : typeof err === 'string'
+            ? err
+            : undefined;
+          onError?.(msg || 'Login failed. Check details.');
+        } finally {
+          onDone?.();
+        }
+      }}
+    />
+  </div>
+{/if}
 
 <style>
   /* Your existing styles */

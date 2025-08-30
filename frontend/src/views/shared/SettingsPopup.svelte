@@ -19,12 +19,12 @@
 </script>
 
 {#if show}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-gray-600 bg-opacity-50">
-    <div class="flex max-h-[90vh] w-11/12 flex-col rounded-lg bg-white shadow-xl md:w-2/3 lg:w-1/2">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+    <div class="flex max-h-[90vh] w-11/12 flex-col rounded-xl border border-gray-700 bg-gray-900 text-gray-100 shadow-2xl md:w-2/3 lg:w-1/2">
       <!-- Header -->
-      <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-        <h2 class="text-xl font-semibold text-gray-800">Settings</h2>
-        <button on:click={closePopup} class="text-gray-500 hover:text-gray-700">
+      <div class="flex items-center justify-between border-b border-gray-700 px-6 py-4">
+        <h2 class="text-xl font-semibold">Settings</h2>
+        <button on:click={closePopup} class="text-gray-400 hover:text-gray-200">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             class="h-6 w-6"
@@ -45,13 +45,13 @@
       <!-- Tabs and Content -->
       <div class="flex flex-grow overflow-hidden">
         <!-- Tab Navigation -->
-        <nav class="flex flex-col space-y-2 border-r border-gray-200 bg-gray-50 p-4">
+        <nav class="flex flex-col space-y-2 border-r border-gray-700 bg-gray-800 p-4">
           {#each tabs as tab}
             <button
-              class="rounded-md px-4 py-2 text-left text-sm font-medium
+              class="rounded-md px-4 py-2 text-left text-sm font-medium transition-colors
                      {activeTabName === tab.name
-                ? 'bg-blue-500 text-white'
-                : 'text-gray-700 hover:bg-gray-200'}"
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-300 hover:bg-gray-700'}"
               on:click={() => (activeTabName = tab.name)}
             >
               {tab.name}
@@ -60,7 +60,7 @@
         </nav>
 
         <!-- Tab Content -->
-        <div class="flex-grow overflow-y-auto p-6">
+        <div class="flex-grow overflow-y-auto p-6 bg-gray-900 text-gray-100">
           {#each tabs as tab}
             {#if activeTabName === tab.name}
               <svelte:component this={tab.component} />

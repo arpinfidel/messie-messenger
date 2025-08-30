@@ -12,7 +12,7 @@
   }
 </script>
 
-<div class="flex-grow overflow-y-auto bg-gray-700 text-white">
+<div class="flex-grow overflow-y-auto bg-gray-900 text-gray-100">
   {#if selectedItem}
     {#if selectedItem.type === 'matrix'}
       <MatrixDetail item={selectedItem} className="h-full" />
@@ -28,6 +28,12 @@
       <p>Unknown item type selected.</p>
     {/if}
   {:else}
-    <p>No item selected.</p>
+    <div class="flex h-full flex-col items-center justify-center space-y-4">
+      <img src="/messie-logo.svg" alt="Messie Logo" class="h-16 w-16 opacity-80" />
+      <div class="text-center">
+        <p class="text-lg font-medium text-gray-200">No item selected</p>
+        <p class="text-sm text-gray-400">Choose something from the timeline to view details.</p>
+      </div>
+    </div>
   {/if}
 </div>

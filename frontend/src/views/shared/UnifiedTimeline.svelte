@@ -222,12 +222,14 @@
   </div>
 </div>
 
-<LoadingIndicator
-  show={isLoading}
-  width={`${timelineWidth + 1}px`}
-  left={`${timelineLeft}px`}
-  text={loadingText}
-/>
+<!-- Sidebar-scoped loading bar at the bottom -->
+<div class="px-0">
+  <LoadingIndicator
+    show={isLoading}
+    text={loadingText}
+    mode="inline"
+  />
+</div>
 
 <style>
   .timeline-container {

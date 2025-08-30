@@ -1,12 +1,13 @@
 <script lang="ts">
   export let show: boolean;
-  export let width: string = '100%'; // Default to full width
-  export let left: string = '0'; // Default to left edge
-  export let text: string = ''; // New prop for loading text
+  export let width: string = '100%'; // Used in fixed mode
+  export let left: string = '0'; // Used in fixed mode
+  export let text: string = '';
+  export let mode: 'fixed' | 'inline' = 'fixed';
 </script>
 
 {#if show}
-  <div class="loading-indicator" style="--width: {width}; --left: {left};">
+  <div class="loading-indicator {mode}" style="--width: {width}; --left: {left};">
     <div class="progress-bar"></div>
     {#if text}
       <span class="loading-text">{text}</span>
@@ -16,21 +17,34 @@
 
 <style>
   .loading-indicator {
-    position: fixed;
-    bottom: 0;
-    left: var(--left); /* Use CSS variable */
-    width: var(--width); /* Use CSS variable */
-    height: 20px; /* Increased height to accommodate text */
+    height: 20px;
     background-color: #2196f3;
-    z-index: 1000;
     overflow: hidden;
-    display: flex; /* For centering text */
+    display: flex;
     align-items: center;
     justify-content: center;
-    color: white; /* Text color */
-    font-size: 0.75rem; /* Small text */
+    color: white;
+    font-size: 0.75rem;
     font-weight: bold;
     text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+  }
+
+  /* Fixed (legacy) mode */
+  .loading-indicator.fixed {
+    position: fixed;
+    bottom: 0;
+    left: var(--left);
+    width: var(--width);
+    z-index: 1000;
+  }
+
+  /* Inline/sticky mode for sidebar */
+  .loading-indicator.inline {
+    position: sticky;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    z-index: 10; /* enough to sit above list items within the column */
   }
 
   .progress-bar {

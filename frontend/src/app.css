@@ -2,13 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* Base (dark) theme variables — prepare for theming */
+  --color-bg: #0f172a;           /* slate-900 */
+  --color-panel: #1e1e1e;        /* matrix detail bg */
+  --color-panel-border: #333333;
+  --color-text: #e5e7eb;         /* gray-200 */
+  --color-text-muted: #9ca3af;   /* gray-400 */
+  --color-bubble-self: #3b82f6;  /* blue-500 */
+  --color-bubble-self-hover: #2563eb; /* blue-600 */
+  --color-bubble-other: #1f2937; /* gray-800 */
+  --color-bubble-other-hover: #374151; /* gray-700 */
+  --color-input-bg: #2a2a2a;
+  --color-input-border: #555555;
+}
+
 html,
 body {
   overscroll-behavior: none;
 }
 
 html {
-  color-scheme: dark; /* Chrome/Edge/Firefox/Safari: native dark scrollbars */
+  color-scheme: dark; /* Native dark scrollbars */
+  background-color: var(--color-bg);
+  color: var(--color-text);
 }
 /* WebKit (Chrome, Edge, Safari) */
 ::-webkit-scrollbar {
