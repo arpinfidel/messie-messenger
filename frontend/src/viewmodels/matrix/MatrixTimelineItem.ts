@@ -36,8 +36,9 @@ export class MatrixTimelineItem implements IMatrixTimelineItem {
     rawData = {},
     sender = '',
   }: IMatrixTimelineItem) {
-    if (!id || !title || !timestamp) {
-      throw new Error('MatrixTimelineItem requires id, title, and timestamp.');
+    if (!id || !title) throw new Error('MatrixTimelineItem requires id and title.');
+    if (timestamp === undefined || timestamp === null || Number.isNaN(timestamp as any)) {
+      throw new Error('MatrixTimelineItem requires a numeric timestamp.');
     }
 
     this.id = id;

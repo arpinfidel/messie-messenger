@@ -12,10 +12,7 @@ import type { IModuleViewModel } from '../../shared/IModuleViewModel';
 import type { IMatrixTimelineItem } from '../MatrixTimelineItem';
 import { MatrixTimelineItem } from '../MatrixTimelineItem';
 import * as matrixSdk from 'matrix-js-sdk';
-import { EventTimeline, MatrixEvent, Room } from 'matrix-js-sdk';
-import { Direction } from 'matrix-js-sdk/lib/models/event-timeline';
-import { RoomEvent, ClientEvent, EventType } from 'matrix-js-sdk';
-import { writable, type Writable } from 'svelte/store';
+import { MatrixEvent } from 'matrix-js-sdk';
 import { matrixSettings } from '../MatrixSettings';
 import { VerificationMethod } from 'matrix-js-sdk/lib/types';
 import { logger } from 'matrix-js-sdk/lib/logger.js';
@@ -68,50 +65,8 @@ export class MatrixCryptoManager {
     }
   }
 
-  async retryDecryptAllRooms(): Promise<void> {
-    if (!this.client) return;
-    const rooms = this.client.getRooms() || [];
-    for (const room of rooms) {
-      await this.retryDecryptAll(room);
-    }
-  }
-
-  private getAllTimelines(room: matrixSdk.Room): matrixSdk.EventTimeline[] {
-    const sets = room.getTimelineSets();
-    const timelines: matrixSdk.EventTimeline[] = [];
-    for (const ts of sets) timelines.push(...ts.getTimelines());
-    return timelines;
-  }
-
-  private async retryDecryptAll(room: matrixSdk.Room): Promise<void> {
-    if (!this.client) return;
-    for (const tl of this.getAllTimelines(room)) {
-      for (const ev of tl.getEvents()) {
-        try {
-          if (ev.isEncrypted() && !ev.getClearContent()) {
-            console.log(
-              `[Decrypt] Attempting to decrypt event ${ev.getId()} in room ${room.roomId}`
-            );
-            await this.client.decryptEventIfNeeded(ev);
-            if (ev.getClearContent()) {
-              console.log(
-                `[Decrypt] Successfully decrypted event ${ev.getId()} in room ${room.roomId}`
-              );
-            } else {
-              console.log(
-                `[Decrypt] Event ${ev.getId()} in room ${room.roomId} still undecrypted after attempt.`
-              );
-            }
-          }
-        } catch (e) {
-          console.warn(
-            `[Decrypt] Failed to decrypt event ${ev.getId()} in room ${room.roomId}:`,
-            e
-          );
-        }
-      }
-    }
-  }
+  // Decryption retries are handled opportunistically by the data layer and
+  // event binder. No timeline iteration or scrollback here.
 
   async setupEncryptionSession(): Promise<void> {
     if (!this.client) return;
@@ -322,20 +277,8 @@ export class MatrixCryptoManager {
           vreq.off(VerificationRequestEvent.Change, onChange);
           resolve();
 
-          await this.retryDecryptAllRooms();
-
-          const rooms = this.client!.getRooms();
-          if (rooms.length) {
-            await this.client!.scrollback(rooms[0]);
-            const timelines = rooms[0].getLiveTimeline().getEvents();
-            for (const ev of timelines) {
-              if (ev.isEncrypted() && !ev.getClearContent()) {
-                try {
-                  await this.client!.decryptEventIfNeeded(ev);
-                } catch {}
-              }
-            }
-          }
+          // No scrollback or bulk timeline decryption here; background
+          // decryption updates propagate via event listeners.
           return;
         }
         if (phase === VerificationPhase.Cancelled) {

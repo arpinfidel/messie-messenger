@@ -32,6 +32,18 @@ export class MatrixEventBinder {
       } catch (e) {
         console.warn('[RoomEvent.Timeline] push failed:', e);
       }
+
+      // If the event is encrypted, update again when it decrypts later.
+      try {
+        const evAny: any = event as any;
+        if (event.isEncrypted() && !event.getClearContent() && evAny?.once) {
+          evAny.once('Event.decrypted', async () => {
+            try {
+              await this.timelineSvc.pushTimelineItemFromEvent(event, room);
+            } catch {}
+          });
+        }
+      } catch {}
     });
 
     client.on(ClientEvent.Sync, async (state) => {

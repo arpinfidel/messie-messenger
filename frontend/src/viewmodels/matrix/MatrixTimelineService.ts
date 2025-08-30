@@ -1,11 +1,11 @@
 import type * as matrixSdk from 'matrix-js-sdk';
-import { ClientEvent, EventTimeline, EventType, MatrixEvent, Room } from 'matrix-js-sdk';
+import { EventType, MatrixEvent, Room } from 'matrix-js-sdk';
 import { writable, type Writable } from 'svelte/store';
 
-import type { IModuleViewModel } from '../shared/IModuleViewModel';
 import { MatrixTimelineItem, type IMatrixTimelineItem } from './MatrixTimelineItem';
-import { RoomPreviewCache } from './RoomPreviewCache';
-import type { RepoEvent, TimelineRepository } from './core/TimelineRepository';
+import type { RepoEvent } from './core/TimelineRepository';
+import { MatrixDataStore } from './core/MatrixDataStore';
+import { MatrixDataLayer } from './core/MatrixDataLayer';
 
 export interface MatrixMessage {
   id: string;
@@ -28,26 +28,9 @@ export class MatrixTimelineService {
       isStarted: () => boolean;
       getHydrationState: () => 'idle' | 'syncing' | 'decrypting' | 'ready';
     },
-    private readonly repo: TimelineRepository // ← inject the repo
-  ) {
-    // Subscribe to timeline items and update cache
-    this._timelineItems.subscribe((items) => {
-      if (this.ctx.getHydrationState() !== 'ready') return;
-      if (!items.length) return;
-      // Save to localStorage cache
-      const cache = new RoomPreviewCache();
-      const previews = items.map((it) => ({
-        id: it.id,
-        title: it.title,
-        description: it.description || '', // Ensure description is always a string
-        timestamp: it.timestamp,
-      }));
-      // Ensure items are sorted by timestamp (latest first) before saving
-      // Also, only store the latest 100 items to avoid bloating the cache
-      previews.sort((a, b) => b.timestamp - a.timestamp).slice(0, 100);
-      cache.save(previews);
-    });
-  }
+    private readonly store: MatrixDataStore,
+    private readonly layer: MatrixDataLayer
+  ) {}
 
   private get client() {
     return this.ctx.getClient();
@@ -57,46 +40,45 @@ export class MatrixTimelineService {
     return this._timelineItems;
   }
 
-  /** Unified room list with their latest message preview. */
+  /** Unified room list with their latest message preview.
+   * Compute strictly from our MatrixDataStore instead of querying the SDK.
+   */
   async fetchAndSetTimelineItems(): Promise<void> {
-    if (!this.client || !this.ctx.isStarted() || this.ctx.getHydrationState() !== 'ready') return;
+    if (!this.ctx.isStarted() || this.ctx.getHydrationState() !== 'ready') return;
     if (this.listRefreshInFlight) return;
 
     this.listRefreshInFlight = true;
     try {
-      const rooms = this.client.getRooms() ?? [];
+      const rooms = this.store.getRooms();
 
-      const items = await Promise.all(
-        rooms.map(async (room) => {
-          const live = room.getLiveTimeline().getEvents();
-          // Prefer the last real message (plaintext or encrypted-with-clear)
-          const last = [...live]
-            .reverse()
-            .find(
-              (e) => e.getType() === EventType.RoomMessage || e.getType() === 'm.room.encrypted'
-            );
+      // Ensure at least one event (latest) is present to build previews.
+      // Do this via the data layer, not by reading the SDK directly here.
+      for (const r of rooms) {
+        if (!this.store.getLatestEvent(r.id)) {
+          try {
+            await this.layer.fetchInitial(r.id, 1);
+          } catch {}
+        }
+      }
 
-          let description = 'No recent messages';
-          let timestamp = 0;
-
-          if (last) {
-            const re = await this.repo.toRepoEvent(last);
-            if (re) {
-              const preview = this.repoEventToPreview(re);
-              description = preview.description;
-              timestamp = re.originServerTs || 0;
-            }
-          }
-
-          return new MatrixTimelineItem({
-            id: room.roomId,
-            type: 'matrix',
-            title: room.name || room.roomId,
-            description,
-            timestamp,
-          });
-        })
-      );
+      const items = rooms.map((room) => {
+        const last = this.store.getLatestEvent(room.id);
+        let description = 'No recent messages';
+        // Prefer stored latestTimestamp (may be loaded from IndexedDB even if events tail is sparse)
+        let timestamp = room.latestTimestamp || 0;
+        if (last) {
+          const preview = this.repoEventToPreview(last);
+          description = preview.description;
+          timestamp = last.originServerTs || timestamp || 0;
+        }
+        return new MatrixTimelineItem({
+          id: room.id,
+          type: 'matrix',
+          title: room.name || room.id,
+          description,
+          timestamp,
+        });
+      });
 
       // Sort items by timestamp in descending order (latest first)
       items.sort((a, b) => b.timestamp - a.timestamp);
@@ -121,17 +103,17 @@ export class MatrixTimelineService {
     }, delay);
   }
 
-  /** Live pipeline uses the repo for normalization (and decryption). */
+  /** Live pipeline: ingest event into store via data layer, then update preview. */
   async pushTimelineItemFromEvent(ev: MatrixEvent, room: Room) {
-    if (!this.client) return;
+    await this.layer.ingestLiveEvent(ev, room);
 
-    const re = await this.repo.toRepoEvent(ev);
-    if (!re) return;
-
-    const timestamp = re.originServerTs || Date.now();
+    const last = this.store.getLatestEvent(room.roomId);
+    const fallbackTs =
+      this.store.getRooms().find((r) => r.id === room.roomId)?.latestTimestamp || 0;
+    const timestamp = last?.originServerTs ?? fallbackTs;
     const id = room.roomId;
     const title = room.name || room.roomId;
-    const { description } = this.repoEventToPreview(re);
+    const { description } = last ? this.repoEventToPreview(last) : { description: '' };
 
     const updated = new MatrixTimelineItem({
       id,
@@ -172,16 +154,12 @@ export class MatrixTimelineService {
     fromToken: string | null,
     limit = 20
   ): Promise<{ messages: MatrixMessage[]; nextBatch: string | null }> {
-    if (!this.client) throw new Error('Client not initialized');
-
     if (!fromToken) {
-      const { events, toToken } = await this.repo.fetchInitial(roomId, limit);
+      const { events, toToken } = await this.layer.fetchInitial(roomId, limit);
       const messages = this.mapRepoEventsToMessages(events);
       return { messages, nextBatch: toToken };
     }
-
-    // Fallback to older (backward) page
-    const page = await this.repo.loadOlder(roomId, limit);
+    const page = await this.layer.loadOlder(roomId, limit);
     if (!page) return { messages: [], nextBatch: null };
     return { messages: this.mapRepoEventsToMessages(page.events), nextBatch: page.toToken };
   }
@@ -191,27 +169,26 @@ export class MatrixTimelineService {
     fromToken?: string | null,
     limit = 20
   ): Promise<{ messages: MatrixMessage[]; nextBatch: string | null }> {
-    // We ignore `fromToken` and use the repo's internal backward token from live timeline.
-    const page = await this.repo.loadOlder(roomId, limit);
+    // We ignore `fromToken` and use the store's backward token from live timeline.
+    const page = await this.layer.loadOlder(roomId, limit);
     if (!page) return { messages: [], nextBatch: null };
     return { messages: this.mapRepoEventsToMessages(page.events), nextBatch: page.toToken };
   }
 
   clearRoomPaginationTokens(roomId: string) {
-    this.repo.clearRoomState(roomId);
+    this.layer.clearRoom(roomId);
   }
 
   /* ---------------- Mapping helpers ---------------- */
 
   private mapRepoEventsToMessages(events: RepoEvent[]): MatrixMessage[] {
-    const currentUserId = this.client?.getUserId() ?? '';
+    const currentUserId = this.store.getCurrentUserId() ?? '';
     return events
       .filter((re) => re.type === EventType.RoomMessage || re.type === 'm.room.encrypted')
       .map((re) => {
         const { description } = this.repoEventToPreview(re);
         const isSelf = re.sender === currentUserId;
-        const room = this.client?.getRoom(re.roomId);
-        const senderDisplayName = room?.getMember(re.sender)?.rawDisplayName || re.sender; // Get display name
+        const senderDisplayName = re.sender; // Keep data-layer-only: avoid SDK lookup here
         return {
           id: re.eventId || `${Date.now()}-${Math.random()}`,
           sender: re.sender || 'unknown sender',

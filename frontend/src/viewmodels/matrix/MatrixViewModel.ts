@@ -12,14 +12,14 @@ import {
 } from '@/viewmodels/matrix/MatrixTimelineItem';
 import { matrixSettings } from '@/viewmodels/matrix/MatrixSettings';
 import { MatrixTimelineService } from '@/viewmodels/matrix/MatrixTimelineService';
-import { RoomPreviewCache } from '@/viewmodels/matrix/RoomPreviewCache';
 
 import { MatrixSessionStore, type MatrixSessionData } from './core/MatrixSessionStore';
 import { MatrixClientManager } from './core/MatrixClientManager';
 import { OutgoingMessageQueue } from './core/OutgoingMessageQueue';
 import { MatrixEventBinder } from './core/MatrixEventBinder';
 import { MatrixCryptoManager } from './core/MatrixCryptoManager';
-import { TimelineRepository } from './core/TimelineRepository';
+import { MatrixDataStore } from './core/MatrixDataStore';
+import { MatrixDataLayer } from './core/MatrixDataLayer';
 
 export class MatrixViewModel implements IModuleViewModel {
   private static instance: MatrixViewModel;
@@ -31,24 +31,25 @@ export class MatrixViewModel implements IModuleViewModel {
   private sessionStore = new MatrixSessionStore();
   private clientMgr = new MatrixClientManager();
   private cryptoMgr = new MatrixCryptoManager({ getClient: () => this.clientMgr.getClient() });
+  private dataStore = new MatrixDataStore();
+  private dataLayer = new MatrixDataLayer(this.dataStore, {
+    getClient: () => this.clientMgr.getClient(),
+    shouldIncludeEvent: (ev) =>
+      ev.getType() === 'm.room.message' || ev.getType() === 'm.room.encrypted',
+    tryDecryptEvent: async (ev) => {
+      const c = this.clientMgr.getClient() as any;
+      if (c?.decryptEventIfNeeded) await c.decryptEventIfNeeded(ev);
+    },
+    pageSize: 20,
+  });
   private timelineSvc = new MatrixTimelineService(
     {
       getClient: () => this.clientMgr.getClient(),
       isStarted: () => this.clientMgr.isStarted(),
       getHydrationState: () => this.hydrationState,
     },
-    new TimelineRepository({
-      getClient: () => this.clientMgr.getClient(),
-      // optional filters (keep only message-like events in repo if you want)
-      shouldIncludeEvent: (ev) =>
-        ev.getType() === 'm.room.message' || ev.getType() === 'm.room.encrypted',
-      // decryption hook (SDK method is optional across versions)
-      tryDecryptEvent: async (ev) => {
-        const c = this.clientMgr.getClient() as any;
-        if (c?.decryptEventIfNeeded) await c.decryptEventIfNeeded(ev);
-      },
-      pageSize: 20,
-    })
+    this.dataStore,
+    this.dataLayer
   );
   private queue = new OutgoingMessageQueue(() => this.clientMgr.getClient());
   private binder = new MatrixEventBinder(
@@ -86,16 +87,11 @@ export class MatrixViewModel implements IModuleViewModel {
   }
 
   public getCurrentUserId(): string {
-    return this.clientMgr.getClient()?.getUserId() || 'unknown';
+    return this.dataStore.getCurrentUserId() || 'unknown';
   }
 
   public getCurrentUserDisplayName(): string {
-    const client = this.clientMgr.getClient();
-    if (!client) return 'unknown';
-    const userId = client.getUserId();
-    if (!userId) return 'unknown'; // Handle null userId
-    const room = client.getVisibleRooms()[0]; // Assuming any visible room will have the member info
-    return room?.getMember(userId)?.rawDisplayName || userId || 'unknown';
+    return this.dataStore.getCurrentUserDisplayName() || 'unknown';
   }
 
   public async getRoomMessages(roomId: string, fromToken: string | null, limit = 20) {
@@ -106,6 +102,15 @@ export class MatrixViewModel implements IModuleViewModel {
   }
   public clearRoomPaginationTokens(roomId: string) {
     this.timelineSvc.clearRoomPaginationTokens(roomId);
+  }
+
+  // Query cached events by room directly from IndexedDB cache (new)
+  public async queryCachedRoomEvents(
+    roomId: string,
+    limit = 50,
+    beforeTs?: number
+  ) {
+    return this.dataLayer.queryEventsByRoom(roomId, limit, beforeTs);
   }
 
   public async verifyCurrentDevice(): Promise<void> {
@@ -128,25 +133,12 @@ export class MatrixViewModel implements IModuleViewModel {
       return;
     }
 
-    const cache = new RoomPreviewCache();
-    const cached = cache.load();
-    if (cached.length) {
-      console.log(`[MatrixVM] restoring ${cached.length} room previews from cache`);
-      const items = cached.map(
-        (p) =>
-          new MatrixTimelineItem({
-            id: p.id,
-            type: 'matrix',
-            title: p.title,
-            description: p.description,
-            timestamp: p.timestamp,
-          })
-      );
-      this.timelineSvc.getTimelineItemsStore().set(items);
-      this.hydrationState = 'ready'; // show UI now
-      console.log('[MatrixVM] hydrationState → ready (from cache)');
-    } else {
-      console.log('[MatrixVM] no room previews in cache');
+    // Load persistent cache via data layer (rooms, events, tokens)
+    const hadCache = this.dataLayer.loadFromCache();
+    if (hadCache) {
+      console.log('[MatrixVM] restored store from persistent cache');
+      await this.timelineSvc.fetchAndSetTimelineItems();
+      this.hydrationState = 'ready';
     }
 
     console.time('[MatrixVM] cryptoCallbacks setup');
@@ -168,6 +160,12 @@ export class MatrixViewModel implements IModuleViewModel {
     console.time('[MatrixVM] create client');
     await this.clientMgr.createFromSession(restored, cryptoCallbacks);
     console.timeEnd('[MatrixVM] create client');
+
+    // Initialize current user info in our store (display name may be filled later if desired)
+    if (restored.userId) {
+      this.dataStore.setCurrentUser(restored.userId);
+      this.dataLayer.saveToCache();
+    }
 
     console.time('[MatrixVM] initRustCrypto');
     await this.clientMgr.initCryptoIfNeeded();
@@ -215,6 +213,9 @@ export class MatrixViewModel implements IModuleViewModel {
     await this.clientMgr.waitForPrepared();
     console.timeEnd('[MatrixVM] waitForPrepared');
 
+    // Populate rooms into the store once the client is prepared
+    this.dataLayer.ingestInitialRooms();
+
     this.hydrationState = 'decrypting';
     console.time('[MatrixVM] crypto.ensureVerificationAndKeys');
     await this.cryptoMgr.ensureVerificationAndKeys();
@@ -228,9 +229,7 @@ export class MatrixViewModel implements IModuleViewModel {
     await this.cryptoMgr.restoreFromRecoveryKey();
     console.timeEnd('[MatrixVM] crypto.restoreFromRecoveryKey');
 
-    console.time('[MatrixVM] crypto.retryDecryptAllRooms');
-    await this.cryptoMgr.retryDecryptAllRooms();
-    console.timeEnd('[MatrixVM] crypto.retryDecryptAllRooms');
+    // Background decryption updates are handled via binder events; no bulk retries here.
 
     console.time('[MatrixVM] fetch timeline items');
     await this.timelineSvc.fetchAndSetTimelineItems();

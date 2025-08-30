@@ -9,6 +9,8 @@
   const now = new Date();
 
   function formatTimelineDate(timestamp: number): string {
+    // Blank out missing/zero timestamps
+    if (!timestamp || !Number.isFinite(timestamp) || timestamp <= 0) return '';
     const date = new Date(timestamp);
 
     if (isSameDay(date, now)) {
