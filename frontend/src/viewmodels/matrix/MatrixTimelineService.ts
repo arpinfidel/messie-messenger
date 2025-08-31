@@ -6,7 +6,8 @@ import { MatrixTimelineItem, type IMatrixTimelineItem } from './MatrixTimelineIt
 import type { RepoEvent } from './core/TimelineRepository';
 import { MatrixDataStore } from './core/MatrixDataStore';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
-import type { ImageContent, EncryptedFile } from 'matrix-js-sdk/lib/@types/media';
+import type { ImageContent } from 'matrix-js-sdk/lib/@types/media';
+import { MediaResolver } from './core/MediaResolver';
 
 export interface MatrixMessage {
   id: string;
@@ -26,9 +27,7 @@ export class MatrixTimelineService {
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private listRefreshInFlight = false;
   private pendingLiveEvents: Array<{ ev: MatrixEvent; room: Room }> = [];
-  private imageBlobCache: Map<string, { url: string; ts: number; bytes: number; mime: string }> = new Map();
-  private inflightImageResolvers: Map<string, Promise<string | undefined>> = new Map();
-  private readonly imageCacheMaxEntries = 200;
+  private mediaResolver = new MediaResolver(() => this.client);
 
   constructor(
     private readonly ctx: {
@@ -213,8 +212,9 @@ export class MatrixTimelineService {
 
       if (msgtype === matrixSdk.MsgType.Image) {
         const content = re.content as ImageContent;
-        msg.mxcUrl = content.file?.url;
-        const p = this.resolveEncryptedImageBlobUrl(content)
+        msg.mxcUrl = content.file?.url ?? content.url;
+        const p = this.mediaResolver
+          .resolveImage(content)
           .then((blobUrl) => {
             if (blobUrl) msg.imageUrl = blobUrl;
           })
@@ -229,151 +229,9 @@ export class MatrixTimelineService {
     return msgs;
   }
 
-  private async resolveEncryptedImageBlobUrl(content: ImageContent): Promise<string | undefined> {
-    const cacheKey = this.computeImageCacheKey(content);
-    const cached = cacheKey ? this.imageBlobCache.get(cacheKey) : undefined;
-    if (cached) {
-      cached.ts = Date.now();
-      return cached.url;
-    }
-    if (cacheKey && this.inflightImageResolvers.has(cacheKey)) {
-      return this.inflightImageResolvers.get(cacheKey)!;
-    }
-
-    const client = this.client;
-    if (!client) return undefined;
-
-    // Prefer thumbnail_file if present (smaller), else main file
-    const encThumb = content.info?.thumbnail_file as EncryptedFile | undefined;
-    const enc = encThumb ?? content.file;
-    if (!enc) {
-      // Unencrypted image fallback
-      if (content.url) {
-        const http = client.mxcUrlToHttp(content.url, 1024, 1024, 'scale', false, true, false);
-        return http || undefined;
-      }
-      return undefined;
-    }
-
-    // Build authenticated media URL (download, not thumbnail) for ciphertext
-    const url = client.mxcUrlToHttp(
-      enc.url,
-      undefined,
-      undefined,
-      undefined,
-      false,
-      undefined,
-      true
-    );
-    const token = client.getAccessToken();
-    if (!url) return undefined;
-
-    const headers: Record<string, string> = {};
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
-    const resolver = (async () => {
-      try {
-      const res = await fetch(url, { headers, redirect: 'follow' });
-      if (!res.ok) return undefined;
-      const cipherBuf = await res.arrayBuffer();
-
-      // Optional integrity check: verify ciphertext SHA-256 matches provided hash
-      const expectedHash = enc.hashes?.sha256;
-      if (typeof expectedHash === 'string' && expectedHash.length > 0) {
-        const digest = await crypto.subtle.digest('SHA-256', cipherBuf);
-        const got = this.toBase64Unpadded(new Uint8Array(digest));
-        if (got !== this.normalizeBase64(expectedHash)) {
-          return undefined; // hash mismatch
-        }
-      }
-
-      // Import JWK and decrypt (AES-CTR, 256-bit). IV is 16-byte unpadded base64.
-      const jwk = enc.key as JsonWebKey;
-      const key = await crypto.subtle.importKey('jwk', jwk, { name: 'AES-CTR' }, false, [
-        'decrypt',
-      ]);
-      const ivBytes = this.fromBase64Unpadded(enc.iv);
-      if (ivBytes.length !== 16) return undefined;
-      // Copy into a Uint8Array backed by an ArrayBuffer (satisfies BufferSource typing)
-      const counter = new Uint8Array(16);
-      counter.set(ivBytes);
-      const plainBuf = await crypto.subtle.decrypt(
-        { name: 'AES-CTR', counter, length: 64 },
-        key,
-        cipherBuf
-      );
-
-      const mime = content.info?.mimetype || 'application/octet-stream';
-      const blob = new Blob([plainBuf], {
-        type: typeof mime === 'string' ? mime : 'application/octet-stream',
-      });
-      const blobUrl = URL.createObjectURL(blob);
-      if (cacheKey) {
-        this.imageBlobCache.set(cacheKey, {
-          url: blobUrl,
-          ts: Date.now(),
-          bytes: (plainBuf as ArrayBuffer).byteLength,
-          mime: typeof mime === 'string' ? mime : 'application/octet-stream',
-        });
-        this.evictOldImageBlobs();
-      }
-      return blobUrl;
-    } catch {
-      return undefined;
-    }
-    })();
-
-    if (cacheKey) this.inflightImageResolvers.set(cacheKey, resolver);
-    try {
-      return await resolver;
-    } finally {
-      if (cacheKey) this.inflightImageResolvers.delete(cacheKey);
-    }
-  }
-
-  // ---- Base64 helpers (unpadded, url-safe handling) ----
-  private normalizeBase64(s: string): string {
-    // convert base64url -> base64 and strip padding for comparison
-    return s.replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/, '');
-  }
-  private toBase64Unpadded(bytes: Uint8Array): string {
-    let binary = '';
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    return btoa(binary).replace(/=+$/, '');
-  }
-  private fromBase64Unpadded(s: string): Uint8Array {
-    const base64 = this.normalizeBase64(s);
-    const padded = base64 + '='.repeat((4 - (base64.length % 4 || 4)) % 4);
-    const binary = atob(padded);
-    const out = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-    return out;
-  }
-
-  private computeImageCacheKey(content: ImageContent): string | undefined {
-    const thumb = content.info?.thumbnail_file as EncryptedFile | undefined;
-    const file = thumb ?? (content.file as EncryptedFile | undefined);
-    if (file?.url) {
-      const hash = file.hashes?.sha256 ? this.normalizeBase64(file.hashes.sha256) : '';
-      const tag = thumb ? 't' : 'f';
-      return `enc|${tag}|${file.url}|sha256=${hash}`;
-    }
-    if (content.url) {
-      return `plain|${content.url}|w=1024|h=1024|m=scale`;
-    }
-    return undefined;
-  }
-
-  private evictOldImageBlobs(): void {
-    const over = this.imageBlobCache.size - this.imageCacheMaxEntries;
-    if (over <= 0) return;
-    const entries = Array.from(this.imageBlobCache.entries());
-    entries.sort((a, b) => a[1].ts - b[1].ts);
-    for (let i = 0; i < over; i++) {
-      const [key, entry] = entries[i];
-      try { URL.revokeObjectURL(entry.url); } catch {}
-      this.imageBlobCache.delete(key);
-    }
+  // Media cache management
+  clearMediaCache(): void {
+    this.mediaResolver.clear();
   }
 
   /** Create a human preview from RepoEvent content (works for decrypted encrypted). */

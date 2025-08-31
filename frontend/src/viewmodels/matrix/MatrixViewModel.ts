@@ -104,12 +104,13 @@ export class MatrixViewModel implements IModuleViewModel {
     this.timelineSvc.clearRoomPaginationTokens(roomId);
   }
 
+  // Media cache management
+  public clearMediaCache(): void {
+    this.timelineSvc.clearMediaCache();
+  }
+
   // Query cached events by room directly from IndexedDB cache (new)
-  public async queryCachedRoomEvents(
-    roomId: string,
-    limit = 50,
-    beforeTs?: number
-  ) {
+  public async queryCachedRoomEvents(roomId: string, limit = 50, beforeTs?: number) {
     return this.dataLayer.queryEventsByRoom(roomId, limit, beforeTs);
   }
 

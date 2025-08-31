@@ -35,6 +35,11 @@
     }
   }
 
+  onDestroy(() => {
+    // Release any blob URLs held by the media cache to avoid memory leaks
+    try { matrixViewModel.clearMediaCache(); } catch {}
+  });
+
   async function ensureScrollable() {
     let safety = 10;
     while (
