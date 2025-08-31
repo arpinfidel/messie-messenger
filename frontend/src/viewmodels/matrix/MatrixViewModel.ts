@@ -58,7 +58,6 @@ export class MatrixViewModel implements IModuleViewModel {
     this.timelineSvc,
     this.queue
   );
-  private cacheFirstRendered = false; // ensure we push a cache-only render as soon as rooms land
 
   private constructor() {}
 
@@ -138,27 +137,15 @@ export class MatrixViewModel implements IModuleViewModel {
     // Load persistent cache via data layer (rooms, events, tokens)
     const hadCache = this.dataLayer.loadFromCache(5, () => {
       try {
-        if (!this.cacheFirstRendered) {
-          this.cacheFirstRendered = true;
-          console.log('[MatrixVM] onHydrated → immediate cache-only render');
-          // Render without waiting for any timers or client readiness
-          this.timelineSvc.fetchAndSetTimelineItems(true);
-        } else {
-          console.log('[MatrixVM] onHydrated → scheduleTimelineRefresh(0)');
-          this.timelineSvc.scheduleTimelineRefresh(0);
-        }
-      } catch {}
+        console.log('[MatrixVM] onHydrated → immediate cache-only render');
+        // Render without waiting for any timers or client readiness
+        this.timelineSvc.fetchAndSetTimelineItems(true);
+        this.hydrationState = 'ready';
+        console.log('[MatrixVM] onHydrated → scheduleTimelineRefresh(0)');
+      } catch (err) {
+        console.error('onHydrated error:', err);
+      }
     });
-    if (hadCache) {
-      console.log('[MatrixVM] restored store from persistent cache');
-      // Mark as ready for UI so cache-based timeline can render while crypto spins up
-      this.hydrationState = 'ready';
-      console.log('[MatrixVM] set hydrationState=ready (cache-first render)');
-      // Force a cache-only pass before any client/crypto work begins
-      await this.timelineSvc.fetchAndSetTimelineItems(true);
-      // Schedule one more refresh soon to catch late-arriving cache hydration
-      this.timelineSvc.scheduleTimelineRefresh(200);
-    }
 
     console.time('[MatrixVM] cryptoCallbacks setup');
     const cryptoCallbacks: CryptoCallbacks = {};
@@ -193,29 +180,29 @@ export class MatrixViewModel implements IModuleViewModel {
     if (!this.clientMgr.isStarted()) {
       console.time('[MatrixVM] startClient');
 
-      // const minimalFilterDef: matrixSdk.IFilterDefinition = {
-      //   room: {
-      //     timeline: {
-      //       limit: 1,
-      //       types: ['m.room.message', 'm.room.encrypted'],
-      //     },
-      //     state: { lazy_load_members: true },
-      //     ephemeral: { types: [] },
-      //   },
-      //   presence: { types: [] },
-      //   event_format: 'client',
-      //   event_fields: ['type', 'content', 'sender', 'origin_server_ts', 'event_id', 'room_id'],
-      // };
+      const minimalFilterDef: matrixSdk.IFilterDefinition = {
+        room: {
+          timeline: {
+            limit: 30,
+            types: ['m.room.message', 'm.room.encrypted'],
+          },
+          state: { lazy_load_members: true },
+          ephemeral: { types: [] },
+        },
+        presence: { types: [] },
+        event_format: 'client',
+        event_fields: ['type', 'content', 'sender', 'origin_server_ts', 'event_id', 'room_id'],
+      };
 
-      // // Wrap in a Filter instance
-      // const filter = new matrixSdk.Filter(this.clientMgr.getClient()?.getUserId(), undefined);
-      // filter.setDefinition(minimalFilterDef);
+      // Wrap in a Filter instance
+      const filter = new matrixSdk.Filter(this.clientMgr.getClient()?.getUserId(), undefined);
+      filter.setDefinition(minimalFilterDef);
 
       await this.clientMgr.start({
-        // filter: filter,
-        // pollTimeout: 0,
-        // lazyLoadMembers: true,
-        // initialSyncLimit: 1,
+        filter: filter,
+        pollTimeout: 0,
+        lazyLoadMembers: true,
+        initialSyncLimit: 5,
       });
       console.timeEnd('[MatrixVM] startClient');
     }

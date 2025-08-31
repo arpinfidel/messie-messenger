@@ -5,6 +5,9 @@
   import type { TimelineItem } from '../../models/shared/TimelineItem';
   import { writable, get } from 'svelte/store';
   import type { MatrixMessage } from '@/viewmodels/matrix/MatrixTimelineService';
+  import RoomHeader from './components/RoomHeader.svelte';
+  import MessageItem from './components/MessageItem.svelte';
+  import MessageInput from './components/MessageInput.svelte';
 
   export let item: TimelineItem;
   export let className: string = '';
@@ -74,9 +77,7 @@
     const prevScrollHeight = messagesContainer?.scrollHeight ?? 0;
     const prevScrollTop = messagesContainer?.scrollTop ?? 0;
 
-    const { messages: olderMessages, nextBatch } =
-      (await matrixViewModel.loadOlderMessages(item.id, nextBatchToken)) ??
-      (await matrixViewModel.loadOlderMessages(item.id));
+    const { messages: olderMessages, nextBatch } = await matrixViewModel.loadOlderMessages(item.id, nextBatchToken);
 
     console.debug(
       `[MatrixDetail][loadMoreMessages] got ${olderMessages?.length || 0} older messages, new nextBatch=${nextBatch}`
@@ -153,17 +154,14 @@
     }
   });
 
-  let messageInput: string = '';
   let isSending = false;
 
-  async function sendMessage() {
-    if (!messageInput.trim() || !item?.id || isSending) {
+  async function sendMessage(content: string) {
+    if (!content.trim() || !item?.id || isSending) {
       return;
     }
-    
+
     const roomId = item.id;
-    const content = messageInput;
-    messageInput = '';
     isSending = true;
 
     try {
@@ -184,48 +182,17 @@
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     } catch (e) {
       console.error('[MatrixDetail][sendMessage] Failed to send message:', e);
-      messageInput = content;
+      // Let the input component keep the text if sending fails
     } finally {
       isSending = false;
     }
   }
 
-  function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
-  }
-
   $: formattedRoomName = item.title || 'Matrix Room';
-  $: canSend = messageInput.trim().length > 0 && !isSending;
 </script>
 
 <div class="matrix-detail-panel {className}">
-  <!-- Enhanced Header -->
-  <div class="room-header">
-    <div class="flex items-center space-x-3">
-      <!-- Room icon -->
-      <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg">
-        <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-        </svg>
-      </div>
-      <div>
-        <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{formattedRoomName}</h2>
-        <p class="text-sm text-gray-500 dark:text-gray-400">{$messages.length} messages</p>
-      </div>
-    </div>
-    
-    <!-- Room actions -->
-    <div class="flex items-center space-x-2">
-      <button class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300">
-        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      </button>
-    </div>
-  </div>
+  <RoomHeader title={formattedRoomName} messageCount={$messages.length} />
 
   <!-- Messages Container -->
   <div class="messages-container" bind:this={messagesContainer}>
@@ -256,95 +223,11 @@
     {#each $messages as message, index (message.id)}
       {@const isFirstInGroup = index === 0 || $messages[index - 1].sender !== message.sender}
       {@const isLastInGroup = index === $messages.length - 1 || $messages[index + 1].sender !== message.sender}
-      
-      <div class="message-wrapper {message.isSelf ? 'self' : 'other'}">
-        {#if !message.isSelf}
-          <div class="avatar-slot other">
-            {#if isFirstInGroup && message.senderAvatarUrl}
-              <img src={message.senderAvatarUrl} alt={message.senderDisplayName} class="avatar-small" />
-            {:else}
-              <div class="avatar-spacer"></div>
-            {/if}
-          </div>
-        {/if}
-        <div class="message-bubble {message.isSelf ? 'self' : 'other'} {isFirstInGroup ? 'first-in-group' : ''} {isLastInGroup ? 'last-in-group' : ''}">
-          <!-- Sender name (only for first message in group from others) -->
-          {#if !message.isSelf && isFirstInGroup}
-            <div class="sender-name">{message.senderDisplayName}</div>
-          {/if}
-
-          <!-- Message content -->
-          {#if message.msgtype === 'm.image'}
-            <div class="image-wrapper">
-              {#if message.imageUrl}
-                <img
-                  src={message.imageUrl}
-                  alt={message.description}
-                  class="message-image"
-                  referrerpolicy="no-referrer"
-                  loading="lazy"
-                />
-              {:else}
-                <div class="image-placeholder">
-                  <div class="loading-spinner small"></div>
-                  <span>Decrypting image…</span>
-                </div>
-              {/if}
-            </div>
-          {:else}
-            <div class="message-content">{message.description}</div>
-          {/if}
-          
-          <!-- Timestamp (only on last message in group) -->
-          {#if isLastInGroup}
-            <div class="message-timestamp">
-              {new Date(message.timestamp).toLocaleTimeString('en-US', { 
-                hour: '2-digit', 
-                minute: '2-digit',
-                hour12: false 
-              })}
-            </div>
-          {/if}
-        </div>
-      </div>
+      <MessageItem {message} {isFirstInGroup} {isLastInGroup} />
     {/each}
   </div>
 
-  <!-- Enhanced Message Input -->
-  <div class="message-input-container">
-    <div class="input-wrapper">
-      <textarea
-        bind:value={messageInput}
-        on:keydown={handleKeydown}
-        placeholder="Type your message... (Shift+Enter for new line)"
-        class="message-input"
-        rows="1"
-        disabled={isSending}
-      ></textarea>
-      
-      <button
-        on:click={sendMessage}
-        disabled={!canSend}
-        class="send-button {canSend ? 'enabled' : 'disabled'}"
-        title={isSending ? 'Sending...' : 'Send message'}
-      >
-        {#if isSending}
-          <div class="loading-spinner small"></div>
-        {:else}
-          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-          </svg>
-        {/if}
-      </button>
-    </div>
-    
-    <!-- Input helper text -->
-    <div class="input-helper">
-      <span class="text-xs text-gray-500 dark:text-gray-400">
-        Press Enter to send • Shift+Enter for new line
-      </span>
-    </div>
-  </div>
+  <MessageInput {isSending} on:send={(e) => sendMessage(e.detail)} />
 </div>
 
 <style>
@@ -354,18 +237,6 @@
     height: 100%;
     background: var(--color-panel);
     color: var(--color-text);
-  }
-
-  .room-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 1rem 1.5rem;
-    background: var(--color-panel);
-    border-bottom: 1px solid var(--color-panel-border);
-    position: sticky;
-    top: 0;
-    z-index: 10;
   }
 
   .messages-container {
@@ -413,233 +284,5 @@
     100% { transform: rotate(360deg); }
   }
 
-  .message-wrapper {
-    display: flex;
-    margin-bottom: 2px;
-    }
-  
-  .message-wrapper.self {
-    justify-content: flex-end;
-  }
-  
-  .message-wrapper.other {
-    justify-content: flex-start;
-  }
 
-  /* Avatar column and alignment */
-  .avatar-slot {
-    width: 28px;
-    display: flex;
-    align-items: flex-start;
-    flex-shrink: 0;
-  }
-  .avatar-slot.other { margin-right: 8px; }
-  .avatar-slot.self { margin-left: 8px; }
-
-  .avatar-small {
-    width: 24px;
-    height: 24px;
-    border-radius: 9999px;
-    object-fit: cover;
-  }
-  .avatar-spacer { width: 24px; height: 24px; }
-
-  .message-bubble {
-    max-width: 75%;
-    /* Compact padding for tighter bubbles */
-    padding: 0.5rem 0.625rem; /* 8px 10px */
-    border-radius: 1rem;
-    background: var(--color-input-bg);
-    color: var(--color-text);
-    position: relative;
-    word-break: break-word;
-    transition: all 0.2s ease;
-    line-height: 1.3;
-  }
-  
-  .message-bubble:hover { background: var(--color-bubble-other-hover); }
-
-  .message-bubble.self { background: var(--color-bubble-self); color: white; margin-left: auto; }
-  
-  .message-bubble.self:hover { background: var(--color-bubble-self-hover); }
-
-  .message-bubble.other { background: var(--color-bubble-other); color: var(--color-text); }
-  
-  .message-bubble.other:hover { background: var(--color-bubble-other-hover); }
-
-  /* Bubble grouping styles */
-  .message-bubble.first-in-group.other {
-    border-top-left-radius: 1rem;
-    margin-top: 6px;
-  }
-  
-  .message-bubble.first-in-group.self {
-    border-top-right-radius: 1rem;
-    margin-top: 6px;
-  }
-  
-  .message-bubble.last-in-group.other {
-    border-bottom-left-radius: 1rem;
-    margin-bottom: 0.75rem;
-  }
-  
-  .message-bubble.last-in-group.self {
-    border-bottom-right-radius: 1rem;
-    margin-bottom: 0.75rem;
-  }
-
-  /* Reserve space only on the last line (see ::after below) */
-  
-  .message-bubble:not(.first-in-group):not(.last-in-group).other {
-    border-top-left-radius: 0.25rem;
-    border-bottom-left-radius: 0.25rem;
-  }
-  
-  .message-bubble:not(.first-in-group):not(.last-in-group).self {
-    border-top-right-radius: 0.25rem;
-    border-bottom-right-radius: 0.25rem;
-  }
-
-  .sender-name {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #60a5fa;
-    margin-bottom: 0.25rem;
-  }
-
-  .message-content {
-    white-space: pre-wrap;
-    display: inline; /* allow end-of-line spacer without affecting previous lines */
-    line-height: 1.4;
-  }
-
-  .message-image {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;
-    display: block;
-    border-radius: 0.5rem;
-  }
-
-  /* Image container with size limits */
-  .image-wrapper {
-    max-width: 360px;
-    max-height: 360px;
-    width: 100%;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    border-radius: 0.5rem;
-    background: var(--color-input-bg);
-  }
-
-  .image-placeholder {
-    min-width: 180px;
-    min-height: 140px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
-    color: var(--color-text-muted);
-  }
-
-  .message-timestamp {
-    font-size: 0.65rem;
-    line-height: 1; /* avoid adding height */
-    opacity: 0.7;
-    position: absolute;
-    right: 0.5rem;
-    bottom: 0.35rem; /* align with bottom-most text line */
-    margin: 0; /* no extra vertical space */
-    text-align: right;
-    pointer-events: none; /* avoid intercepting clicks */
-  }
-
-  /* Inline spacer that only affects the last text line when we do show timestamp */
-  .message-bubble.last-in-group .message-content::after {
-    content: '';
-    display: inline-block;
-    width: 3ch; /* approximate width for HH:MM + small gap */
-  }
-
-  .message-input-container {
-    padding: 1rem 1.5rem;
-    background: var(--color-panel);
-    border-top: 1px solid var(--color-panel-border);
-  }
-
-  .input-wrapper {
-    display: flex;
-    align-items: flex-end;
-    gap: 0.75rem;
-    margin-bottom: 0.5rem;
-  }
-
-  .message-input {
-    flex: 1;
-    min-height: 2.5rem;
-    max-height: 6rem;
-    padding: 0.75rem 1rem;
-    border: 1px solid var(--color-input-border);
-    border-radius: 1.25rem;
-    background: var(--color-input-bg);
-    color: var(--color-text);
-    font-size: 0.875rem;
-    line-height: 1.4;
-    resize: none;
-    transition: all 0.2s ease;
-  }
-  
-  .message-input:focus {
-    outline: none;
-    border-color: var(--color-bubble-self);
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-  }
-  
-  .message-input:disabled {
-    opacity: 0.6;
-    cursor: not-allowed;
-  }
-
-  .send-button {
-    flex-shrink: 0;
-    width: 2.5rem;
-    height: 2.5rem;
-    border: none;
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    position: relative;
-  }
-
-  .send-button.enabled { background: var(--color-bubble-self); color: white; }
-
-  .send-button.enabled:hover { background: var(--color-bubble-self-hover); }
-
-  .send-button.enabled:active {
-    transform: scale(0.95);
-  }
-
-  .send-button.disabled {
-    background: #4a5568;
-    color: #9ca3af;
-    cursor: not-allowed;
-  }
-
-  .input-helper {
-    display: flex;
-    justify-content: center;
-  }
-
-  .input-helper span { color: var(--color-text-muted); }
-
-  /* Auto-resize textarea */
-  .message-input {
-    field-sizing: content;
-  }
 </style>

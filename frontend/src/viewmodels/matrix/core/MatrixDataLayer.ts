@@ -112,12 +112,15 @@ export class MatrixDataLayer {
   }
 
   /** Ensure initial page from live timeline is in the store for a room. */
-  async fetchInitial(roomId: string, limit = this.pageSize) {
+  async fetchInitial(
+    roomId: string,
+    limit = this.pageSize
+  ): Promise<{ events: RepoEvent[]; toToken: string | null }> {
     const c = this.client;
     if (!c) throw new Error('Matrix client not available');
-    const room = c.getRoom(roomId);
-    if (!room) return { events: [] as RepoEvent[], toToken: null as string | null };
 
+    const room = c.getRoom(roomId);
+    if (!room) return { events: [], toToken: null };
     const live = room.getLiveTimeline();
     const all = live.getEvents();
     const pick = all.slice(-limit);
@@ -284,98 +287,130 @@ export class MatrixDataLayer {
   }
 
   // -------- Persistence API --------
-  loadFromCache(limitPerRoom = 5, onHydrated?: () => void): boolean {
-    // Hydrate in-memory store from IndexedDB. Return true if any rooms found.
-    // Note: this runs sync with async operations inside; we optimistically return based on queued ops.
-    // Callers can proceed; the timeline service will update once hydrated.
-    (async () => {
-      const t0 = performance.now();
+  /**
+   * Hydrate in-memory store from IndexedDB.
+   * @returns Promise<boolean> => true on successful hydration, false on hard failure.
+   */
+  async loadFromCache(limitPerRoom = 5, onHydrated?: () => void): Promise<boolean> {
+    const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    const t0 = now();
+
+    const safe = (fn: () => void) => {
       try {
-        console.log('[MatrixDataLayer] cache: hydration start');
-        // begin hydration timing
-        await this.db.init();
-        const currentUserId = await this.db.getMeta<string>('currentUserId');
-        const currentUserDisplayName = await this.db.getMeta<string>('currentUserDisplayName');
-        if (currentUserId) this.store.setCurrentUser(currentUserId, currentUserDisplayName);
-
-        const rooms = await this.db.getRooms();
-        console.log('[MatrixDataLayer] cache: loaded', rooms.length, 'rooms');
-        for (const r of rooms) {
-          this.store.upsertRoom(r.id, r.name, r.latestTimestamp ?? 0, r.avatarUrl ?? null);
-        }
-        try {
-          console.log(
-            '[MatrixDataLayer] cache: rooms loaded in',
-            (performance.now() - t0).toFixed(1),
-            'ms'
-          );
-        } catch {}
-        try {
-          onHydrated?.();
-        } catch {}
-
-        // Load users
-        try {
-          const users = await this.db.getUsers();
-          for (const u of users) this.store.upsertUser(u.userId, u.displayName, u.avatarUrl);
-        } catch {}
-
-        // Load a small tail of events per room for previews, limited to most recent rooms
-        const tRoomsSel0 = performance.now();
-        const topRooms = rooms
-          .slice()
-          .sort((a, b) => (b.latestTimestamp ?? 0) - (a.latestTimestamp ?? 0))
-          .slice(0, 30);
-        // hydrate recent rooms' events/tokens/members
-        const tEvents0 = performance.now();
-        for (const r of topRooms) {
-          try {
-            const desc = await this.db.getEventsByRoom(r.id, limitPerRoom);
-            const asc = desc.slice().reverse();
-            if (asc.length) this.store.prependEvents(r.id, asc);
-            const token = await this.db.getBackwardToken(r.id);
-            if (token !== undefined) this.store.setBackwardToken(r.id, token ?? null);
-            // Load room members
-            try {
-              const ms = await this.db.getRoomMembers(r.id);
-              if (ms?.length) {
-                this.store.setRoomMembers(
-                  r.id,
-                  ms.map((m) => ({
-                    userId: m.userId,
-                    displayName: m.displayName ?? null,
-                    avatarUrl: m.avatarUrl ?? null,
-                    membership: m.membership ?? null,
-                  }))
-                );
-              }
-            } catch {}
-          } catch {}
-        }
-        try {
-          console.log(
-            '[MatrixDataLayer] cache: per-room hydration finished in',
-            (performance.now() - tEvents0).toFixed(1),
-            'ms (selection prep',
-            (tEvents0 - tRoomsSel0).toFixed(1),
-            'ms)'
-          );
-        } catch {}
-        // Notify again when per-room hydration finished (tokens/events/members)
-        try {
-          onHydrated?.();
-        } catch {}
+        fn();
       } catch {
-      } finally {
-        try {
-          const ms = performance.now() - t0;
-          console.log('[MatrixDataLayer] cache: hydration total ms =', ms.toFixed(1));
-        } catch {}
+        /* no-op */
       }
-    })();
-    // We cannot know synchronously, but return true if we at least started hydration.
-    // The caller will sort items when data arrives.
-    return true;
+    };
+
+    try {
+      console.log('[MatrixDataLayer] cache: hydration start');
+
+      // Init DB first (hard failure if this throws)
+      await this.db.init();
+
+      // Load meta in parallel
+      const [currentUserId, currentUserDisplayName] = await Promise.all([
+        this.db.getMeta<string>('currentUserId'),
+        this.db.getMeta<string>('currentUserDisplayName'),
+      ]);
+      if (currentUserId) {
+        this.store.setCurrentUser(currentUserId, currentUserDisplayName);
+      }
+
+      // Load rooms
+      const tRoomsStart = now();
+      const rooms = await this.db.getRooms(); // if this fails, consider hydration failed
+      console.log('[MatrixDataLayer] cache: loaded', rooms.length, 'rooms');
+      for (const r of rooms) {
+        this.store.upsertRoom(r.id, r.name, r.latestTimestamp ?? 0, r.avatarUrl ?? null);
+      }
+      safe(() =>
+        console.log(
+          '[MatrixDataLayer] cache: rooms loaded in',
+          (now() - tRoomsStart).toFixed(1),
+          'ms'
+        )
+      );
+
+      // Notify after rooms are available
+      safe(() => onHydrated?.());
+
+      // Load users (best-effort, non-fatal)
+      try {
+        const users = await this.db.getUsers();
+        for (const u of users) {
+          this.store.upsertUser(u.userId, u.displayName, u.avatarUrl);
+        }
+      } catch {
+        // ignore user-loading failures
+      }
+
+      // Select top rooms (by latestTimestamp) and hydrate tails/tokens/members
+      const tSelectStart = now();
+      const topRooms = rooms
+        .slice()
+        .sort((a, b) => (b.latestTimestamp ?? 0) - (a.latestTimestamp ?? 0))
+        .slice(0, 30);
+
+      const tPerRoomStart = now();
+      // Do rooms sequentially to avoid hammering IndexedDB; inside each room, parallelize independent reads.
+      for (const r of topRooms) {
+        try {
+          const [eventsDesc, token, members] = await Promise.allSettled([
+            this.db.getEventsByRoom(r.id, limitPerRoom),
+            this.db.getBackwardToken(r.id),
+            this.db.getRoomMembers(r.id),
+          ]);
+
+          if (eventsDesc.status === 'fulfilled') {
+            const asc = eventsDesc.value.slice().reverse();
+            if (asc.length) this.store.prependEvents(r.id, asc);
+          }
+
+          if (token.status === 'fulfilled') {
+            this.store.setBackwardToken(r.id, token.value ?? null);
+          }
+
+          if (members.status === 'fulfilled' && members.value?.length) {
+            this.store.setRoomMembers(
+              r.id,
+              members.value.map((m: any) => ({
+                userId: m.userId,
+                displayName: m.displayName ?? null,
+                avatarUrl: m.avatarUrl ?? null,
+                membership: m.membership ?? null,
+              }))
+            );
+          }
+        } catch {
+          // ignore per-room failures; continue with others
+        }
+      }
+
+      safe(() =>
+        console.log(
+          '[MatrixDataLayer] cache: per-room hydration finished in',
+          (now() - tPerRoomStart).toFixed(1),
+          'ms (selection prep',
+          (tPerRoomStart - tSelectStart).toFixed(1),
+          'ms)'
+        )
+      );
+
+      // Notify again when per-room hydration is finished
+      safe(() => onHydrated?.());
+
+      return true;
+    } catch (e) {
+      console.error('[MatrixDataLayer] cache: hydration FAILED', e);
+      return false;
+    } finally {
+      safe(() => {
+        const ms = now() - t0;
+        console.log('[MatrixDataLayer] cache: hydration total ms =', ms.toFixed(1));
+      });
+    }
   }
 
   saveToCache(): void {
