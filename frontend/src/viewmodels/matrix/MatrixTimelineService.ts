@@ -9,6 +9,7 @@ import { MatrixDataLayer } from './core/MatrixDataLayer';
 import type { ImageContent } from 'matrix-js-sdk/lib/@types/media';
 import { MediaResolver } from './core/MediaResolver';
 import { AvatarResolver } from './core/AvatarResolver';
+import { IndexedDbCache } from './core/IndexedDbCache';
 
 export interface MatrixMessage {
   id: string;
@@ -30,8 +31,13 @@ export class MatrixTimelineService {
   private listRefreshInFlight = false;
   private pendingLiveEvents: Array<{ ev: MatrixEvent; room: Room }> = [];
   private mediaResolver = new MediaResolver(() => this.client);
-  private avatarResolver = new AvatarResolver(() => this.client, { maxMemEntries: 200, maxDbEntries: 200 });
+  private avatarResolver = new AvatarResolver(() => this.client, {
+    maxMemEntries: 200,
+    maxDbEntries: 200,
+  });
   private compositeAvatarCache = new Map<string, string>(); // key: roomId|mxc1|mxc2 -> blob URL
+  private imgDb = new IndexedDbCache(); // persist composed avatars in IDB
+  private readonly maxRooms = 30; // limit room list to most recent N
 
   constructor(
     private readonly ctx: {
@@ -54,27 +60,35 @@ export class MatrixTimelineService {
   /** Unified room list with their latest message preview.
    * Compute strictly from our MatrixDataStore instead of querying the SDK.
    */
-  async fetchAndSetTimelineItems(): Promise<void> {
-    if (!this.ctx.isStarted() || this.ctx.getHydrationState() !== 'ready') return;
+  async fetchAndSetTimelineItems(preferCacheOnly = false): Promise<void> {
+    // Build timeline from whatever is available. If the client isn't started yet,
+    // we skip fetching from live timelines and just use cached data.
     if (this.listRefreshInFlight) return;
 
     this.listRefreshInFlight = true;
     try {
       const rooms = this.store.getRooms();
+      const canFetchInitial = !preferCacheOnly && this.ctx.isStarted();
+      // Sort rooms by latest activity and keep only top N
+      const limitedRooms = rooms
+        .slice()
+        .sort((a, b) => (b.latestTimestamp ?? 0) - (a.latestTimestamp ?? 0))
+        .slice(0, this.maxRooms);
+      
 
-      // Ensure at least one event (latest) is present to build previews.
-      // Do this via the data layer, not by reading the SDK directly here.
-      for (const r of rooms) {
-        if (!this.store.getLatestEvent(r.id)) {
-          try {
-            await this.layer.fetchInitial(r.id, 1);
-          } catch {}
+      // If client is started, ensure at least one event via live timeline; otherwise rely on cache.
+      if (canFetchInitial) {
+        for (const r of limitedRooms) {
+          if (!this.store.getLatestEvent(r.id)) {
+            try { await this.layer.fetchInitial(r.id, 1); } catch {}
+          }
         }
       }
 
       const items: IMatrixTimelineItem[] = [];
       const currentItems = get(this._timelineItems) as IMatrixTimelineItem[];
-      for (const room of rooms) {
+      // Build items quickly without awaiting avatar resolution to avoid UI delay
+      for (const room of limitedRooms) {
         const last = this.store.getLatestEvent(room.id);
         let description = 'No recent messages';
         let timestamp = room.latestTimestamp || 0;
@@ -83,13 +97,9 @@ export class MatrixTimelineService {
           description = preview.description;
           timestamp = last.originServerTs || timestamp || 0;
         }
-        let avatarUrl: string | undefined;
-        try {
-          avatarUrl = await this.resolveRoomAvatar(room.id, (room as any).avatarUrl as string | null | undefined);
-        } catch {}
-        // Preserve previous avatarUrl if resolution failed this pass
+        // Reuse previous avatar if any; resolve lazily in background
         const prev = currentItems?.find((it) => it.id === room.id);
-        if (!avatarUrl && prev?.avatarUrl) avatarUrl = prev.avatarUrl;
+        const avatarUrl = prev?.avatarUrl;
 
         items.push(
           new MatrixTimelineItem({
@@ -103,9 +113,37 @@ export class MatrixTimelineService {
         );
       }
 
-      // Sort items by timestamp in descending order (latest first)
+      // Sort and set immediately so UI renders fast
       items.sort((a, b) => b.timestamp - a.timestamp);
       this._timelineItems.set(items);
+
+      // Resolve avatars in background with limited concurrency and patch items as they arrive
+      const maxConcurrent = 6;
+      let i = 0;
+      const work = async () => {
+        while (i < limitedRooms.length) {
+          const idx = i++;
+          const room = limitedRooms[idx];
+          try {
+            const url = await this.resolveRoomAvatar(
+              room.id,
+              room.avatarUrl as string | null | undefined
+            );
+            if (!url) continue;
+            this._timelineItems.update((arr) => {
+              const j = arr.findIndex((t) => t.id === room.id);
+              if (j === -1) return arr;
+              const updated = arr.slice();
+              updated[j] = new MatrixTimelineItem({ ...updated[j], avatarUrl: url });
+              return updated;
+            });
+          } catch {}
+        }
+      };
+      // Kick off workers without awaiting completion
+      for (let k = 0; k < Math.min(maxConcurrent, limitedRooms.length); k++) {
+        work();
+      }
     } finally {
       this.listRefreshInFlight = false;
     }
@@ -115,7 +153,7 @@ export class MatrixTimelineService {
     if (this.refreshTimer) clearTimeout(this.refreshTimer);
     this.refreshTimer = setTimeout(async () => {
       this.refreshTimer = null;
-      if (this.ctx.getHydrationState() !== 'ready' || this.listRefreshInFlight) return;
+      if (this.listRefreshInFlight) return;
 
       this.listRefreshInFlight = true;
       try {
@@ -140,7 +178,7 @@ export class MatrixTimelineService {
 
     let avatarUrl: string | undefined;
     try {
-      const roomMxc = (room as any).getMxcAvatarUrl ? (room as any).getMxcAvatarUrl() : null;
+      const roomMxc = room.getMxcAvatarUrl();
       avatarUrl = await this.resolveRoomAvatar(room.roomId, roomMxc || undefined);
     } catch {}
 
@@ -150,7 +188,10 @@ export class MatrixTimelineService {
       title,
       description,
       // Keep previous avatar if resolve failed
-      avatarUrl: avatarUrl || (get(this._timelineItems).find((it) => it.id === id) as IMatrixTimelineItem | undefined)?.avatarUrl,
+      avatarUrl:
+        avatarUrl ||
+        (get(this._timelineItems).find((it) => it.id === id) as IMatrixTimelineItem | undefined)
+          ?.avatarUrl,
       timestamp,
     });
 
@@ -223,7 +264,7 @@ export class MatrixTimelineService {
       let effectiveType = re.type;
       let effectiveContent: any = re.content;
       try {
-        const c = this.client as any;
+        const c = this.client;
         const room = c?.getRoom(re.roomId!);
         const live = room?.getLiveTimeline?.();
         const sdkEv = live?.getEvents?.().find((e: any) => e.getId?.() === re.eventId);
@@ -234,7 +275,11 @@ export class MatrixTimelineService {
         }
       } catch {}
 
-      const { description } = this.repoEventToPreview({ ...re, type: effectiveType, content: effectiveContent } as RepoEvent);
+      const { description } = this.repoEventToPreview({
+        ...re,
+        type: effectiveType,
+        content: effectiveContent,
+      } as RepoEvent);
       const isSelf = re.sender === currentUserId;
       // Prefer cached display name from store, then SDK membership, else MXID
       let senderDisplayName = this.store.getUserDisplayName(re.sender) || re.sender;
@@ -244,7 +289,7 @@ export class MatrixTimelineService {
           const c = this.client;
           const room = c?.getRoom(re.roomId!);
           const member = room?.getMember(re.sender);
-          if (member) senderDisplayName = (member as any).rawDisplayName || member.name || re.sender;
+          if (member) senderDisplayName = member.rawDisplayName || member.name || re.sender;
         } catch {}
       }
       const msgtype = effectiveContent?.msgtype;
@@ -266,7 +311,9 @@ export class MatrixTimelineService {
         if (mxc) {
           const p = this.avatarResolver
             .resolve(mxc, { w: 32, h: 32, method: 'crop' })
-            .then((url) => { if (url) msg.senderAvatarUrl = url; })
+            .then((url) => {
+              if (url) msg.senderAvatarUrl = url;
+            })
             .catch(() => {});
           resolvers.push(p);
         }
@@ -296,7 +343,9 @@ export class MatrixTimelineService {
     this.mediaResolver.clear();
     this.avatarResolver.clear();
     for (const [, url] of this.compositeAvatarCache) {
-      try { URL.revokeObjectURL(url); } catch {}
+      try {
+        URL.revokeObjectURL(url);
+      } catch {}
     }
     this.compositeAvatarCache.clear();
   }
@@ -307,13 +356,15 @@ export class MatrixTimelineService {
     // Fallback: try to decrypt via SDK if content doesn't look like a message
     if (!c?.body && re.type === 'm.room.encrypted') {
       try {
-        const cli = this.client as any;
+        const cli = this.client;
         const room = cli?.getRoom(re.roomId!);
         const live = room?.getLiveTimeline?.();
         const sdkEv = live?.getEvents?.().find((e: any) => e.getId?.() === re.eventId);
         if (sdkEv) {
           // Fire and forget; if it decrypts, content may already be clear
-          try { cli?.decryptEventIfNeeded?.(sdkEv); } catch {}
+          try {
+            cli?.decryptEventIfNeeded?.(sdkEv);
+          } catch {}
           c = sdkEv.getContent?.() || c;
         }
       } catch {}
@@ -340,7 +391,10 @@ export class MatrixTimelineService {
   }
 
   // ---- Avatar helpers ----
-  private async resolveRoomAvatar(roomId: string, roomMxc?: string | null): Promise<string | undefined> {
+  private async resolveRoomAvatar(
+    roomId: string,
+    roomMxc?: string | null
+  ): Promise<string | undefined> {
     // If room has its own avatar, prefer it.
     if (roomMxc) {
       const url = await this.avatarResolver.resolve(roomMxc, { w: 64, h: 64, method: 'crop' });
@@ -363,23 +417,56 @@ export class MatrixTimelineService {
       if (mxcs.length >= 3) break;
     }
     if (mxcs.length === 0) return undefined;
-    if (mxcs.length === 1) return (await this.avatarResolver.resolve(mxcs[0], { w: 64, h: 64, method: 'crop' })) || undefined;
+    if (mxcs.length === 1)
+      return (
+        (await this.avatarResolver.resolve(mxcs[0], { w: 64, h: 64, method: 'crop' })) || undefined
+      );
 
     // Compose N (2..3) avatars with stable random layout seeded by room+mxcs
     const key = `${roomId}|${mxcs.sort().join('|')}`;
     const cached = this.compositeAvatarCache.get(key);
     if (cached) return cached;
 
-    const urls = await Promise.all(mxcs.map((m) => this.avatarResolver.resolve(m, { w: 64, h: 64, method: 'crop' })));
+    // Try persistent cache for composed avatar
+    const dbKey = `avatar-composite|${key}|64x64`;
+    try {
+      const rec = await this.imgDb.getMedia(dbKey);
+      if (rec && rec.blob) {
+        const url = URL.createObjectURL(rec.blob);
+        this.compositeAvatarCache.set(key, url);
+        return url;
+      }
+    } catch {}
+
+    const urls = await Promise.all(
+      mxcs.map((m) => this.avatarResolver.resolve(m, { w: 64, h: 64, method: 'crop' }))
+    );
     const resolved = urls.filter((u): u is string => !!u);
     if (resolved.length === 0) return undefined;
     if (resolved.length === 1) return resolved[0];
     const composed = await this.composeBubbleAvatars(resolved.slice(0, 3), 64);
-    if (composed) this.compositeAvatarCache.set(key, composed);
-    return composed || resolved[0];
+    if (composed) {
+      this.compositeAvatarCache.set(key, composed.url);
+      // Persist composed avatar in IDB for fast startup next time
+      try {
+        await this.imgDb.putMedia({
+          key: dbKey,
+          ts: Date.now(),
+          bytes: composed.blob.size,
+          mime: 'image/png',
+          blob: composed.blob,
+        });
+        await this.imgDb.pruneMedia(200);
+      } catch {}
+      return composed.url;
+    }
+    return resolved[0];
   }
 
-  private async composeBubbleAvatars(urls: string[], size = 64): Promise<string | undefined> {
+  private async composeBubbleAvatars(
+    urls: string[],
+    size = 64
+  ): Promise<{ url: string; blob: Blob } | undefined> {
     try {
       const imgs = await Promise.all(urls.map((u) => this.loadImage(u)));
       const canvas = document.createElement('canvas');
@@ -399,8 +486,8 @@ export class MatrixTimelineService {
       } else {
         const r = Math.floor(size * 0.28);
         positions.push({ x: Math.floor(size * 0.34), y: Math.floor(size * 0.36), r, img: imgs[0] });
-        positions.push({ x: Math.floor(size * 0.66), y: Math.floor(size * 0.40), r, img: imgs[1] });
-        positions.push({ x: Math.floor(size * 0.50), y: Math.floor(size * 0.68), r, img: imgs[2] });
+        positions.push({ x: Math.floor(size * 0.66), y: Math.floor(size * 0.4), r, img: imgs[1] });
+        positions.push({ x: Math.floor(size * 0.5), y: Math.floor(size * 0.68), r, img: imgs[2] });
       }
 
       // Draw bubbles with thin black border
@@ -420,9 +507,12 @@ export class MatrixTimelineService {
         ctx.stroke();
       }
 
-      const blob: Blob | null = await new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
+      const blob: Blob | null = await new Promise((resolve) =>
+        canvas.toBlob((b) => resolve(b), 'image/png')
+      );
       if (!blob) return undefined;
-      return URL.createObjectURL(blob);
+      const url = URL.createObjectURL(blob);
+      return { url, blob };
     } catch {
       return undefined;
     }
@@ -451,7 +541,10 @@ export class MatrixTimelineService {
     const ih = img.naturalHeight || img.height;
     const targetRatio = dw / dh;
     const imgRatio = iw / ih;
-    let sx = 0, sy = 0, sw = iw, sh = ih;
+    let sx = 0,
+      sy = 0,
+      sw = iw,
+      sh = ih;
     if (imgRatio > targetRatio) {
       // Image is wider than target; crop sides
       sh = ih;

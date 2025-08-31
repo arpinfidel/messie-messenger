@@ -120,9 +120,9 @@ export class IndexedDbCache {
     return this.tx<DbRoom[]>(STORES.ROOMS, 'readonly', (s) => {
       const req = s.getAll();
       return new Promise<DbRoom[]>((resolve, reject) => {
-        req.onsuccess = () => resolve((req.result as any) || []);
+        req.onsuccess = () => resolve(req.result || []);
         req.onerror = () => reject(req.error);
-      }) as any;
+      });
     });
   }
 
@@ -322,14 +322,22 @@ export class IndexedDbCache {
   }
 
   // ---- Media blob cache (avatars, thumbnails) ----
-  async putMedia(rec: { key: string; ts: number; bytes: number; mime: string; blob: Blob }): Promise<void> {
+  async putMedia(rec: {
+    key: string;
+    ts: number;
+    bytes: number;
+    mime: string;
+    blob: Blob;
+  }): Promise<void> {
     await this.init();
     await this.tx<void>(STORES.MEDIA, 'readwrite', (s) => {
       s.put(rec as any);
     });
   }
 
-  async getMedia(key: string): Promise<{ key: string; ts: number; bytes: number; mime: string; blob: Blob } | undefined> {
+  async getMedia(
+    key: string
+  ): Promise<{ key: string; ts: number; bytes: number; mime: string; blob: Blob } | undefined> {
     await this.init();
     return this.tx(STORES.MEDIA, 'readonly', (s) => {
       const req = s.get(key);
@@ -364,7 +372,8 @@ export class IndexedDbCache {
         };
         cursorReq.onerror = () => reject(cursorReq.error);
         (s.transaction as IDBTransaction).oncomplete = () => resolve(count);
-        (s.transaction as IDBTransaction).onerror = () => reject((s.transaction as IDBTransaction).error);
+        (s.transaction as IDBTransaction).onerror = () =>
+          reject((s.transaction as IDBTransaction).error);
       }) as any;
     });
 

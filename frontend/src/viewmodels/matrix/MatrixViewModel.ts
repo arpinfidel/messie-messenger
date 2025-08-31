@@ -37,7 +37,7 @@ export class MatrixViewModel implements IModuleViewModel {
     shouldIncludeEvent: (ev) =>
       ev.getType() === 'm.room.message' || ev.getType() === 'm.room.encrypted',
     tryDecryptEvent: async (ev) => {
-      const c = this.clientMgr.getClient() as any;
+      const c = this.clientMgr.getClient();
       if (c?.decryptEventIfNeeded) await c.decryptEventIfNeeded(ev);
     },
     pageSize: 20,
@@ -58,6 +58,7 @@ export class MatrixViewModel implements IModuleViewModel {
     this.timelineSvc,
     this.queue
   );
+  private cacheFirstRendered = false; // ensure we push a cache-only render as soon as rooms land
 
   private constructor() {}
 
@@ -135,21 +136,34 @@ export class MatrixViewModel implements IModuleViewModel {
     }
 
     // Load persistent cache via data layer (rooms, events, tokens)
-    const hadCache = this.dataLayer.loadFromCache();
+    const hadCache = this.dataLayer.loadFromCache(5, () => {
+      try {
+        if (!this.cacheFirstRendered) {
+          this.cacheFirstRendered = true;
+          console.log('[MatrixVM] onHydrated → immediate cache-only render');
+          // Render without waiting for any timers or client readiness
+          this.timelineSvc.fetchAndSetTimelineItems(true);
+        } else {
+          console.log('[MatrixVM] onHydrated → scheduleTimelineRefresh(0)');
+          this.timelineSvc.scheduleTimelineRefresh(0);
+        }
+      } catch {}
+    });
     if (hadCache) {
       console.log('[MatrixVM] restored store from persistent cache');
-      await this.timelineSvc.fetchAndSetTimelineItems();
+      // Mark as ready for UI so cache-based timeline can render while crypto spins up
       this.hydrationState = 'ready';
+      console.log('[MatrixVM] set hydrationState=ready (cache-first render)');
+      // Force a cache-only pass before any client/crypto work begins
+      await this.timelineSvc.fetchAndSetTimelineItems(true);
+      // Schedule one more refresh soon to catch late-arriving cache hydration
+      this.timelineSvc.scheduleTimelineRefresh(200);
     }
 
     console.time('[MatrixVM] cryptoCallbacks setup');
     const cryptoCallbacks: CryptoCallbacks = {};
     if (matrixSettings.recoveryKey?.trim()) {
-      (cryptoCallbacks as any).getSecretStorageKey = async ({
-        keys,
-      }: {
-        keys: Record<string, any>;
-      }) => {
+      cryptoCallbacks.getSecretStorageKey = async ({ keys }: { keys: Record<string, any> }) => {
         const keyId = Object.keys(keys)[0];
         if (!keyId) return null;
         const decoded = await decodeRecoveryKey(matrixSettings.recoveryKey!.trim());

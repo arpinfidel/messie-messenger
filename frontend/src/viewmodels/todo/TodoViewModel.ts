@@ -68,6 +68,9 @@ export class TodoViewModel implements IModuleViewModel {
 
   public async fetchAndTransformTodos(): Promise<void> {
     try {
+      if (!cloudAuthViewModel.jwtToken) {
+        return;
+      }
       const todoLists: TodoList[] = await this.todoApi.getTodoListsByUserId({
         userId: cloudAuthViewModel.userID || '',
       });

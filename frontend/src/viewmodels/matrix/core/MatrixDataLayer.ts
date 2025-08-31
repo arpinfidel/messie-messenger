@@ -26,18 +26,39 @@ export class MatrixDataLayer {
     if (!room) return;
     try {
       const members = room.getMembers()?.filter((m) => (m as any).membership === 'join') || [];
-      const out: { userId: string; displayName?: string; avatarUrl?: string; membership?: string }[] = [];
+      const out: {
+        userId: string;
+        displayName?: string;
+        avatarUrl?: string;
+        membership?: string;
+      }[] = [];
       for (const m of members) {
         const userId = m.userId;
         const display = (m as any).rawDisplayName || m.name;
         const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
         // keep global user profile up to date
         this.store.upsertUser(userId, display, mxc ?? null);
-        out.push({ userId, displayName: display, avatarUrl: mxc, membership: (m as any).membership });
+        out.push({
+          userId,
+          displayName: display,
+          avatarUrl: mxc,
+          membership: (m as any).membership,
+        });
       }
-      this.store.setRoomMembers(roomId, out.map((x) => ({ userId: x.userId, displayName: x.displayName ?? null, avatarUrl: x.avatarUrl ?? null, membership: x.membership ?? null })));
+      this.store.setRoomMembers(
+        roomId,
+        out.map((x) => ({
+          userId: x.userId,
+          displayName: x.displayName ?? null,
+          avatarUrl: x.avatarUrl ?? null,
+          membership: x.membership ?? null,
+        }))
+      );
       await this.db.replaceRoomMembers(roomId, out);
-      if (out.length) await this.db.putUsers(out.map((x) => ({ userId: x.userId, displayName: x.displayName, avatarUrl: x.avatarUrl })));
+      if (out.length)
+        await this.db.putUsers(
+          out.map((x) => ({ userId: x.userId, displayName: x.displayName, avatarUrl: x.avatarUrl }))
+        );
     } catch {}
   }
 
@@ -117,7 +138,12 @@ export class MatrixDataLayer {
       try {
         await this.db.putEvents(roomId, converted);
         const r = this.store.getRooms().find((x) => x.id === roomId);
-        if (r) await this.db.putRoom({ id: r.id, name: r.name, latestTimestamp: r.latestTimestamp ?? 0 });
+        if (r)
+          await this.db.putRoom({
+            id: r.id,
+            name: r.name,
+            latestTimestamp: r.latestTimestamp ?? 0,
+          });
         // Persist sender profiles for this page
         const users: { userId: string; displayName?: string; avatarUrl?: string }[] = [];
         for (const uid of seenSenders) {
@@ -179,7 +205,12 @@ export class MatrixDataLayer {
       try {
         await this.db.putEvents(roomId, converted);
         const r = this.store.getRooms().find((x) => x.id === roomId);
-        if (r) await this.db.putRoom({ id: r.id, name: r.name, latestTimestamp: r.latestTimestamp ?? 0 });
+        if (r)
+          await this.db.putRoom({
+            id: r.id,
+            name: r.name,
+            latestTimestamp: r.latestTimestamp ?? 0,
+          });
         // Persist sender profiles for this page
         const users: { userId: string; displayName?: string; avatarUrl?: string }[] = [];
         for (const uid of seenSenders) {
@@ -253,21 +284,35 @@ export class MatrixDataLayer {
   }
 
   // -------- Persistence API --------
-  loadFromCache(limitPerRoom = 50): boolean {
+  loadFromCache(limitPerRoom = 5, onHydrated?: () => void): boolean {
     // Hydrate in-memory store from IndexedDB. Return true if any rooms found.
     // Note: this runs sync with async operations inside; we optimistically return based on queued ops.
     // Callers can proceed; the timeline service will update once hydrated.
     (async () => {
+      const t0 = performance.now();
       try {
+        console.log('[MatrixDataLayer] cache: hydration start');
+        // begin hydration timing
         await this.db.init();
         const currentUserId = await this.db.getMeta<string>('currentUserId');
         const currentUserDisplayName = await this.db.getMeta<string>('currentUserDisplayName');
         if (currentUserId) this.store.setCurrentUser(currentUserId, currentUserDisplayName);
 
         const rooms = await this.db.getRooms();
+        console.log('[MatrixDataLayer] cache: loaded', rooms.length, 'rooms');
         for (const r of rooms) {
           this.store.upsertRoom(r.id, r.name, r.latestTimestamp ?? 0, r.avatarUrl ?? null);
         }
+        try {
+          console.log(
+            '[MatrixDataLayer] cache: rooms loaded in',
+            (performance.now() - t0).toFixed(1),
+            'ms'
+          );
+        } catch {}
+        try {
+          onHydrated?.();
+        } catch {}
 
         // Load users
         try {
@@ -275,8 +320,15 @@ export class MatrixDataLayer {
           for (const u of users) this.store.upsertUser(u.userId, u.displayName, u.avatarUrl);
         } catch {}
 
-        // Load a small tail of events per room for previews
-        for (const r of rooms) {
+        // Load a small tail of events per room for previews, limited to most recent rooms
+        const tRoomsSel0 = performance.now();
+        const topRooms = rooms
+          .slice()
+          .sort((a, b) => (b.latestTimestamp ?? 0) - (a.latestTimestamp ?? 0))
+          .slice(0, 30);
+        // hydrate recent rooms' events/tokens/members
+        const tEvents0 = performance.now();
+        for (const r of topRooms) {
           try {
             const desc = await this.db.getEventsByRoom(r.id, limitPerRoom);
             const asc = desc.slice().reverse();
@@ -289,13 +341,37 @@ export class MatrixDataLayer {
               if (ms?.length) {
                 this.store.setRoomMembers(
                   r.id,
-                  ms.map((m) => ({ userId: m.userId, displayName: m.displayName ?? null, avatarUrl: m.avatarUrl ?? null, membership: m.membership ?? null }))
+                  ms.map((m) => ({
+                    userId: m.userId,
+                    displayName: m.displayName ?? null,
+                    avatarUrl: m.avatarUrl ?? null,
+                    membership: m.membership ?? null,
+                  }))
                 );
               }
             } catch {}
           } catch {}
         }
-      } catch {}
+        try {
+          console.log(
+            '[MatrixDataLayer] cache: per-room hydration finished in',
+            (performance.now() - tEvents0).toFixed(1),
+            'ms (selection prep',
+            (tEvents0 - tRoomsSel0).toFixed(1),
+            'ms)'
+          );
+        } catch {}
+        // Notify again when per-room hydration finished (tokens/events/members)
+        try {
+          onHydrated?.();
+        } catch {}
+      } catch {
+      } finally {
+        try {
+          const ms = performance.now() - t0;
+          console.log('[MatrixDataLayer] cache: hydration total ms =', ms.toFixed(1));
+        } catch {}
+      }
     })();
     // We cannot know synchronously, but return true if we at least started hydration.
     // The caller will sort items when data arrives.
@@ -312,21 +388,31 @@ export class MatrixDataLayer {
     const rooms = this.store.getRooms();
     this.db
       .putRooms(
-        rooms.map((r) => ({ id: r.id, name: r.name, latestTimestamp: r.latestTimestamp ?? 0, avatarUrl: r.avatarUrl ?? undefined }))
+        rooms.map((r) => ({
+          id: r.id,
+          name: r.name,
+          latestTimestamp: r.latestTimestamp ?? 0,
+          avatarUrl: r.avatarUrl ?? undefined,
+        }))
       )
       .catch(() => {});
 
     // Persist users
     const users = this.store.getUsers();
-    if (users.length) this.db.putUsers(users.map((u) => ({ userId: u.userId, displayName: u.displayName ?? undefined, avatarUrl: u.avatarUrl ?? undefined }))).catch(() => {});
+    if (users.length)
+      this.db
+        .putUsers(
+          users.map((u) => ({
+            userId: u.userId,
+            displayName: u.displayName ?? undefined,
+            avatarUrl: u.avatarUrl ?? undefined,
+          }))
+        )
+        .catch(() => {});
   }
 
   /** Query cached events by room from IndexedDB, newest first. */
-  async queryEventsByRoom(
-    roomId: string,
-    limit = 50,
-    beforeTs?: number
-  ): Promise<RepoEvent[]> {
+  async queryEventsByRoom(roomId: string, limit = 50, beforeTs?: number): Promise<RepoEvent[]> {
     return this.db.getEventsByRoom(roomId, limit, beforeTs);
   }
 }

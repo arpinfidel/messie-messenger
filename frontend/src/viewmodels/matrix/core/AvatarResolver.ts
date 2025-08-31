@@ -18,7 +18,10 @@ export class AvatarResolver {
     this.maxDbEntries = opts?.maxDbEntries ?? 200;
   }
 
-  async resolve(mxc: string, dims = { w: 64, h: 64, method: 'crop' as const }): Promise<string | undefined> {
+  async resolve(
+    mxc: string,
+    dims = { w: 64, h: 64, method: 'crop' as const }
+  ): Promise<string | undefined> {
     const key = this.key(mxc, dims);
     const cached = this.mem.get(key);
     if (cached) {
@@ -38,20 +41,21 @@ export class AvatarResolver {
     return p;
   }
 
-  async prefetch(mxc: string, dims = { w: 64, h: 64, method: 'crop' as const }): Promise<void> {
-    try { await this.resolve(mxc, dims); } catch {}
-  }
-
   clear(): void {
     for (const [, e] of this.mem) {
-      try { URL.revokeObjectURL(e.url); } catch {}
+      try {
+        URL.revokeObjectURL(e.url);
+      } catch {}
     }
     this.mem.clear();
     this.inflight.clear();
   }
 
   // ---- internals ----
-  private async resolveInternal(mxc: string, dims: { w: number; h: number; method: 'scale' | 'crop' }): Promise<string | undefined> {
+  private async resolveInternal(
+    mxc: string,
+    dims: { w: number; h: number; method: 'scale' | 'crop' }
+  ): Promise<string | undefined> {
     const key = this.key(mxc, dims);
     // try db first
     try {
@@ -65,7 +69,9 @@ export class AvatarResolver {
 
     const cli = this.getClient();
     if (!cli) return undefined;
-    const http = (cli as any)?.mxcUrlToHttp?.(mxc, dims.w, dims.h, dims.method, false, true, false) as string | undefined;
+    const http = cli?.mxcUrlToHttp?.(mxc, dims.w, dims.h, dims.method, false, true, false) as
+      | string
+      | undefined;
     if (!http) return undefined;
 
     try {
@@ -75,7 +81,13 @@ export class AvatarResolver {
       const url = URL.createObjectURL(blob);
       this.memSet(key, url, blob.size, blob.type || 'image/*');
       try {
-        await this.db.putMedia({ key, ts: Date.now(), bytes: blob.size, mime: blob.type || 'image/*', blob });
+        await this.db.putMedia({
+          key,
+          ts: Date.now(),
+          bytes: blob.size,
+          mime: blob.type || 'image/*',
+          blob,
+        });
         await this.db.pruneMedia(this.maxDbEntries);
       } catch {}
       return url;
@@ -86,7 +98,7 @@ export class AvatarResolver {
 
   private key(mxc: string, dims: { w: number; h: number; method: 'scale' | 'crop' }): string {
     return `avatar|${mxc}|${dims.w}x${dims.h}|m=${dims.method}`;
-    }
+  }
 
   private memSet(key: string, url: string, bytes: number, mime: string) {
     this.mem.set(key, { url, ts: Date.now(), bytes, mime });
