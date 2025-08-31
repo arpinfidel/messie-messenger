@@ -13,6 +13,7 @@ export interface DbRoom {
   id: string;
   name: string;
   latestTimestamp?: number; // latest message-like ts
+  avatarUrl?: string; // room avatar MXC
 }
 
 type TokenRecord = { roomId: string; backward: string | null };
@@ -20,7 +21,7 @@ type TokenRecord = { roomId: string; backward: string | null };
 type MetaRecord = { key: string; value: any };
 
 const DB_NAME = 'mx-app-store';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const STORES = {
   ROOMS: 'rooms',
@@ -28,6 +29,7 @@ const STORES = {
   TOKENS: 'tokens',
   META: 'meta',
   USERS: 'users',
+  MEDIA: 'media', // blob cache (e.g., avatars)
 } as const;
 
 export class IndexedDbCache {
@@ -55,6 +57,10 @@ export class IndexedDbCache {
         }
         if (!db.objectStoreNames.contains(STORES.USERS)) {
           db.createObjectStore(STORES.USERS, { keyPath: 'userId' });
+        }
+        if (!db.objectStoreNames.contains(STORES.MEDIA)) {
+          const media = db.createObjectStore(STORES.MEDIA, { keyPath: 'key' });
+          media.createIndex('byTs', 'ts');
         }
       };
       req.onsuccess = () => resolve(req.result);
@@ -236,6 +242,70 @@ export class IndexedDbCache {
         req.onsuccess = () => resolve((req.result as any) || undefined);
         req.onerror = () => reject(req.error);
       }) as any;
+    });
+  }
+
+  // ---- Media blob cache (avatars, thumbnails) ----
+  async putMedia(rec: { key: string; ts: number; bytes: number; mime: string; blob: Blob }): Promise<void> {
+    await this.init();
+    await this.tx<void>(STORES.MEDIA, 'readwrite', (s) => {
+      s.put(rec as any);
+    });
+  }
+
+  async getMedia(key: string): Promise<{ key: string; ts: number; bytes: number; mime: string; blob: Blob } | undefined> {
+    await this.init();
+    return this.tx(STORES.MEDIA, 'readonly', (s) => {
+      const req = s.get(key);
+      return new Promise((resolve, reject) => {
+        req.onsuccess = () => resolve((req.result as any) || undefined);
+        req.onerror = () => reject(req.error);
+      }) as any;
+    });
+  }
+
+  async pruneMedia(maxEntries: number): Promise<void> {
+    await this.init();
+    // Count entries first
+    const total = await this.tx<number>(STORES.MEDIA, 'readonly', (s) => {
+      const req = (s as any).getAllKeys?.();
+      if (req) {
+        return new Promise<number>((resolve, reject) => {
+          req.onsuccess = () => resolve(((req.result as any[]) || []).length);
+          req.onerror = () => reject(req.error);
+        }) as any;
+      }
+      // Fallback: iterate
+      return new Promise<number>((resolve, reject) => {
+        let count = 0;
+        const idx = s.index('byTs');
+        const cursorReq = idx.openCursor();
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result as IDBCursorWithValue | null;
+          if (!cursor) return;
+          count++;
+          cursor.continue();
+        };
+        cursorReq.onerror = () => reject(cursorReq.error);
+        (s.transaction as IDBTransaction).oncomplete = () => resolve(count);
+        (s.transaction as IDBTransaction).onerror = () => reject((s.transaction as IDBTransaction).error);
+      }) as any;
+    });
+
+    const over = Math.max(0, (total || 0) - maxEntries);
+    if (over <= 0) return;
+    await this.tx<void>(STORES.MEDIA, 'readwrite', (s) => {
+      let toDelete = over;
+      const idx = s.index('byTs');
+      const cursorReq = idx.openCursor(); // oldest first
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result as IDBCursorWithValue | null;
+        if (!cursor || toDelete <= 0) return;
+        const key = cursor.primaryKey;
+        s.delete(key);
+        toDelete--;
+        cursor.continue();
+      };
     });
   }
 }

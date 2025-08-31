@@ -49,9 +49,18 @@ export class MatrixDataLayer {
     if (!c) return;
     const rooms = c.getRooms() ?? [];
     for (const r of rooms) {
-      this.store.upsertRoom(r.roomId, r.name || r.roomId);
+      const roomMxc = (r as any).getMxcAvatarUrl ? (r as any).getMxcAvatarUrl() : null;
+      this.store.upsertRoom(r.roomId, r.name || r.roomId, undefined, roomMxc);
       // persist minimal room record (latestTimestamp may be set later by events)
-      this.db.putRoom({ id: r.roomId, name: r.name || r.roomId, latestTimestamp: this.store.getRooms().find(x=>x.id===r.roomId)?.latestTimestamp || 0 }).catch(() => {});
+      this.db
+        .putRoom({
+          id: r.roomId,
+          name: r.name || r.roomId,
+          latestTimestamp:
+            this.store.getRooms().find((x) => x.id === r.roomId)?.latestTimestamp || 0,
+          avatarUrl: roomMxc || undefined,
+        })
+        .catch(() => {});
     }
     this.saveToCache();
   }
@@ -174,14 +183,21 @@ export class MatrixDataLayer {
 
   /** Ingest one live SDK event into the store. */
   async ingestLiveEvent(ev: matrixSdk.MatrixEvent, room: matrixSdk.Room) {
-    // Update room name if needed
-    this.store.upsertRoom(room.roomId, room.name || room.roomId);
+    // Update room name/avatar if needed
+    const roomMxc = (room as any).getMxcAvatarUrl ? (room as any).getMxcAvatarUrl() : null;
+    this.store.upsertRoom(room.roomId, room.name || room.roomId, undefined, roomMxc);
     const re = await this.toRepoEvent(ev);
     if (!re) return;
     this.store.appendEvent(room.roomId, re);
     try {
       await this.db.putEvents(room.roomId, [re]);
-      await this.db.putRoom({ id: room.roomId, name: room.name || room.roomId, latestTimestamp: this.store.getRooms().find(x=>x.id===room.roomId)?.latestTimestamp || 0 });
+      await this.db.putRoom({
+        id: room.roomId,
+        name: room.name || room.roomId,
+        latestTimestamp:
+          this.store.getRooms().find((x) => x.id === room.roomId)?.latestTimestamp || 0,
+        avatarUrl: roomMxc || undefined,
+      });
       // Persist sender profile
       if (re.sender) {
         const m = room.getMember(re.sender);
@@ -219,7 +235,7 @@ export class MatrixDataLayer {
 
         const rooms = await this.db.getRooms();
         for (const r of rooms) {
-          this.store.upsertRoom(r.id, r.name, r.latestTimestamp ?? 0);
+          this.store.upsertRoom(r.id, r.name, r.latestTimestamp ?? 0, r.avatarUrl ?? null);
         }
 
         // Load users
@@ -255,7 +271,7 @@ export class MatrixDataLayer {
     const rooms = this.store.getRooms();
     this.db
       .putRooms(
-        rooms.map((r) => ({ id: r.id, name: r.name, latestTimestamp: r.latestTimestamp ?? 0 }))
+        rooms.map((r) => ({ id: r.id, name: r.name, latestTimestamp: r.latestTimestamp ?? 0, avatarUrl: r.avatarUrl ?? undefined }))
       )
       .catch(() => {});
 

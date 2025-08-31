@@ -4,6 +4,7 @@ export interface StoredRoom {
   id: string;
   name: string;
   latestTimestamp?: number; // latest message-like event ts
+  avatarUrl?: string | null;
 }
 
 export interface StoredUser {
@@ -63,13 +64,14 @@ export class MatrixDataStore {
     return Array.from(this.users.values());
   }
 
-  upsertRoom(id: string, name: string, latestTimestamp?: number) {
-    const prev = this.rooms.get(id) || { id, name, latestTimestamp: 0 };
+  upsertRoom(id: string, name: string, latestTimestamp?: number, avatarUrl?: string | null) {
+    const prev = this.rooms.get(id) || { id, name, latestTimestamp: 0, avatarUrl: null };
     const next: StoredRoom = {
       id,
       name: name ?? prev.name,
       latestTimestamp:
         typeof latestTimestamp === 'number' ? latestTimestamp : (prev.latestTimestamp ?? 0),
+      avatarUrl: avatarUrl !== undefined ? avatarUrl : (prev as any).avatarUrl ?? null,
     };
     this.rooms.set(id, next);
   }
@@ -158,7 +160,12 @@ export class MatrixDataStore {
 
       const rooms: StoredRoom[] = snapshot.rooms || [];
       for (const r of rooms)
-        this.rooms.set(r.id, { id: r.id, name: r.name, latestTimestamp: r.latestTimestamp ?? 0 });
+        this.rooms.set(r.id, {
+          id: r.id,
+          name: r.name,
+          latestTimestamp: r.latestTimestamp ?? 0,
+          avatarUrl: r.avatarUrl ?? null,
+        });
 
       const users: StoredUser[] = snapshot.users || [];
       for (const u of users)

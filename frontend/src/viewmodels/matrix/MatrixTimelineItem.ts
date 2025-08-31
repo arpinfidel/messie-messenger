@@ -9,6 +9,7 @@ export interface IMatrixTimelineItem extends TimelineItem {
   type: 'matrix';
   title: string;
   description?: string;
+  avatarUrl?: string;
   timestamp: number; // Changed to number
   rawData?: object;
   sender?: string; // Add sender property
@@ -23,6 +24,7 @@ export class MatrixTimelineItem implements IMatrixTimelineItem {
   type: 'matrix';
   title: string;
   description: string;
+  avatarUrl?: string;
   timestamp: number; // Changed to number
   rawData: object;
   sender: string; // Add sender property
@@ -32,6 +34,7 @@ export class MatrixTimelineItem implements IMatrixTimelineItem {
     type = 'matrix',
     title,
     description = '',
+    avatarUrl,
     timestamp,
     rawData = {},
     sender = '',
@@ -45,6 +48,7 @@ export class MatrixTimelineItem implements IMatrixTimelineItem {
     this.type = type;
     this.title = title;
     this.description = description;
+    this.avatarUrl = avatarUrl;
     this.timestamp = timestamp;
     this.rawData = rawData;
     this.sender = sender; // Initialize sender

@@ -258,6 +258,15 @@
       {@const isLastInGroup = index === $messages.length - 1 || $messages[index + 1].sender !== message.sender}
       
       <div class="message-wrapper {message.isSelf ? 'self' : 'other'}">
+        {#if !message.isSelf}
+          <div class="avatar-slot other">
+            {#if isFirstInGroup && message.senderAvatarUrl}
+              <img src={message.senderAvatarUrl} alt={message.senderDisplayName} class="avatar-small" />
+            {:else}
+              <div class="avatar-spacer"></div>
+            {/if}
+          </div>
+        {/if}
         <div class="message-bubble {message.isSelf ? 'self' : 'other'} {isFirstInGroup ? 'first-in-group' : ''} {isLastInGroup ? 'last-in-group' : ''}">
           <!-- Sender name (only for first message in group from others) -->
           {#if !message.isSelf && isFirstInGroup}
@@ -407,7 +416,7 @@
   .message-wrapper {
     display: flex;
     margin-bottom: 2px;
-  }
+    }
   
   .message-wrapper.self {
     justify-content: flex-end;
@@ -417,16 +426,35 @@
     justify-content: flex-start;
   }
 
+  /* Avatar column and alignment */
+  .avatar-slot {
+    width: 28px;
+    display: flex;
+    align-items: flex-start;
+    flex-shrink: 0;
+  }
+  .avatar-slot.other { margin-right: 8px; }
+  .avatar-slot.self { margin-left: 8px; }
+
+  .avatar-small {
+    width: 24px;
+    height: 24px;
+    border-radius: 9999px;
+    object-fit: cover;
+  }
+  .avatar-spacer { width: 24px; height: 24px; }
+
   .message-bubble {
     max-width: 75%;
-    padding: 0.75rem 1rem;
+    /* Compact padding for tighter bubbles */
+    padding: 0.5rem 0.625rem; /* 8px 10px */
     border-radius: 1rem;
     background: var(--color-input-bg);
     color: var(--color-text);
     position: relative;
     word-break: break-word;
     transition: all 0.2s ease;
-    line-height: 1.35;
+    line-height: 1.3;
   }
   
   .message-bubble:hover { background: var(--color-bubble-other-hover); }
@@ -442,10 +470,12 @@
   /* Bubble grouping styles */
   .message-bubble.first-in-group.other {
     border-top-left-radius: 1rem;
+    margin-top: 6px;
   }
   
   .message-bubble.first-in-group.self {
     border-top-right-radius: 1rem;
+    margin-top: 6px;
   }
   
   .message-bubble.last-in-group.other {
@@ -457,6 +487,8 @@
     border-bottom-right-radius: 1rem;
     margin-bottom: 0.75rem;
   }
+
+  /* Reserve space only on the last line (see ::after below) */
   
   .message-bubble:not(.first-in-group):not(.last-in-group).other {
     border-top-left-radius: 0.25rem;
@@ -477,6 +509,7 @@
 
   .message-content {
     white-space: pre-wrap;
+    display: inline; /* allow end-of-line spacer without affecting previous lines */
     line-height: 1.4;
   }
 
@@ -513,9 +546,21 @@
 
   .message-timestamp {
     font-size: 0.65rem;
+    line-height: 1; /* avoid adding height */
     opacity: 0.7;
-    margin-top: 0.25rem;
+    position: absolute;
+    right: 0.5rem;
+    bottom: 0.35rem; /* align with bottom-most text line */
+    margin: 0; /* no extra vertical space */
     text-align: right;
+    pointer-events: none; /* avoid intercepting clicks */
+  }
+
+  /* Inline spacer that only affects the last text line when we do show timestamp */
+  .message-bubble.last-in-group .message-content::after {
+    content: '';
+    display: inline-block;
+    width: 3ch; /* approximate width for HH:MM + small gap */
   }
 
   .message-input-container {

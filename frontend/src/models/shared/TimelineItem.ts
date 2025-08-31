@@ -3,6 +3,7 @@ export interface TimelineItem {
   type: 'matrix' | 'todo' | 'email' | 'calendar' | 'Message' | 'Call' | 'chat' | 'todo';
   title: string;
   description?: string;
+  avatarUrl?: string; // optional HTTP avatar for the item
   content?: string;
   timestamp: number;
   completed?: boolean;

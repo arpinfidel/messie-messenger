@@ -92,19 +92,16 @@
   <div class="relative z-10 flex h-full p-3">
     <!-- Avatar column -->
     <div class="mr-3 flex w-12 flex-shrink-0 items-start justify-center">
-      <!-- Round avatar (now relative parent) -->
-      <div
-        class={`relative flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br ${config.gradient} text-white shadow-sm`}
-      >
-        <span class="text-lg">{config.icon}</span>
-
-        <!-- Overlapping capsule (locked to avatar bottom) -->
-        <span
-          class={`absolute -bottom-1 left-1/2 inline-flex -translate-x-1/2 translate-y-1 items-center rounded-full bg-gradient-to-r px-1.5 py-px text-[9px] font-medium uppercase tracking-wide text-white ${config.gradient} ${config.ringColor} shadow-sm ring-1 ring-white/30 dark:ring-gray-900/30`}
+      {#if item.avatarUrl}
+        <img src={item.avatarUrl} alt="avatar" class="h-10 w-10 rounded-full object-cover shadow-sm" />
+      {:else}
+        <!-- Round fallback avatar with emoji -->
+        <div
+          class={`relative flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br ${config.gradient} text-white shadow-sm`}
         >
-          {item.type}
-        </span>
-      </div>
+          <span class="text-lg">{config.icon}</span>
+        </div>
+      {/if}
     </div>
     <div class="flex-grow">
       <!-- First row: room name, then date and item type capsule stacked vertically -->
