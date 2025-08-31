@@ -13,6 +13,13 @@ export interface StoredUser {
   avatarUrl?: string | null;
 }
 
+export interface StoredMember {
+  userId: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+  membership?: string | null;
+}
+
 type Tokens = { backward?: string | null };
 
 /**
@@ -27,6 +34,7 @@ export class MatrixDataStore {
   private currentUserId: string | null = null;
   private currentUserDisplayName: string | null = null;
   private users = new Map<string, StoredUser>();
+  private roomMembers = new Map<string, StoredMember[]>();
 
   setCurrentUser(userId: string, displayName?: string | null) {
     this.currentUserId = userId;
@@ -62,6 +70,15 @@ export class MatrixDataStore {
 
   getUsers(): StoredUser[] {
     return Array.from(this.users.values());
+  }
+
+  // --- Room members ---
+  setRoomMembers(roomId: string, members: StoredMember[]): void {
+    this.roomMembers.set(roomId, members.slice());
+  }
+
+  getRoomMembers(roomId: string): StoredMember[] {
+    return this.roomMembers.get(roomId) ?? [];
   }
 
   upsertRoom(id: string, name: string, latestTimestamp?: number, avatarUrl?: string | null) {
@@ -132,17 +149,21 @@ export class MatrixDataStore {
     const events: Record<string, any[]> = {};
     const tokens: Record<string, Tokens> = {};
     const users = this.getUsers();
+    const members: Record<string, StoredMember[]> = {};
     for (const r of rooms) {
       const arr = this.eventsByRoom.get(r.id) ?? [];
       events[r.id] = arr.slice(Math.max(0, arr.length - limitPerRoom));
       const t = this.tokensByRoom.get(r.id) ?? {};
       tokens[r.id] = { backward: t.backward ?? null };
+      const ms = this.roomMembers.get(r.id) ?? [];
+      members[r.id] = ms;
     }
     return {
       currentUserId: this.currentUserId,
       currentUserDisplayName: this.currentUserDisplayName,
       rooms,
       users,
+      members,
       events,
       tokens,
     };
@@ -174,6 +195,19 @@ export class MatrixDataStore {
           displayName: u.displayName ?? null,
           avatarUrl: u.avatarUrl ?? null,
         });
+
+      const members: Record<string, StoredMember[]> = snapshot.members || {};
+      for (const roomId of Object.keys(members)) {
+        this.roomMembers.set(
+          roomId,
+          (members[roomId] || []).map((m) => ({
+            userId: m.userId,
+            displayName: m.displayName ?? null,
+            avatarUrl: m.avatarUrl ?? null,
+            membership: (m as any).membership ?? null,
+          }))
+        );
+      }
 
       const events: Record<string, any[]> = snapshot.events || {};
       for (const roomId of Object.keys(events)) {

@@ -70,7 +70,7 @@ export class AvatarResolver {
 
     try {
       const res = await fetch(http, { redirect: 'follow' });
-      if (!res.ok) return http; // fallback to direct URL
+      if (!res.ok) return undefined; // avoid raw HTTP fallback
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       this.memSet(key, url, blob.size, blob.type || 'image/*');
@@ -80,7 +80,7 @@ export class AvatarResolver {
       } catch {}
       return url;
     } catch {
-      return http; // network fail → fallback to URL (browser cache may help)
+      return undefined; // avoid raw HTTP fallback on network failures
     }
   }
 
@@ -100,9 +100,8 @@ export class AvatarResolver {
     arr.sort((a, b) => a[1].ts - b[1].ts);
     for (let i = 0; i < over; i++) {
       const [k, e] = arr[i];
-      try { URL.revokeObjectURL(e.url); } catch {}
+      // Do not revoke object URLs here to avoid breaking in-use <img> elements.
       this.mem.delete(k);
     }
   }
 }
-

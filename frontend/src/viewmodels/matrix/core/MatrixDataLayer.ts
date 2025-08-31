@@ -18,6 +18,29 @@ export class MatrixDataLayer {
     this.pageSize = opts.pageSize ?? 20;
   }
 
+  /** Refresh and cache joined room members (room -> members -> user link). */
+  async refreshRoomMembers(roomId: string): Promise<void> {
+    const c = this.client;
+    if (!c) return;
+    const room = c.getRoom(roomId);
+    if (!room) return;
+    try {
+      const members = room.getMembers()?.filter((m) => (m as any).membership === 'join') || [];
+      const out: { userId: string; displayName?: string; avatarUrl?: string; membership?: string }[] = [];
+      for (const m of members) {
+        const userId = m.userId;
+        const display = (m as any).rawDisplayName || m.name;
+        const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
+        // keep global user profile up to date
+        this.store.upsertUser(userId, display, mxc ?? null);
+        out.push({ userId, displayName: display, avatarUrl: mxc, membership: (m as any).membership });
+      }
+      this.store.setRoomMembers(roomId, out.map((x) => ({ userId: x.userId, displayName: x.displayName ?? null, avatarUrl: x.avatarUrl ?? null, membership: x.membership ?? null })));
+      await this.db.replaceRoomMembers(roomId, out);
+      if (out.length) await this.db.putUsers(out.map((x) => ({ userId: x.userId, displayName: x.displayName, avatarUrl: x.avatarUrl })));
+    } catch {}
+  }
+
   private get client(): matrixSdk.MatrixClient | null {
     return this.opts.getClient();
   }
@@ -61,6 +84,8 @@ export class MatrixDataLayer {
           avatarUrl: roomMxc || undefined,
         })
         .catch(() => {});
+      // Populate members asynchronously; don't block
+      this.refreshRoomMembers(r.roomId).catch(() => {});
     }
     this.saveToCache();
   }
@@ -110,6 +135,8 @@ export class MatrixDataLayer {
         if (users.length) await this.db.putUsers(users);
       } catch {}
     }
+    // Also ensure we captured the room members for avatar fallbacks
+    this.refreshRoomMembers(roomId).catch(() => {});
 
     const bToken = live.getPaginationToken(Direction.Backward) ?? null;
     this.store.setBackwardToken(roomId, bToken);
@@ -211,6 +238,10 @@ export class MatrixDataLayer {
           await this.db.putUser({ userId: re.sender });
         }
       }
+      // Membership changes might come in via live events; refresh mapping opportunistically
+      if (ev.getType() === 'm.room.member') {
+        this.refreshRoomMembers(room.roomId).catch(() => {});
+      }
     } catch {}
     this.saveToCache();
   }
@@ -252,6 +283,16 @@ export class MatrixDataLayer {
             if (asc.length) this.store.prependEvents(r.id, asc);
             const token = await this.db.getBackwardToken(r.id);
             if (token !== undefined) this.store.setBackwardToken(r.id, token ?? null);
+            // Load room members
+            try {
+              const ms = await this.db.getRoomMembers(r.id);
+              if (ms?.length) {
+                this.store.setRoomMembers(
+                  r.id,
+                  ms.map((m) => ({ userId: m.userId, displayName: m.displayName ?? null, avatarUrl: m.avatarUrl ?? null, membership: m.membership ?? null }))
+                );
+              }
+            } catch {}
           } catch {}
         }
       } catch {}

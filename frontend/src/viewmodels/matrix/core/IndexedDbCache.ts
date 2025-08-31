@@ -21,7 +21,7 @@ type TokenRecord = { roomId: string; backward: string | null };
 type MetaRecord = { key: string; value: any };
 
 const DB_NAME = 'mx-app-store';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const STORES = {
   ROOMS: 'rooms',
@@ -30,7 +30,17 @@ const STORES = {
   META: 'meta',
   USERS: 'users',
   MEDIA: 'media', // blob cache (e.g., avatars)
+  MEMBERS: 'members', // per-room members
 } as const;
+
+export interface DbMember {
+  key: string; // `${roomId}|${userId}`
+  roomId: string;
+  userId: string;
+  displayName?: string;
+  avatarUrl?: string; // MXC URL
+  membership?: string; // e.g., 'join', 'leave'
+}
 
 export class IndexedDbCache {
   private db: IDBDatabase | null = null;
@@ -61,6 +71,10 @@ export class IndexedDbCache {
         if (!db.objectStoreNames.contains(STORES.MEDIA)) {
           const media = db.createObjectStore(STORES.MEDIA, { keyPath: 'key' });
           media.createIndex('byTs', 'ts');
+        }
+        if (!db.objectStoreNames.contains(STORES.MEMBERS)) {
+          const members = db.createObjectStore(STORES.MEMBERS, { keyPath: 'key' });
+          members.createIndex('byRoom', 'roomId');
         }
       };
       req.onsuccess = () => resolve(req.result);
@@ -242,6 +256,68 @@ export class IndexedDbCache {
         req.onsuccess = () => resolve((req.result as any) || undefined);
         req.onerror = () => reject(req.error);
       }) as any;
+    });
+  }
+
+  // --- Members table ---
+  async replaceRoomMembers(
+    roomId: string,
+    members: { userId: string; displayName?: string; avatarUrl?: string; membership?: string }[]
+  ): Promise<void> {
+    await this.init();
+    await new Promise<void>((resolve, reject) => {
+      if (!this.db) return reject(new Error('DB not initialized'));
+      const tx = this.db.transaction([STORES.MEMBERS], 'readwrite');
+      const store = tx.objectStore(STORES.MEMBERS);
+      // First, delete existing members by room
+      const idx = store.index('byRoom');
+      const range = IDBKeyRange.only(roomId);
+      const cursorReq = idx.openCursor(range);
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result as IDBCursorWithValue | null;
+        if (!cursor) return;
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      };
+      cursorReq.onerror = () => reject(cursorReq.error);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    // Insert new members
+    await this.tx<void>(STORES.MEMBERS, 'readwrite', (s) => {
+      for (const m of members) {
+        const rec: DbMember = {
+          key: `${roomId}|${m.userId}`,
+          roomId,
+          userId: m.userId,
+          displayName: m.displayName,
+          avatarUrl: m.avatarUrl,
+          membership: m.membership,
+        };
+        s.put(rec as any);
+      }
+    });
+  }
+
+  async getRoomMembers(roomId: string): Promise<DbMember[]> {
+    await this.init();
+    return new Promise<DbMember[]>((resolve, reject) => {
+      if (!this.db) return reject(new Error('DB not initialized'));
+      const tx = this.db.transaction([STORES.MEMBERS], 'readonly');
+      const store = tx.objectStore(STORES.MEMBERS);
+      const idx = store.index('byRoom');
+      const range = IDBKeyRange.only(roomId);
+      const out: DbMember[] = [];
+      const cursorReq = idx.openCursor(range);
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result as IDBCursorWithValue | null;
+        if (!cursor) return;
+        out.push(cursor.value as DbMember);
+        cursor.continue();
+      };
+      cursorReq.onerror = () => reject(cursorReq.error);
+      tx.oncomplete = () => resolve(out);
+      tx.onerror = () => reject(tx.error);
     });
   }
 
