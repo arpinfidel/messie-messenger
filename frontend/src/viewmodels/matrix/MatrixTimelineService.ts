@@ -346,68 +346,79 @@ export class MatrixTimelineService {
       const url = await this.avatarResolver.resolve(roomMxc, { w: 64, h: 64, method: 'crop' });
       if (url) return url;
     }
-    // Fallback: top 2 joined member avatars (prefer non-self), compose if both exist
+    // Fallback: top 3 joined member avatars (prefer non-self), compose if multiple exist
     const members = this.store.getRoomMembers(roomId) || [];
     const currentUserId = this.store.getCurrentUserId();
     const sorted = members
       .filter((m) => (m.membership || 'join') === 'join')
-      .sort((a, b) => (a.userId === currentUserId ? 1 : 0) - (b.userId === currentUserId ? 1 : 0));
+      .sort((a, b) => {
+        const pref = (a.userId === currentUserId ? 1 : 0) - (b.userId === currentUserId ? 1 : 0);
+        if (pref !== 0) return pref;
+        return a.userId.localeCompare(b.userId);
+      });
     const mxcs: string[] = [];
     for (const m of sorted) {
       const mxc = this.store.getUser(m.userId)?.avatarUrl || undefined;
       if (mxc && !mxcs.includes(mxc)) mxcs.push(mxc);
-      if (mxcs.length >= 2) break;
+      if (mxcs.length >= 3) break;
     }
     if (mxcs.length === 0) return undefined;
     if (mxcs.length === 1) return (await this.avatarResolver.resolve(mxcs[0], { w: 64, h: 64, method: 'crop' })) || undefined;
-    // Compose two avatars
-    const key = `${roomId}|${mxcs[0]}|${mxcs[1]}`;
+
+    // Compose N (2..3) avatars with stable random layout seeded by room+mxcs
+    const key = `${roomId}|${mxcs.sort().join('|')}`;
     const cached = this.compositeAvatarCache.get(key);
     if (cached) return cached;
-    const [u1, u2] = await Promise.all([
-      this.avatarResolver.resolve(mxcs[0], { w: 64, h: 64, method: 'crop' }),
-      this.avatarResolver.resolve(mxcs[1], { w: 64, h: 64, method: 'crop' }),
-    ]);
-    if (!u1 || !u2) return u1 || u2 || undefined;
-    const composed = await this.composeTwoAvatars(u1, u2, 64);
+
+    const urls = await Promise.all(mxcs.map((m) => this.avatarResolver.resolve(m, { w: 64, h: 64, method: 'crop' })));
+    const resolved = urls.filter((u): u is string => !!u);
+    if (resolved.length === 0) return undefined;
+    if (resolved.length === 1) return resolved[0];
+    const composed = await this.composeBubbleAvatars(resolved.slice(0, 3), 64);
     if (composed) this.compositeAvatarCache.set(key, composed);
-    return composed || u1; // fallback to first if compose failed
+    return composed || resolved[0];
   }
 
-  private async composeTwoAvatars(url1: string, url2: string, size = 64): Promise<string | undefined> {
+  private async composeBubbleAvatars(urls: string[], size = 64): Promise<string | undefined> {
     try {
-      const [img1, img2] = await Promise.all([this.loadImage(url1), this.loadImage(url2)]);
+      const imgs = await Promise.all(urls.map((u) => this.loadImage(u)));
       const canvas = document.createElement('canvas');
       canvas.width = size;
       canvas.height = size;
       const ctx = canvas.getContext('2d');
       if (!ctx) return undefined;
-
-      // Background transparent
       ctx.clearRect(0, 0, size, size);
 
-      const r = Math.floor(size * 0.42); // radius for circle avatars
-      const cx1 = Math.floor(size * 0.38);
-      const cx2 = Math.floor(size * 0.62);
-      const cy = Math.floor(size * 0.5);
+      // Static placements that look organic and fit inside 64x64
+      const n = Math.min(3, imgs.length);
+      const positions: { x: number; y: number; r: number; img: HTMLImageElement }[] = [];
+      if (n === 2) {
+        const r = Math.floor(size * 0.32);
+        positions.push({ x: Math.floor(size * 0.36), y: Math.floor(size * 0.44), r, img: imgs[0] });
+        positions.push({ x: Math.floor(size * 0.64), y: Math.floor(size * 0.56), r, img: imgs[1] });
+      } else {
+        const r = Math.floor(size * 0.28);
+        positions.push({ x: Math.floor(size * 0.34), y: Math.floor(size * 0.36), r, img: imgs[0] });
+        positions.push({ x: Math.floor(size * 0.66), y: Math.floor(size * 0.40), r, img: imgs[1] });
+        positions.push({ x: Math.floor(size * 0.50), y: Math.floor(size * 0.68), r, img: imgs[2] });
+      }
 
-      // Draw left avatar (underlap)
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx1, cy, r, 0, Math.PI * 2);
-      ctx.closePath();
-      ctx.clip();
-      this.drawCover(ctx, img1, cx1 - r, cy - r, r * 2, r * 2);
-      ctx.restore();
-
-      // Draw right avatar (overlap)
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx2, cy, r, 0, Math.PI * 2);
-      ctx.closePath();
-      ctx.clip();
-      this.drawCover(ctx, img2, cx2 - r, cy - r, r * 2, r * 2);
-      ctx.restore();
+      // Draw bubbles with thin black border
+      for (const p of positions) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+        this.drawCover(ctx, p.img, p.x - p.r, p.y - p.r, p.r * 2, p.r * 2);
+        ctx.restore();
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r - 0.5, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#000';
+        ctx.stroke();
+      }
 
       const blob: Blob | null = await new Promise((resolve) => canvas.toBlob((b) => resolve(b), 'image/png'));
       if (!blob) return undefined;
@@ -454,4 +465,6 @@ export class MatrixTimelineService {
     }
     ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
   }
+
+  // removed seeded RNG in favor of static placement
 }
