@@ -68,9 +68,13 @@ export class MatrixDataLayer {
     const pick = all.slice(-limit);
 
     const converted: RepoEvent[] = [];
+    const seenSenders = new Set<string>();
     for (const ev of pick) {
       const re = await this.toRepoEvent(ev);
-      if (re) converted.push(re);
+      if (re) {
+        converted.push(re);
+        if (re.sender) seenSenders.add(re.sender);
+      }
     }
 
     // write to store
@@ -80,6 +84,21 @@ export class MatrixDataLayer {
         await this.db.putEvents(roomId, converted);
         const r = this.store.getRooms().find((x) => x.id === roomId);
         if (r) await this.db.putRoom({ id: r.id, name: r.name, latestTimestamp: r.latestTimestamp ?? 0 });
+        // Persist sender profiles for this page
+        const users: { userId: string; displayName?: string; avatarUrl?: string }[] = [];
+        for (const uid of seenSenders) {
+          const m = room.getMember(uid);
+          if (m) {
+            const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
+            const display = (m as any).rawDisplayName || m.name;
+            this.store.upsertUser(uid, display, mxc ?? null);
+            users.push({ userId: uid, displayName: display, avatarUrl: mxc });
+          } else {
+            this.store.upsertUser(uid);
+            users.push({ userId: uid });
+          }
+        }
+        if (users.length) await this.db.putUsers(users);
       } catch {}
     }
 
@@ -110,9 +129,13 @@ export class MatrixDataLayer {
 
     const windowEvents = live.getEvents().slice(0, limit);
     const converted: RepoEvent[] = [];
+    const seenSenders = new Set<string>();
     for (const ev of windowEvents) {
       const re = await this.toRepoEvent(ev);
-      if (re) converted.push(re);
+      if (re) {
+        converted.push(re);
+        if (re.sender) seenSenders.add(re.sender);
+      }
     }
 
     if (converted.length) {
@@ -121,6 +144,21 @@ export class MatrixDataLayer {
         await this.db.putEvents(roomId, converted);
         const r = this.store.getRooms().find((x) => x.id === roomId);
         if (r) await this.db.putRoom({ id: r.id, name: r.name, latestTimestamp: r.latestTimestamp ?? 0 });
+        // Persist sender profiles for this page
+        const users: { userId: string; displayName?: string; avatarUrl?: string }[] = [];
+        for (const uid of seenSenders) {
+          const m = room.getMember(uid);
+          if (m) {
+            const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
+            const display = (m as any).rawDisplayName || m.name;
+            this.store.upsertUser(uid, display, mxc ?? null);
+            users.push({ userId: uid, displayName: display, avatarUrl: mxc });
+          } else {
+            this.store.upsertUser(uid);
+            users.push({ userId: uid });
+          }
+        }
+        if (users.length) await this.db.putUsers(users);
       } catch {}
     }
 
@@ -144,6 +182,19 @@ export class MatrixDataLayer {
     try {
       await this.db.putEvents(room.roomId, [re]);
       await this.db.putRoom({ id: room.roomId, name: room.name || room.roomId, latestTimestamp: this.store.getRooms().find(x=>x.id===room.roomId)?.latestTimestamp || 0 });
+      // Persist sender profile
+      if (re.sender) {
+        const m = room.getMember(re.sender);
+        if (m) {
+          const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
+          const display = (m as any).rawDisplayName || m.name;
+          this.store.upsertUser(re.sender, display, mxc ?? null);
+          await this.db.putUser({ userId: re.sender, displayName: display, avatarUrl: mxc });
+        } else {
+          this.store.upsertUser(re.sender);
+          await this.db.putUser({ userId: re.sender });
+        }
+      }
     } catch {}
     this.saveToCache();
   }
@@ -170,6 +221,12 @@ export class MatrixDataLayer {
         for (const r of rooms) {
           this.store.upsertRoom(r.id, r.name, r.latestTimestamp ?? 0);
         }
+
+        // Load users
+        try {
+          const users = await this.db.getUsers();
+          for (const u of users) this.store.upsertUser(u.userId, u.displayName, u.avatarUrl);
+        } catch {}
 
         // Load a small tail of events per room for previews
         for (const r of rooms) {
@@ -201,6 +258,10 @@ export class MatrixDataLayer {
         rooms.map((r) => ({ id: r.id, name: r.name, latestTimestamp: r.latestTimestamp ?? 0 }))
       )
       .catch(() => {});
+
+    // Persist users
+    const users = this.store.getUsers();
+    if (users.length) this.db.putUsers(users.map((u) => ({ userId: u.userId, displayName: u.displayName ?? undefined, avatarUrl: u.avatarUrl ?? undefined }))).catch(() => {});
   }
 
   /** Query cached events by room from IndexedDB, newest first. */

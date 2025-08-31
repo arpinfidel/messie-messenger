@@ -3,6 +3,12 @@
 
 import type { RepoEvent } from './TimelineRepository';
 
+export interface DbUser {
+  userId: string;
+  displayName?: string;
+  avatarUrl?: string; // may be MXC URL
+}
+
 export interface DbRoom {
   id: string;
   name: string;
@@ -14,13 +20,14 @@ type TokenRecord = { roomId: string; backward: string | null };
 type MetaRecord = { key: string; value: any };
 
 const DB_NAME = 'mx-app-store';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORES = {
   ROOMS: 'rooms',
   EVENTS: 'events',
   TOKENS: 'tokens',
   META: 'meta',
+  USERS: 'users',
 } as const;
 
 export class IndexedDbCache {
@@ -45,6 +52,9 @@ export class IndexedDbCache {
         }
         if (!db.objectStoreNames.contains(STORES.META)) {
           db.createObjectStore(STORES.META, { keyPath: 'key' });
+        }
+        if (!db.objectStoreNames.contains(STORES.USERS)) {
+          db.createObjectStore(STORES.USERS, { keyPath: 'userId' });
         }
       };
       req.onsuccess = () => resolve(req.result);
@@ -189,6 +199,41 @@ export class IndexedDbCache {
       const req = s.get(key);
       return new Promise<T | undefined>((resolve, reject) => {
         req.onsuccess = () => resolve((req.result as any)?.value as T);
+        req.onerror = () => reject(req.error);
+      }) as any;
+    });
+  }
+
+  // --- Users table ---
+  async putUsers(users: DbUser[]): Promise<void> {
+    if (!users.length) return;
+    await this.init();
+    await this.tx<void>(STORES.USERS, 'readwrite', (s) => {
+      for (const u of users) s.put(u);
+    });
+  }
+
+  async putUser(user: DbUser): Promise<void> {
+    return this.putUsers([user]);
+  }
+
+  async getUsers(): Promise<DbUser[]> {
+    await this.init();
+    return this.tx<DbUser[]>(STORES.USERS, 'readonly', (s) => {
+      const req = s.getAll();
+      return new Promise<DbUser[]>((resolve, reject) => {
+        req.onsuccess = () => resolve((req.result as any) || []);
+        req.onerror = () => reject(req.error);
+      }) as any;
+    });
+  }
+
+  async getUser(userId: string): Promise<DbUser | undefined> {
+    await this.init();
+    return this.tx<DbUser | undefined>(STORES.USERS, 'readonly', (s) => {
+      const req = s.get(userId);
+      return new Promise<DbUser | undefined>((resolve, reject) => {
+        req.onsuccess = () => resolve((req.result as any) || undefined);
         req.onerror = () => reject(req.error);
       }) as any;
     });

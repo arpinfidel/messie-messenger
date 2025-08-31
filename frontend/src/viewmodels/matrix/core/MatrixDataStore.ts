@@ -6,6 +6,12 @@ export interface StoredRoom {
   latestTimestamp?: number; // latest message-like event ts
 }
 
+export interface StoredUser {
+  userId: string;
+  displayName?: string | null;
+  avatarUrl?: string | null;
+}
+
 type Tokens = { backward?: string | null };
 
 /**
@@ -19,6 +25,7 @@ export class MatrixDataStore {
 
   private currentUserId: string | null = null;
   private currentUserDisplayName: string | null = null;
+  private users = new Map<string, StoredUser>();
 
   setCurrentUser(userId: string, displayName?: string | null) {
     this.currentUserId = userId;
@@ -33,15 +40,36 @@ export class MatrixDataStore {
     return this.currentUserDisplayName || this.currentUserId;
   }
 
+  // --- Users ---
+  upsertUser(userId: string, displayName?: string | null, avatarUrl?: string | null) {
+    const prev = this.users.get(userId) || { userId };
+    this.users.set(userId, {
+      userId,
+      displayName: displayName ?? prev.displayName ?? null,
+      avatarUrl: avatarUrl ?? prev.avatarUrl ?? null,
+    });
+  }
+
+  getUser(userId: string): StoredUser | undefined {
+    return this.users.get(userId);
+  }
+
+  getUserDisplayName(userId: string): string | undefined {
+    const u = this.users.get(userId);
+    return (u?.displayName || undefined) ?? undefined;
+  }
+
+  getUsers(): StoredUser[] {
+    return Array.from(this.users.values());
+  }
+
   upsertRoom(id: string, name: string, latestTimestamp?: number) {
     const prev = this.rooms.get(id) || { id, name, latestTimestamp: 0 };
     const next: StoredRoom = {
       id,
       name: name ?? prev.name,
       latestTimestamp:
-        typeof latestTimestamp === 'number'
-          ? latestTimestamp
-          : prev.latestTimestamp ?? 0,
+        typeof latestTimestamp === 'number' ? latestTimestamp : (prev.latestTimestamp ?? 0),
     };
     this.rooms.set(id, next);
   }
@@ -101,6 +129,7 @@ export class MatrixDataStore {
     const rooms = this.getRooms();
     const events: Record<string, any[]> = {};
     const tokens: Record<string, Tokens> = {};
+    const users = this.getUsers();
     for (const r of rooms) {
       const arr = this.eventsByRoom.get(r.id) ?? [];
       events[r.id] = arr.slice(Math.max(0, arr.length - limitPerRoom));
@@ -111,6 +140,7 @@ export class MatrixDataStore {
       currentUserId: this.currentUserId,
       currentUserDisplayName: this.currentUserDisplayName,
       rooms,
+      users,
       events,
       tokens,
     };
@@ -127,11 +157,20 @@ export class MatrixDataStore {
         this.currentUserDisplayName = snapshot.currentUserDisplayName;
 
       const rooms: StoredRoom[] = snapshot.rooms || [];
-      for (const r of rooms) this.rooms.set(r.id, { id: r.id, name: r.name, latestTimestamp: r.latestTimestamp ?? 0 });
+      for (const r of rooms)
+        this.rooms.set(r.id, { id: r.id, name: r.name, latestTimestamp: r.latestTimestamp ?? 0 });
+
+      const users: StoredUser[] = snapshot.users || [];
+      for (const u of users)
+        this.users.set(u.userId, {
+          userId: u.userId,
+          displayName: u.displayName ?? null,
+          avatarUrl: u.avatarUrl ?? null,
+        });
 
       const events: Record<string, any[]> = snapshot.events || {};
       for (const roomId of Object.keys(events)) {
-        this.eventsByRoom.set(roomId, (events[roomId] as any[]) as any);
+        this.eventsByRoom.set(roomId, events[roomId] as any[] as any);
       }
 
       const tokens: Record<string, Tokens> = snapshot.tokens || {};

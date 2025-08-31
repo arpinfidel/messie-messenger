@@ -197,7 +197,17 @@ export class MatrixTimelineService {
     )) {
       const { description } = this.repoEventToPreview(re);
       const isSelf = re.sender === currentUserId;
-      const senderDisplayName = re.sender; // Keep data-layer-only: avoid SDK lookup here
+      // Prefer cached display name from store, then SDK membership, else MXID
+      let senderDisplayName = this.store.getUserDisplayName(re.sender) || re.sender;
+      if (!senderDisplayName) senderDisplayName = re.sender;
+      if (senderDisplayName === re.sender) {
+        try {
+          const c = this.client;
+          const room = c?.getRoom(re.roomId!);
+          const member = room?.getMember(re.sender);
+          if (member) senderDisplayName = (member as any).rawDisplayName || member.name || re.sender;
+        } catch {}
+      }
       const msgtype = re.content.msgtype;
 
       const msg: MatrixMessage = {
@@ -247,7 +257,10 @@ export class MatrixTimelineService {
     const relates = c['m.relates_to'];
     if (relates?.rel_type === 'm.annotation') {
       const key = typeof c.key === 'string' ? (c.key as string) : undefined;
-      if (key) return { description: `${re.sender} reacted with ${key}` };
+      if (key) {
+        const name = this.store.getUserDisplayName(re.sender) || re.sender;
+        return { description: `${name} reacted with ${key}` };
+      }
     }
     if (relates?.rel_type === 'm.reference') {
       return { description: 'Replied to a message' };
