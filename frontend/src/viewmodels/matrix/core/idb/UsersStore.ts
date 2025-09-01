@@ -1,14 +1,25 @@
+
 import { DbConnection } from './DbConnection';
 import { STORES, type DbUser } from './constants';
+import QuickLRU from 'quick-lru';
 
 export class UsersStore {
-  constructor(private readonly conn: DbConnection) {}
+  private conn: DbConnection;
+  private cache: QuickLRU<string, DbUser>;
+
+  constructor(conn: DbConnection, cacheSize: number = 100) {
+    this.conn = conn;
+    this.cache = new QuickLRU<string, DbUser>({ maxSize: cacheSize });
+  }
 
   async putUsers(users: DbUser[]): Promise<void> {
     if (!users.length) return;
     await this.conn.init();
     await this.conn.tx<void>(STORES.USERS, 'readwrite', (s) => {
-      for (const u of users) s.put(u);
+      for (const u of users) {
+        s.put(u);
+        this.cache.set(u.userId, u);
+      }
     });
   }
 
@@ -38,4 +49,3 @@ export class UsersStore {
     });
   }
 }
-
