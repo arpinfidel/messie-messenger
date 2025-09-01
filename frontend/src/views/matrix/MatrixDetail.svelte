@@ -98,7 +98,7 @@
       // Temporarily disable smooth scroll behavior for instant jump
       messagesContainer.style.scrollBehavior = 'auto';
       const newScrollHeight = messagesContainer.scrollHeight;
-      messagesContainer.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight);
+      messagesContainer.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight - 50);
       console.debug(
         `[MatrixDetail][loadMoreMessages] Adjusted scrollTop to preserve viewport (prevTop=${prevScrollTop}, delta=${newScrollHeight - prevScrollHeight})`
       );
@@ -132,7 +132,7 @@
       {
         root: messagesContainer,
         threshold: 0.01,
-        rootMargin: '0px 0px -90% 0px',
+        rootMargin: '600px 0px -90% 0px', 
       }
     );
 

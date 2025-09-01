@@ -36,7 +36,7 @@ export class MatrixTimelineService {
       isStarted: () => boolean;
       getHydrationState: () => 'idle' | 'syncing' | 'decrypting' | 'ready';
     },
-    private readonly layer: MatrixDataLayer,
+    private readonly data: MatrixDataLayer,
     private readonly avatars: AvatarService
   ) {}
 
@@ -52,7 +52,7 @@ export class MatrixTimelineService {
    * Compute strictly from data provided by MatrixDataLayer instead of querying the SDK.
    */
   async fetchAndSetTimelineItems(): Promise<void> {
-    const rooms = await this.layer.getRooms();
+    const rooms = await this.data.getRooms();
     // Sort rooms by latest activity and keep only top N
     const sortedRooms = rooms
       .slice()
@@ -65,7 +65,7 @@ export class MatrixTimelineService {
     const items: IMatrixTimelineItem[] = [];
     const currentItems = get(this._timelineItems) as IMatrixTimelineItem[];
     for (const room of limitedRooms) {
-      const last = (await this.layer.queryEventsByRoom(room.id, 1))[0];
+      const last = (await this.data.queryEventsByRoom(room.id, 1))[0];
       let description = 'No recent messages';
       let timestamp = room.latestTimestamp || 0;
       if (last) {
@@ -125,10 +125,10 @@ export class MatrixTimelineService {
 
   /** Live pipeline: ingest event into store via data layer, then update preview. */
   async pushTimelineItemFromEvent(ev: MatrixEvent, room: Room) {
-    await this.layer.ingestLiveEvent(ev, room);
+    await this.data.ingestLiveEvent(ev, room);
 
-    const last = (await this.layer.queryEventsByRoom(room.roomId, 1))[0];
-    const rooms = await this.layer.getRooms();
+    const last = (await this.data.queryEventsByRoom(room.roomId, 1))[0];
+    const rooms = await this.data.getRooms();
     const fallbackTs = rooms.find((r) => r.id === room.roomId)?.latestTimestamp || 0;
     const timestamp = last?.originServerTs ?? fallbackTs;
     const id = room.roomId;
@@ -187,21 +187,23 @@ export class MatrixTimelineService {
     beforeTS: number | null,
     limit = 20
   ): Promise<{ messages: MatrixMessage[]; nextBatch: number | null }> {
-    const { events, firstTS } = await this.layer.getRoomMessages(roomId, beforeTS, limit);
+    const { events, firstTS } = await this.data.getRoomMessages(roomId, beforeTS, limit);
     console.time(`[MatrixTimelineService] mapRepoEventsToMessages(${roomId})`);
     const messages = await this.mapRepoEventsToMessages(events);
+    // Ensure chronological order (oldest first) for consumers
+    messages.sort((a, b) => a.timestamp - b.timestamp);
     console.timeEnd(`[MatrixTimelineService] mapRepoEventsToMessages(${roomId})`);
     return { messages, nextBatch: firstTS };
   }
 
   clearRoomPaginationTokens(roomId: string) {
-    this.layer.clearRoom(roomId);
+    this.data.clearRoom(roomId);
   }
 
   /* ---------------- Mapping helpers ---------------- */
 
   private async mapRepoEventsToMessages(events: RepoEvent[]): Promise<MatrixMessage[]> {
-    const currentUserId = this.layer.getCurrentUserId() ?? '';
+    const currentUserId = this.data.getCurrentUserId() ?? '';
     const msgs: MatrixMessage[] = [];
     const resolvers: Array<Promise<void>> = [];
     for (const re of events.filter(
@@ -231,7 +233,7 @@ export class MatrixTimelineService {
       } as RepoEvent);
       const isSelf = re.sender === currentUserId;
       // Prefer cached display name from store, then SDK membership, else MXID
-      let senderDisplayName = (await this.layer.getUserDisplayName(re.sender)) || re.sender;
+      let senderDisplayName = (await this.data.getUserDisplayName(re.sender)) || re.sender;
       if (!senderDisplayName) senderDisplayName = re.sender;
       const msgtype = effectiveContent?.msgtype;
       console.timeEnd(`[MatrixTimelineService] repoEventToPreview(${re.eventId})`);
@@ -262,7 +264,7 @@ export class MatrixTimelineService {
       if (msgtype === matrixSdk.MsgType.Image) {
         const content = effectiveContent as ImageContent;
         msg.mxcUrl = content.file?.url ?? content.url;
-        const p = this.mediaResolver
+        const p = this.data
           .resolveImage(content)
           .then((blobUrl) => {
             if (blobUrl) msg.imageUrl = blobUrl;

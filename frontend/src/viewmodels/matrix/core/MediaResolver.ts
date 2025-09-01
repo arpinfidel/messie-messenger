@@ -15,7 +15,10 @@ export class MediaResolver {
     this.maxEntries = opts?.maxEntries ?? 200;
   }
 
-  async resolveImage(content: ImageContent, dims = { w: 1024, h: 1024, method: 'scale' as const }): Promise<string | undefined> {
+  async resolveImage(
+    content: ImageContent,
+    dims = { w: 1024, h: 1024, method: 'scale' as const }
+  ): Promise<string | undefined> {
     const key = this.computeKeyForImage(content, dims);
     const cached = key ? this.cache.get(key) : undefined;
     if (cached) {
@@ -27,7 +30,12 @@ export class MediaResolver {
     const promise = this.resolveImageInternal(content, dims).then((url) => {
       if (url && key) {
         // We can’t know bytes here reliably without reading the blob again; store 0.
-        this.cache.set(key, { url, ts: Date.now(), bytes: 0, mime: content.info?.mimetype || 'application/octet-stream' });
+        this.cache.set(key, {
+          url,
+          ts: Date.now(),
+          bytes: 0,
+          mime: content.info?.mimetype || 'application/octet-stream',
+        });
         this.evictOldest();
       }
       return url;
@@ -42,14 +50,19 @@ export class MediaResolver {
 
   clear(): void {
     for (const [, entry] of this.cache) {
-      try { URL.revokeObjectURL(entry.url); } catch {}
+      try {
+        URL.revokeObjectURL(entry.url);
+      } catch {}
     }
     this.cache.clear();
     this.inflight.clear();
   }
 
   // ---- internals ----
-  private async resolveImageInternal(content: ImageContent, dims: { w: number; h: number; method: 'scale' | 'crop' }): Promise<string | undefined> {
+  private async resolveImageInternal(
+    content: ImageContent,
+    dims: { w: number; h: number; method: 'scale' | 'crop' }
+  ): Promise<string | undefined> {
     const client = this.getClient();
     if (!client) return undefined;
 
@@ -70,10 +83,21 @@ export class MediaResolver {
     return this.decryptToBlobUrl(enc, content.info?.mimetype);
   }
 
-  private async decryptToBlobUrl(enc: EncryptedFile, mimeHint?: string): Promise<string | undefined> {
+  private async decryptToBlobUrl(
+    enc: EncryptedFile,
+    mimeHint?: string
+  ): Promise<string | undefined> {
     const client = this.getClient();
     if (!client) return undefined;
-    const url = client.mxcUrlToHttp(enc.url, undefined, undefined, undefined, false, undefined, true);
+    const url = client.mxcUrlToHttp(
+      enc.url,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      undefined,
+      true
+    );
     if (!url) return undefined;
 
     const token = client.getAccessToken();
@@ -93,12 +117,18 @@ export class MediaResolver {
       }
 
       const jwk = enc.key as JsonWebKey;
-      const key = await crypto.subtle.importKey('jwk', jwk, { name: 'AES-CTR' }, false, ['decrypt']);
+      const key = await crypto.subtle.importKey('jwk', jwk, { name: 'AES-CTR' }, false, [
+        'decrypt',
+      ]);
       const ivBytes = this.fromBase64Unpadded(enc.iv);
       if (ivBytes.length !== 16) return undefined;
       const counter = new Uint8Array(16);
       counter.set(ivBytes);
-      const plainBuf = await crypto.subtle.decrypt({ name: 'AES-CTR', counter, length: 64 }, key, cipherBuf);
+      const plainBuf = await crypto.subtle.decrypt(
+        { name: 'AES-CTR', counter, length: 64 },
+        key,
+        cipherBuf
+      );
 
       const mime = typeof mimeHint === 'string' ? mimeHint : 'application/octet-stream';
       const blob = new Blob([plainBuf], { type: mime });
@@ -108,8 +138,13 @@ export class MediaResolver {
     }
   }
 
-  private computeKeyForImage(content: ImageContent, dims: { w: number; h: number; method: 'scale' | 'crop' }): string | undefined {
-    const enc = (content.info?.thumbnail_file as EncryptedFile | undefined) ?? (content.file as EncryptedFile | undefined);
+  computeKeyForImage(
+    content: ImageContent,
+    dims: { w: number; h: number; method: 'scale' | 'crop' }
+  ): string | undefined {
+    const enc =
+      (content.info?.thumbnail_file as EncryptedFile | undefined) ??
+      (content.file as EncryptedFile | undefined);
     if (enc?.url) {
       const hash = enc.hashes?.sha256 ? this.normalizeBase64(enc.hashes.sha256) : '';
       return `enc|${enc.url}|sha256=${hash}`;
@@ -127,7 +162,9 @@ export class MediaResolver {
     entries.sort((a, b) => a[1].ts - b[1].ts);
     for (let i = 0; i < over; i++) {
       const [key, entry] = entries[i];
-      try { URL.revokeObjectURL(entry.url); } catch {}
+      try {
+        URL.revokeObjectURL(entry.url);
+      } catch {}
       this.cache.delete(key);
     }
   }
@@ -150,4 +187,3 @@ export class MediaResolver {
     return out;
   }
 }
-

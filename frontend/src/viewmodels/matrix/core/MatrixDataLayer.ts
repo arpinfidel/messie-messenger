@@ -5,6 +5,7 @@ import { IndexedDbCache } from './IndexedDbCache';
 import { AvatarResolver } from './AvatarResolver';
 import { MediaResolver } from './MediaResolver';
 import type { DbUser } from './idb/constants';
+import type { ImageContent } from 'matrix-js-sdk/lib/types';
 
 export interface MatrixDataLayerOptions {
   getClient: () => matrixSdk.MatrixClient | null;
@@ -256,13 +257,14 @@ export class MatrixDataLayer {
   ): Promise<{ events: RepoEvent[]; firstTS: number | null }> {
     // Try to satisfy from cache first
     console.time(`[MatrixDataLayer] getRoomMessages(${roomId})`);
-    let events = await this.db.getEventsByRoom(roomId, limit, beforeTs ? beforeTs : undefined);
+    let events = await this.db.getEventsByRoom(roomId, limit, beforeTs ?? undefined);
     console.timeEnd(`[MatrixDataLayer] getRoomMessages(${roomId})`);
     if (events.length >= limit) {
       console.log(
         `[MatrixDataLayer] getRoomMessages(${roomId}) → ${events.length} events from cache`
       );
       const firstTS = events.length ? events[events.length - 1].originServerTs : (beforeTs ?? null);
+      events.reverse();
       return { events, firstTS: firstTS };
     }
     console.log(
@@ -308,8 +310,9 @@ export class MatrixDataLayer {
     }
     await this.db.setBackwardToken(roomId, remoteToken);
 
-    events = await this.db.getEventsByRoom(roomId, limit, beforeTs ? beforeTs : undefined);
+    events = await this.db.getEventsByRoom(roomId, limit, beforeTs ?? undefined);
     const firstTS = events.length ? events[events.length - 1].originServerTs : (beforeTs ?? null);
+    events.reverse();
 
     return { events, firstTS };
   }
@@ -437,6 +440,47 @@ export class MatrixDataLayer {
       } catch {
         // ignore
       }
+    }
+
+    return url;
+  }
+
+  async resolveImage(
+    img: ImageContent,
+    dims = { w: 1024, h: 1024, method: 'scale' as const }
+  ): Promise<string | undefined> {
+    // try db
+    const key = this.mediaResolver.computeKeyForImage(img, dims);
+    if (key) {
+      const cached = await this.db.getMedia(key);
+      if (cached) {
+        const url = URL.createObjectURL(cached.blob);
+        return url;
+      }
+    }
+
+    // try resolver
+    const url = await this.mediaResolver.resolveImage(img, dims);
+    if (!url) return undefined;
+
+    // save
+    try {
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const blob = await resp.blob();
+        if (key) {
+          await this.db.putMedia({
+            status: 200,
+            key,
+            ts: Date.now(),
+            bytes: blob.size,
+            mime: blob.type || 'image/*',
+            blob,
+          });
+        }
+      }
+    } catch {
+      // ignore
     }
 
     return url;
