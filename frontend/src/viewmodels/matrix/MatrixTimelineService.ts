@@ -8,8 +8,7 @@ import { MatrixDataStore } from './core/MatrixDataStore';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
 import type { ImageContent } from 'matrix-js-sdk/lib/@types/media';
 import { MediaResolver } from './core/MediaResolver';
-import { AvatarResolver } from './core/AvatarResolver';
-import { IndexedDbCache } from './core/IndexedDbCache';
+import { RoomAvatarService } from './core/RoomAvatarService';
 
 export interface MatrixMessage {
   id: string;
@@ -31,12 +30,6 @@ export class MatrixTimelineService {
   private listRefreshInFlight = false;
   private pendingLiveEvents: Array<{ ev: MatrixEvent; room: Room }> = [];
   private mediaResolver = new MediaResolver(() => this.client);
-  private avatarResolver = new AvatarResolver(() => this.client, {
-    maxMemEntries: 200,
-    maxDbEntries: 200,
-  });
-  private compositeAvatarCache = new Map<string, string>(); // key: roomId|mxc1|mxc2 -> blob URL
-  private imgDb = new IndexedDbCache(); // persist composed avatars in IDB
   private readonly maxRooms = 30; // limit room list to most recent N
 
   constructor(
@@ -46,7 +39,8 @@ export class MatrixTimelineService {
       getHydrationState: () => 'idle' | 'syncing' | 'decrypting' | 'ready';
     },
     private readonly store: MatrixDataStore,
-    private readonly layer: MatrixDataLayer
+    private readonly layer: MatrixDataLayer,
+    private readonly avatars: RoomAvatarService
   ) {}
 
   private get client() {
@@ -125,9 +119,10 @@ export class MatrixTimelineService {
           const idx = i++;
           const room = limitedRooms[idx];
           try {
-            const url = await this.resolveRoomAvatar(
+            const url = await this.avatars.resolveRoomAvatar(
               room.id,
-              room.avatarUrl as string | null | undefined
+              room.avatarUrl as string | null | undefined,
+              { w: 64, h: 64, method: 'crop' }
             );
             if (!url) continue;
             this._timelineItems.update((arr) => {
@@ -179,7 +174,11 @@ export class MatrixTimelineService {
     let avatarUrl: string | undefined;
     try {
       const roomMxc = room.getMxcAvatarUrl();
-      avatarUrl = await this.resolveRoomAvatar(room.roomId, roomMxc || undefined);
+      avatarUrl = await this.avatars.resolveRoomAvatar(
+        room.roomId,
+        roomMxc || undefined,
+        { w: 64, h: 64, method: 'crop' }
+      );
     } catch {}
 
     const updated = new MatrixTimelineItem({
@@ -305,18 +304,15 @@ export class MatrixTimelineService {
         msgtype,
       };
 
-      // Resolve sender avatar via avatarResolver (IDB-backed cache) and assign onto msg
+      // Resolve sender avatar via RoomAvatarService and assign onto msg
       try {
-        const mxc = this.store.getUser(re.sender)?.avatarUrl || undefined;
-        if (mxc) {
-          const p = this.avatarResolver
-            .resolve(mxc, { w: 32, h: 32, method: 'crop' })
-            .then((url) => {
-              if (url) msg.senderAvatarUrl = url;
-            })
-            .catch(() => {});
-          resolvers.push(p);
-        }
+        const p = this.avatars
+          .resolveUserAvatar(re.sender, { w: 32, h: 32, method: 'crop' })
+          .then((url) => {
+            if (url) msg.senderAvatarUrl = url;
+          })
+          .catch(() => {});
+        resolvers.push(p);
       } catch {}
 
       if (msgtype === matrixSdk.MsgType.Image) {
@@ -341,13 +337,7 @@ export class MatrixTimelineService {
   // Media cache management
   clearMediaCache(): void {
     this.mediaResolver.clear();
-    this.avatarResolver.clear();
-    for (const [, url] of this.compositeAvatarCache) {
-      try {
-        URL.revokeObjectURL(url);
-      } catch {}
-    }
-    this.compositeAvatarCache.clear();
+    this.avatars.clear();
   }
 
   /** Create a human preview from RepoEvent content (works for decrypted encrypted). */
@@ -390,174 +380,5 @@ export class MatrixTimelineService {
     return { description: 'This message could not be decrypted.' };
   }
 
-  // ---- Avatar helpers ----
-  private async resolveRoomAvatar(
-    roomId: string,
-    roomMxc?: string | null
-  ): Promise<string | undefined> {
-    // If room has its own avatar, prefer it.
-    if (roomMxc) {
-      const url = await this.avatarResolver.resolve(roomMxc, { w: 64, h: 64, method: 'crop' });
-      if (url) return url;
-    }
-    // Fallback: top 3 joined member avatars (prefer non-self), compose if multiple exist
-    const members = this.store.getRoomMembers(roomId) || [];
-    const currentUserId = this.store.getCurrentUserId();
-    const sorted = members
-      .filter((m) => (m.membership || 'join') === 'join')
-      .sort((a, b) => {
-        const pref = (a.userId === currentUserId ? 1 : 0) - (b.userId === currentUserId ? 1 : 0);
-        if (pref !== 0) return pref;
-        return a.userId.localeCompare(b.userId);
-      });
-    const mxcs: string[] = [];
-    for (const m of sorted) {
-      const mxc = this.store.getUser(m.userId)?.avatarUrl || undefined;
-      if (mxc && !mxcs.includes(mxc)) mxcs.push(mxc);
-      if (mxcs.length >= 3) break;
-    }
-    if (mxcs.length === 0) return undefined;
-    if (mxcs.length === 1)
-      return (
-        (await this.avatarResolver.resolve(mxcs[0], { w: 64, h: 64, method: 'crop' })) || undefined
-      );
-
-    // Compose N (2..3) avatars with stable random layout seeded by room+mxcs
-    const key = `${roomId}|${mxcs.sort().join('|')}`;
-    const cached = this.compositeAvatarCache.get(key);
-    if (cached) return cached;
-
-    // Try persistent cache for composed avatar
-    const dbKey = `avatar-composite|${key}|64x64`;
-    try {
-      const rec = await this.imgDb.getMedia(dbKey);
-      if (rec && rec.blob) {
-        const url = URL.createObjectURL(rec.blob);
-        this.compositeAvatarCache.set(key, url);
-        return url;
-      }
-    } catch {}
-
-    const urls = await Promise.all(
-      mxcs.map((m) => this.avatarResolver.resolve(m, { w: 64, h: 64, method: 'crop' }))
-    );
-    const resolved = urls.filter((u): u is string => !!u);
-    if (resolved.length === 0) return undefined;
-    if (resolved.length === 1) return resolved[0];
-    const composed = await this.composeBubbleAvatars(resolved.slice(0, 3), 64);
-    if (composed) {
-      this.compositeAvatarCache.set(key, composed.url);
-      // Persist composed avatar in IDB for fast startup next time
-      try {
-        await this.imgDb.putMedia({
-          key: dbKey,
-          ts: Date.now(),
-          bytes: composed.blob.size,
-          mime: 'image/png',
-          blob: composed.blob,
-        });
-        await this.imgDb.pruneMedia(200);
-      } catch {}
-      return composed.url;
-    }
-    return resolved[0];
-  }
-
-  private async composeBubbleAvatars(
-    urls: string[],
-    size = 64
-  ): Promise<{ url: string; blob: Blob } | undefined> {
-    try {
-      const imgs = await Promise.all(urls.map((u) => this.loadImage(u)));
-      const canvas = document.createElement('canvas');
-      canvas.width = size;
-      canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return undefined;
-      ctx.clearRect(0, 0, size, size);
-
-      // Static placements that look organic and fit inside 64x64
-      const n = Math.min(3, imgs.length);
-      const positions: { x: number; y: number; r: number; img: HTMLImageElement }[] = [];
-      if (n === 2) {
-        const r = Math.floor(size * 0.32);
-        positions.push({ x: Math.floor(size * 0.36), y: Math.floor(size * 0.44), r, img: imgs[0] });
-        positions.push({ x: Math.floor(size * 0.64), y: Math.floor(size * 0.56), r, img: imgs[1] });
-      } else {
-        const r = Math.floor(size * 0.28);
-        positions.push({ x: Math.floor(size * 0.34), y: Math.floor(size * 0.36), r, img: imgs[0] });
-        positions.push({ x: Math.floor(size * 0.66), y: Math.floor(size * 0.4), r, img: imgs[1] });
-        positions.push({ x: Math.floor(size * 0.5), y: Math.floor(size * 0.68), r, img: imgs[2] });
-      }
-
-      // Draw bubbles with thin black border
-      for (const p of positions) {
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.closePath();
-        ctx.clip();
-        this.drawCover(ctx, p.img, p.x - p.r, p.y - p.r, p.r * 2, p.r * 2);
-        ctx.restore();
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r - 0.5, 0, Math.PI * 2);
-        ctx.closePath();
-        ctx.lineWidth = 1;
-        ctx.strokeStyle = '#000';
-        ctx.stroke();
-      }
-
-      const blob: Blob | null = await new Promise((resolve) =>
-        canvas.toBlob((b) => resolve(b), 'image/png')
-      );
-      if (!blob) return undefined;
-      const url = URL.createObjectURL(blob);
-      return { url, blob };
-    } catch {
-      return undefined;
-    }
-  }
-
-  private loadImage(url: string): Promise<HTMLImageElement> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.onload = () => resolve(img);
-      img.onerror = (e) => reject(e);
-      img.src = url;
-    });
-  }
-
-  private drawCover(
-    ctx: CanvasRenderingContext2D,
-    img: HTMLImageElement,
-    dx: number,
-    dy: number,
-    dw: number,
-    dh: number
-  ) {
-    // drawImage with cover behavior
-    const iw = img.naturalWidth || img.width;
-    const ih = img.naturalHeight || img.height;
-    const targetRatio = dw / dh;
-    const imgRatio = iw / ih;
-    let sx = 0,
-      sy = 0,
-      sw = iw,
-      sh = ih;
-    if (imgRatio > targetRatio) {
-      // Image is wider than target; crop sides
-      sh = ih;
-      sw = sh * targetRatio;
-      sx = (iw - sw) / 2;
-    } else {
-      // Image is taller; crop top/bottom
-      sw = iw;
-      sh = sw / targetRatio;
-      sy = (ih - sh) / 2;
-    }
-    ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
-  }
-
-  // removed seeded RNG in favor of static placement
+  // removed avatar helpers: now handled by RoomAvatarService
 }

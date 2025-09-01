@@ -12,6 +12,7 @@ import {
 } from '@/viewmodels/matrix/MatrixTimelineItem';
 import { matrixSettings } from '@/viewmodels/matrix/MatrixSettings';
 import { MatrixTimelineService } from '@/viewmodels/matrix/MatrixTimelineService';
+import { RoomAvatarService } from './core/RoomAvatarService';
 
 import { MatrixSessionStore, type MatrixSessionData } from './core/MatrixSessionStore';
 import { MatrixClientManager } from './core/MatrixClientManager';
@@ -42,6 +43,11 @@ export class MatrixViewModel implements IModuleViewModel {
     },
     pageSize: 20,
   });
+  private avatarSvc = new RoomAvatarService(
+    { getClient: () => this.clientMgr.getClient() },
+    this.dataStore,
+    { maxMemEntries: 200, maxDbEntries: 200 }
+  );
   private timelineSvc = new MatrixTimelineService(
     {
       getClient: () => this.clientMgr.getClient(),
@@ -49,7 +55,8 @@ export class MatrixViewModel implements IModuleViewModel {
       getHydrationState: () => this.hydrationState,
     },
     this.dataStore,
-    this.dataLayer
+    this.dataLayer,
+    this.avatarSvc
   );
   private queue = new OutgoingMessageQueue(() => this.clientMgr.getClient());
   private binder = new MatrixEventBinder(
