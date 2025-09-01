@@ -7,7 +7,7 @@ import type { RepoEvent } from './core/TimelineRepository';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
 import type { ImageContent } from 'matrix-js-sdk/lib/@types/media';
 import { MediaResolver } from './core/MediaResolver';
-import { RoomAvatarService } from './core/RoomAvatarService';
+import { AvatarService } from './core/AvatarService';
 
 export interface MatrixMessage {
   id: string;
@@ -37,7 +37,7 @@ export class MatrixTimelineService {
       getHydrationState: () => 'idle' | 'syncing' | 'decrypting' | 'ready';
     },
     private readonly layer: MatrixDataLayer,
-    private readonly avatars: RoomAvatarService
+    private readonly avatars: AvatarService
   ) {}
 
   private get client() {
@@ -101,7 +101,7 @@ export class MatrixTimelineService {
         const idx = i++;
         const room = limitedRooms[idx];
         try {
-          const url = await this.avatars.resolveRoomAvatar(room.id, room.avatarUrl, {
+          const url = await this.avatars.resolveRoomAvatar(room.id, room.avatarMxcUrl, {
             w: 64,
             h: 64,
             method: 'crop',
@@ -136,14 +136,12 @@ export class MatrixTimelineService {
     const { description } = last ? this.repoEventToPreview(last) : { description: '' };
 
     let avatarUrl: string | undefined;
-    try {
-      const roomMxc = room.getMxcAvatarUrl();
-      avatarUrl = await this.avatars.resolveRoomAvatar(room.roomId, roomMxc || undefined, {
-        w: 64,
-        h: 64,
-        method: 'crop',
-      });
-    } catch {}
+    const roomMxc = room.getMxcAvatarUrl();
+    avatarUrl = await this.avatars.resolveRoomAvatar(room.roomId, roomMxc || undefined, {
+      w: 64,
+      h: 64,
+      method: 'crop',
+    });
 
     const updated = new MatrixTimelineItem({
       id,
@@ -225,6 +223,7 @@ export class MatrixTimelineService {
       //   }
       // } catch {}
 
+      console.time(`[MatrixTimelineService] repoEventToPreview(${re.eventId})`);
       const { description } = this.repoEventToPreview({
         ...re,
         type: effectiveType,
@@ -235,6 +234,7 @@ export class MatrixTimelineService {
       let senderDisplayName = (await this.layer.getUserDisplayName(re.sender)) || re.sender;
       if (!senderDisplayName) senderDisplayName = re.sender;
       const msgtype = effectiveContent?.msgtype;
+      console.timeEnd(`[MatrixTimelineService] repoEventToPreview(${re.eventId})`);
 
       const msg: MatrixMessage = {
         id: re.eventId,
@@ -247,7 +247,7 @@ export class MatrixTimelineService {
         msgtype,
       };
 
-      // Resolve sender avatar via RoomAvatarService and assign onto msg
+      // Resolve sender avatar via AvatarService and assign onto msg
       try {
         const p = this.avatars
           .resolveUserAvatar(re.sender, { w: 32, h: 32, method: 'crop' })
@@ -258,6 +258,7 @@ export class MatrixTimelineService {
         resolvers.push(p);
       } catch {}
 
+      console.time(`[MatrixTimelineService] resolveImage(${re.eventId})`);
       if (msgtype === matrixSdk.MsgType.Image) {
         const content = effectiveContent as ImageContent;
         msg.mxcUrl = content.file?.url ?? content.url;
@@ -265,6 +266,7 @@ export class MatrixTimelineService {
           .resolveImage(content)
           .then((blobUrl) => {
             if (blobUrl) msg.imageUrl = blobUrl;
+            console.timeEnd(`[MatrixTimelineService] resolveImage(${re.eventId})`);
           })
           .catch(() => {});
         resolvers.push(p);
@@ -279,7 +281,6 @@ export class MatrixTimelineService {
 
   // Media cache management
   clearMediaCache(): void {
-    this.mediaResolver.clear();
     this.avatars.clear();
   }
 
@@ -323,5 +324,5 @@ export class MatrixTimelineService {
     return { description: 'This message could not be decrypted.' };
   }
 
-  // removed avatar helpers: now handled by RoomAvatarService
+  // removed avatar helpers: now handled by AvatarService
 }

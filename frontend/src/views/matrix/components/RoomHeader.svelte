@@ -1,7 +1,29 @@
 <script lang="ts">
+  import { MatrixViewModel } from '../../../viewmodels/matrix/MatrixViewModel';
+
   export let title: string = 'Matrix Room';
   export let messageCount: number = 0;
   export let className: string = '';
+  export let roomId: string = '';
+
+  const matrixViewModel = MatrixViewModel.getInstance();
+  let showInfo = false;
+  let members: any[] = [];
+
+  async function openInfo() {
+    if (!roomId) return;
+    try {
+      members = await matrixViewModel.getRoomMembers(roomId);
+    } catch (e) {
+      console.error('[RoomHeader] failed to load members', e);
+      members = [];
+    }
+    showInfo = true;
+  }
+
+  function closeInfo() {
+    showInfo = false;
+  }
 </script>
 
 <div class="room-header {className}">
@@ -17,13 +39,32 @@
     </div>
   </div>
   <div class="flex items-center space-x-2">
-    <button class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300">
+    <button
+      class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+      on:click={openInfo}
+    >
       <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
       </svg>
     </button>
   </div>
 </div>
+
+{#if showInfo}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+    <div class="max-h-[80vh] w-full max-w-lg overflow-auto rounded-lg bg-white p-4 shadow-lg dark:bg-gray-800">
+      <h3 class="mb-2 text-lg font-semibold">Debug Info</h3>
+      <p class="mb-2 text-sm">Room ID: {roomId}</p>
+      <pre class="max-h-[60vh] overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-900">{JSON.stringify(members, null, 2)}</pre>
+      <button
+        class="mt-4 rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600"
+        on:click={closeInfo}
+      >
+        Close
+      </button>
+    </div>
+  </div>
+{/if}
 
 <style>
   .room-header {

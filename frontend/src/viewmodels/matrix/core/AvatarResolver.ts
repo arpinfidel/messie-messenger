@@ -1,12 +1,10 @@
 import type { MatrixClient } from 'matrix-js-sdk';
-import { IndexedDbCache } from './IndexedDbCache';
 
 type MemEntry = { url: string; ts: number; bytes: number; mime: string };
 
 export class AvatarResolver {
   private mem = new Map<string, MemEntry>();
   private inflight = new Map<string, Promise<string | undefined>>();
-  private db = new IndexedDbCache();
   private readonly maxMemEntries: number;
   private readonly maxDbEntries: number;
 
@@ -57,25 +55,10 @@ export class AvatarResolver {
     dims: { w: number; h: number; method: 'scale' | 'crop' }
   ): Promise<string | undefined> {
     const key = this.key(mxc, dims);
-    // try db first
-    try {
-      const rec = await this.db.getMedia(key);
-      if (rec && rec.blob) {
-        const url = URL.createObjectURL(rec.blob);
-        this.memSet(key, url, rec.bytes, rec.mime);
-        return url;
-      }
-    } catch {}
-
-    console.debug(
-      `[AvatarResolver][resolveInternal] cache miss fetching mxc ${mxc} at ${dims.w}x${dims.h} (${dims.method})`
-    );
 
     const cli = this.getClient();
     if (!cli) return undefined;
-    const http = cli?.mxcUrlToHttp?.(mxc, dims.w, dims.h, dims.method, false, true, false) as
-      | string
-      | undefined;
+    const http = cli?.mxcUrlToHttp?.(mxc, dims.w, dims.h, dims.method, false, true, false);
     if (!http) return undefined;
 
     try {
@@ -84,23 +67,13 @@ export class AvatarResolver {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       this.memSet(key, url, blob.size, blob.type || 'image/*');
-      try {
-        await this.db.putMedia({
-          key,
-          ts: Date.now(),
-          bytes: blob.size,
-          mime: blob.type || 'image/*',
-          blob,
-        });
-        await this.db.pruneMedia(this.maxDbEntries);
-      } catch {}
       return url;
     } catch {
       return undefined; // avoid raw HTTP fallback on network failures
     }
   }
 
-  private key(mxc: string, dims: { w: number; h: number; method: 'scale' | 'crop' }): string {
+  public key(mxc: string, dims: { w: number; h: number; method: 'scale' | 'crop' }): string {
     return `avatar|${mxc}|${dims.w}x${dims.h}|m=${dims.method}`;
   }
 

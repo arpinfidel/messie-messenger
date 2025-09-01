@@ -5,6 +5,7 @@ export class MediaStore {
   constructor(private readonly conn: DbConnection) {}
 
   async putMedia(rec: {
+    status: number;
     key: string;
     ts: number;
     bytes: number;
@@ -19,7 +20,9 @@ export class MediaStore {
 
   async getMedia(
     key: string
-  ): Promise<{ key: string; ts: number; bytes: number; mime: string; blob: Blob } | undefined> {
+  ): Promise<
+    { status: number; key: string; ts: number; bytes: number; mime: string; blob: Blob } | undefined
+  > {
     await this.conn.init();
     return this.conn.tx(STORES.MEDIA, 'readonly', (s) => {
       const req = s.get(key);
@@ -74,4 +77,3 @@ export class MediaStore {
     });
   }
 }
-

@@ -12,7 +12,7 @@ import {
 } from '@/viewmodels/matrix/MatrixTimelineItem';
 import { matrixSettings } from '@/viewmodels/matrix/MatrixSettings';
 import { MatrixTimelineService } from '@/viewmodels/matrix/MatrixTimelineService';
-import { RoomAvatarService } from './core/RoomAvatarService';
+import { AvatarService } from './core/AvatarService';
 
 import { MatrixSessionStore, type MatrixSessionData } from './core/MatrixSessionStore';
 import { MatrixClientManager } from './core/MatrixClientManager';
@@ -41,10 +41,10 @@ export class MatrixViewModel implements IModuleViewModel {
     },
     pageSize: 20,
   });
-  private avatarSvc = new RoomAvatarService(
+  private avatarSvc = new AvatarService(
     { getClient: () => this.clientMgr.getClient() },
     this.dataLayer,
-    { maxMemEntries: 200, maxDbEntries: 200 }
+    { maxMemEntries: 200, maxDbEntries: 5000 }
   );
   private timelineSvc = new MatrixTimelineService(
     {
@@ -103,6 +103,13 @@ export class MatrixViewModel implements IModuleViewModel {
   }
   public clearRoomPaginationTokens(roomId: string) {
     this.timelineSvc.clearRoomPaginationTokens(roomId);
+  }
+
+  public async getRoomMembers(roomId: string) {
+    try {
+      await this.dataLayer.refreshRoomMembers(roomId);
+    } catch {}
+    return this.dataLayer.getRoomMembers(roomId);
   }
 
   // Media cache management

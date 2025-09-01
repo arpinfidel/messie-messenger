@@ -92,12 +92,21 @@ export class IndexedDbCache {
   }
 
   // Media
-  putMedia(rec: { key: string; ts: number; bytes: number; mime: string; blob: Blob }): Promise<void> {
+  putMedia(rec: {
+    status: number;
+    key: string;
+    ts: number;
+    bytes: number;
+    mime: string;
+    blob: Blob;
+  }): Promise<void> {
     return this.media.putMedia(rec);
   }
   getMedia(
     key: string
-  ): Promise<{ key: string; ts: number; bytes: number; mime: string; blob: Blob } | undefined> {
+  ): Promise<
+    { status: number; key: string; ts: number; bytes: number; mime: string; blob: Blob } | undefined
+  > {
     return this.media.getMedia(key);
   }
   pruneMedia(maxEntries: number): Promise<void> {

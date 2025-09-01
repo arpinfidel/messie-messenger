@@ -1,7 +1,17 @@
 import * as matrixSdk from 'matrix-js-sdk';
-import type { RepoEvent, TimelineRepositoryOptions } from './TimelineRepository';
+import type { RepoEvent } from './TimelineRepository';
 import { Direction } from 'matrix-js-sdk/lib/models/event-timeline';
 import { IndexedDbCache } from './IndexedDbCache';
+import { AvatarResolver } from './AvatarResolver';
+import { MediaResolver } from './MediaResolver';
+import type { DbUser } from './idb/constants';
+
+export interface MatrixDataLayerOptions {
+  getClient: () => matrixSdk.MatrixClient | null;
+  shouldIncludeEvent?: (ev: matrixSdk.MatrixEvent) => boolean;
+  tryDecryptEvent?: (ev: matrixSdk.MatrixEvent) => Promise<void> | void;
+  pageSize?: number; // default 20
+}
 
 /**
  * Data layer that talks to the Matrix SDK and persists data directly into
@@ -14,8 +24,16 @@ export class MatrixDataLayer {
   private currentUserId: string | null = null;
   private currentUserDisplayName: string | null = null;
 
-  constructor(private readonly opts: TimelineRepositoryOptions) {
+  private avatarResolver: AvatarResolver;
+  private mediaResolver: MediaResolver;
+
+  constructor(private readonly opts: MatrixDataLayerOptions) {
     this.pageSize = opts.pageSize ?? 20;
+    this.avatarResolver = new AvatarResolver(opts.getClient, {
+      maxMemEntries: 200,
+      maxDbEntries: 200,
+    });
+    this.mediaResolver = new MediaResolver(opts.getClient, { maxEntries: 200 });
   }
 
   private get client(): matrixSdk.MatrixClient | null {
@@ -54,7 +72,22 @@ export class MatrixDataLayer {
   }
 
   async getUser(userId: string) {
-    return this.db.getUser(userId);
+    const u = this.db.getUser(userId);
+    if (u) return u;
+    // Try to fetch from SDK if not in DB
+    const c = this.client;
+    if (!c) return undefined;
+    const m = c.getUser(userId);
+    if (!m) return undefined;
+    const display = m.displayName || m.rawDisplayName;
+    const mxc = m.avatarUrl;
+    const user: DbUser = { userId, displayName: display, avatarMxcUrl: mxc };
+    try {
+      await this.db.putUser(user);
+    } catch {
+      // ignore
+    }
+    return user;
   }
 
   async getUserDisplayName(userId: string): Promise<string | undefined> {
@@ -94,7 +127,11 @@ export class MatrixDataLayer {
       await this.db.replaceRoomMembers(roomId, out);
       if (out.length)
         await this.db.putUsers(
-          out.map((x) => ({ userId: x.userId, displayName: x.displayName, avatarUrl: x.avatarUrl }))
+          out.map((x) => ({
+            userId: x.userId,
+            displayName: x.displayName,
+            avatarMxcUrl: x.avatarUrl,
+          }))
         );
     } catch {}
   }
@@ -153,7 +190,7 @@ export class MatrixDataLayer {
             id: r.roomId,
             name: r.name || r.roomId,
             latestTimestamp: preservedTs ?? 0,
-            avatarUrl: roomMxc || undefined,
+            avatarMxcUrl: roomMxc || undefined,
           })
           .catch(() => {});
       }
@@ -187,18 +224,16 @@ export class MatrixDataLayer {
         id: roomId,
         name: room.name || roomId,
         latestTimestamp: latest && latest > prev ? latest : prev,
-        avatarUrl:
-          ((room as any).getMxcAvatarUrl ? (room as any).getMxcAvatarUrl() : undefined) ||
-          undefined,
+        avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
       };
       await this.db.putRoom(roomRec);
-      const users: { userId: string; displayName?: string; avatarUrl?: string }[] = [];
+      const users: DbUser[] = [];
       for (const uid of seenSenders) {
         const m = room.getMember(uid);
         if (m) {
           const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
           const display = (m as any).rawDisplayName || m.name;
-          users.push({ userId: uid, displayName: display, avatarUrl: mxc });
+          users.push({ userId: uid, displayName: display, avatarMxcUrl: mxc });
         } else {
           users.push({ userId: uid });
         }
@@ -293,14 +328,14 @@ export class MatrixDataLayer {
         id: room.roomId,
         name: room.name || room.roomId,
         latestTimestamp: ts,
-        avatarUrl: roomMxc,
+        avatarMxcUrl: roomMxc,
       });
       if (re.sender) {
         const m = room.getMember(re.sender);
         if (m) {
           const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
           const display = (m as any).rawDisplayName || m.name;
-          await this.db.putUser({ userId: re.sender, displayName: display, avatarUrl: mxc });
+          await this.db.putUser({ userId: re.sender, displayName: display, avatarMxcUrl: mxc });
         } else {
           await this.db.putUser({ userId: re.sender });
         }
@@ -366,5 +401,44 @@ export class MatrixDataLayer {
       if (ets && (ts === undefined || ets > ts)) ts = ets;
     }
     return ts;
+  }
+
+  // ------------------------------------------------------------------
+  async resolveAvatarMxc(
+    mxc: string,
+    dims = { w: 32, h: 32, method: 'crop' as const }
+  ): Promise<string | undefined> {
+    // try db
+    const key = this.avatarResolver.key(mxc, dims);
+    const cached = await this.db.getMedia(key);
+    if (cached) {
+      const url = URL.createObjectURL(cached.blob);
+      return url;
+    }
+
+    // try resolver
+    const url = await this.avatarResolver.resolve(mxc, dims);
+
+    // save
+    if (url) {
+      try {
+        const resp = await fetch(url);
+        if (resp.ok) {
+          const blob = await resp.blob();
+          await this.db.putMedia({
+            status: 200,
+            key,
+            ts: Date.now(),
+            bytes: blob.size,
+            mime: blob.type || 'image/*',
+            blob,
+          });
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    return url;
   }
 }

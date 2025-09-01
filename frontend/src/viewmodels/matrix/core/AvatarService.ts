@@ -1,20 +1,18 @@
 import type { MatrixClient } from 'matrix-js-sdk';
 import { AvatarResolver } from './AvatarResolver';
-import { IndexedDbCache } from './IndexedDbCache';
 import { MatrixDataLayer } from './MatrixDataLayer';
 
 /**
- * RoomAvatarService centralizes all avatar logic (room + user), including
+ * AvatarService centralizes all avatar logic (room + user), including
  * MXC resolution, composite avatar creation, and persistent caching.
  */
-export class RoomAvatarService {
+export class AvatarService {
   private avatarResolver: AvatarResolver;
   private compositeAvatarCache = new Map<string, string>(); // key: roomId|mxc1|mxc2 -> blob URL
-  private imgDb = new IndexedDbCache(); // persist composed avatars in IDB
 
   constructor(
     private readonly ctx: { getClient: () => MatrixClient | null },
-    private readonly layer: MatrixDataLayer,
+    private readonly data: MatrixDataLayer,
     opts?: { maxMemEntries?: number; maxDbEntries?: number }
   ) {
     this.avatarResolver = new AvatarResolver(ctx.getClient, opts);
@@ -25,9 +23,9 @@ export class RoomAvatarService {
     dims = { w: 32, h: 32, method: 'crop' as const }
   ): Promise<string | undefined> {
     try {
-      const mxc = (await this.layer.getUser(userId))?.avatarUrl || undefined;
+      const mxc = (await this.data.getUser(userId))?.avatarMxcUrl || undefined;
       if (!mxc) return undefined;
-      return await this.avatarResolver.resolve(mxc, dims);
+      return await this.data.resolveAvatarMxc(mxc, dims);
     } catch {
       return undefined;
     }
@@ -36,16 +34,16 @@ export class RoomAvatarService {
   async resolveRoomAvatar(
     roomId: string,
     roomMxc?: string | null,
-    dims = { w: 64, h: 64, method: 'crop' as const }
+    dims = { w: 32, h: 32, method: 'crop' as const }
   ): Promise<string | undefined> {
     // If room has its own avatar, prefer it.
     if (roomMxc) {
-      const url = await this.avatarResolver.resolve(roomMxc, dims);
+      const url = await this.data.resolveAvatarMxc(roomMxc, dims);
       if (url) return url;
     }
     // Fallback: top 3 joined member avatars (prefer non-self), compose if multiple exist
-    const members = await this.layer.getRoomMembers(roomId);
-    const currentUserId = this.layer.getCurrentUserId();
+    const members = await this.data.getRoomMembers(roomId);
+    const currentUserId = this.data.getCurrentUserId();
     const sorted = members
       .filter((m) => (m.membership || 'join') === 'join')
       .sort((a, b) => {
@@ -55,50 +53,33 @@ export class RoomAvatarService {
       });
     const mxcs: string[] = [];
     for (const m of sorted) {
-      const mxc = (await this.layer.getUser(m.userId))?.avatarUrl || undefined;
+      const user = await this.data.getUser(m.userId);
+      const mxc = user?.avatarMxcUrl || undefined;
       if (mxc && !mxcs.includes(mxc)) mxcs.push(mxc);
       if (mxcs.length >= 3) break;
     }
-    if (mxcs.length === 0) return undefined;
-    if (mxcs.length === 1) return (await this.avatarResolver.resolve(mxcs[0], dims)) || undefined;
+    if (mxcs.length === 0) {
+      return undefined;
+    }
+    if (mxcs.length === 1) return (await this.data.resolveAvatarMxc(mxcs[0], dims)) || undefined;
 
     // Compose N (2..3) avatars with stable layout seeded by room+mxcs
     const key = `${roomId}|${mxcs.sort().join('|')}`;
     const cached = this.compositeAvatarCache.get(key);
     if (cached) return cached;
 
-    // Try persistent cache for composed avatar
-    const dbKey = `avatar-composite|${key}|${dims.w}x${dims.h}`;
-    try {
-      const rec = await this.imgDb.getMedia(dbKey);
-      if (rec && rec.blob) {
-        const url = URL.createObjectURL(rec.blob);
-        this.compositeAvatarCache.set(key, url);
-        return url;
-      }
-    } catch {}
-
-    const urls = await Promise.all(mxcs.map((m) => this.avatarResolver.resolve(m, dims)));
+    const urls = await Promise.all(mxcs.map((m) => this.data.resolveAvatarMxc(m, dims)));
     const resolved = urls.filter((u): u is string => !!u);
-    if (resolved.length === 0) return undefined;
+    if (resolved.length === 0) {
+      return undefined;
+    }
     if (resolved.length === 1) return resolved[0];
     const composed = await this.composeBubbleAvatars(resolved.slice(0, 3), dims.w);
-    if (composed) {
-      this.compositeAvatarCache.set(key, composed.url);
-      // Persist composed avatar in IDB for fast startup next time
-      try {
-        await this.imgDb.putMedia({
-          key: dbKey,
-          ts: Date.now(),
-          bytes: composed.blob.size,
-          mime: 'image/png',
-          blob: composed.blob,
-        });
-        await this.imgDb.pruneMedia(200);
-      } catch {}
-      return composed.url;
+    if (!composed) {
+      return resolved[0];
     }
-    return resolved[0];
+    this.compositeAvatarCache.set(key, composed.url);
+    return composed.url;
   }
 
   clear(): void {

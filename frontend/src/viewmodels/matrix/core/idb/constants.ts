@@ -16,14 +16,14 @@ export const STORES = {
 export interface DbUser {
   userId: string;
   displayName?: string;
-  avatarUrl?: string;
+  avatarMxcUrl?: string;
 }
 
 export interface DbRoom {
   id: string;
   name: string;
   latestTimestamp?: number;
-  avatarUrl?: string;
+  avatarMxcUrl?: string;
 }
 
 export type TokenRecord = { roomId: string; backward: string | null };
@@ -38,4 +38,3 @@ export interface DbMember {
   avatarUrl?: string; // MXC URL
   membership?: string; // 'join', 'leave', etc.
 }
-

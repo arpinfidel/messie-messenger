@@ -195,7 +195,7 @@
 </script>
 
 <div class="matrix-detail-panel {className}">
-  <RoomHeader title={formattedRoomName} messageCount={$messages.length} />
+  <RoomHeader title={formattedRoomName} messageCount={$messages.length} roomId={item.id} />
 
   <!-- Messages Container -->
   <div class="messages-container" bind:this={messagesContainer}>
