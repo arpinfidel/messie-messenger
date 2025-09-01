@@ -1,22 +1,70 @@
 import * as matrixSdk from 'matrix-js-sdk';
 import type { RepoEvent, TimelineRepositoryOptions } from './TimelineRepository';
 import { Direction } from 'matrix-js-sdk/lib/models/event-timeline';
-import { MatrixDataStore } from './MatrixDataStore';
 import { IndexedDbCache } from './IndexedDbCache';
 
 /**
- * Data layer that talks to the SDK, converts events, and populates MatrixDataStore.
+ * Data layer that talks to the Matrix SDK and persists data directly into
+ * IndexedDB. No in-memory cache is kept; consumers should query this layer for
+ * all Matrix data.
  */
 export class MatrixDataLayer {
   private pageSize: number;
   private db = new IndexedDbCache();
+  private currentUserId: string | null = null;
+  private currentUserDisplayName: string | null = null;
 
-  constructor(
-    private readonly store: MatrixDataStore,
-    private readonly opts: TimelineRepositoryOptions
-  ) {
+  constructor(private readonly opts: TimelineRepositoryOptions) {
     this.pageSize = opts.pageSize ?? 20;
   }
+
+  private get client(): matrixSdk.MatrixClient | null {
+    return this.opts.getClient();
+  }
+
+  // ------------------------------------------------------------------
+  // Current user helpers
+  // ------------------------------------------------------------------
+
+  setCurrentUser(userId: string, displayName?: string | null) {
+    this.currentUserId = userId;
+    if (displayName !== undefined) this.currentUserDisplayName = displayName || null;
+    this.db.setMeta('currentUserId', userId).catch(() => {});
+    if (displayName) this.db.setMeta('currentUserDisplayName', displayName).catch(() => {});
+  }
+
+  getCurrentUserId(): string | null {
+    return this.currentUserId;
+  }
+
+  getCurrentUserDisplayName(): string | null {
+    return this.currentUserDisplayName || this.currentUserId;
+  }
+
+  // ------------------------------------------------------------------
+  // Basic queries (rooms, users, members)
+  // ------------------------------------------------------------------
+
+  async getRooms() {
+    return this.db.getRooms();
+  }
+
+  async getRoomMembers(roomId: string) {
+    return this.db.getRoomMembers(roomId);
+  }
+
+  async getUser(userId: string) {
+    return this.db.getUser(userId);
+  }
+
+  async getUserDisplayName(userId: string): Promise<string | undefined> {
+    const u = await this.getUser(userId);
+    return u?.displayName || undefined;
+  }
+
+  // ------------------------------------------------------------------
+  // SDK <-> DB bridges
+  // ------------------------------------------------------------------
 
   /** Refresh and cache joined room members (room -> members -> user link). */
   async refreshRoomMembers(roomId: string): Promise<void> {
@@ -36,8 +84,6 @@ export class MatrixDataLayer {
         const userId = m.userId;
         const display = (m as any).rawDisplayName || m.name;
         const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
-        // keep global user profile up to date
-        this.store.upsertUser(userId, display, mxc ?? null);
         out.push({
           userId,
           displayName: display,
@@ -45,25 +91,12 @@ export class MatrixDataLayer {
           membership: (m as any).membership,
         });
       }
-      this.store.setRoomMembers(
-        roomId,
-        out.map((x) => ({
-          userId: x.userId,
-          displayName: x.displayName ?? null,
-          avatarUrl: x.avatarUrl ?? null,
-          membership: x.membership ?? null,
-        }))
-      );
       await this.db.replaceRoomMembers(roomId, out);
       if (out.length)
         await this.db.putUsers(
           out.map((x) => ({ userId: x.userId, displayName: x.displayName, avatarUrl: x.avatarUrl }))
         );
     } catch {}
-  }
-
-  private get client(): matrixSdk.MatrixClient | null {
-    return this.opts.getClient();
   }
 
   /** Convert SDK event to RepoEvent with optional decryption + filter. */
@@ -87,192 +120,191 @@ export class MatrixDataLayer {
     };
   }
 
-  /** Ingest rooms from the SDK into the store (id + name only). */
-  ingestInitialRooms(): void {
+  /**
+   * Ingest rooms from the SDK into IndexedDB.
+   * Preserve any existing latestTimestamp to avoid resetting activity to 0.
+   */
+  async ingestInitialRooms(): Promise<void> {
     const c = this.client;
     if (!c) return;
     const rooms = c.getRooms() ?? [];
+
+    // Read existing room records once to preserve their latestTimestamp values.
+    let existing: { [id: string]: number | undefined } = {};
+    let existingIds = new Set<string>();
+    try {
+      const current = await this.db.getRooms();
+      for (const r of current) {
+        existing[r.id] = r.latestTimestamp;
+        existingIds.add(r.id);
+      }
+    } catch {
+      // ignore cache read issues; proceed with defaults
+    }
+
     for (const r of rooms) {
       const roomMxc = (r as any).getMxcAvatarUrl ? (r as any).getMxcAvatarUrl() : null;
-      this.store.upsertRoom(r.roomId, r.name || r.roomId, undefined, roomMxc);
-      // persist minimal room record (latestTimestamp may be set later by events)
-      this.db
-        .putRoom({
-          id: r.roomId,
-          name: r.name || r.roomId,
-          latestTimestamp:
-            this.store.getRooms().find((x) => x.id === r.roomId)?.latestTimestamp || 0,
-          avatarUrl: roomMxc || undefined,
-        })
-        .catch(() => {});
-      // Populate members asynchronously; don't block
+      // Only create records for rooms we don't have yet to avoid clobbering
+      // latestTimestamp that may already be up-to-date from live events.
+      if (!existingIds.has(r.roomId)) {
+        const preservedTs = existing[r.roomId];
+        this.db
+          .putRoom({
+            id: r.roomId,
+            name: r.name || r.roomId,
+            latestTimestamp: preservedTs ?? 0,
+            avatarUrl: roomMxc || undefined,
+          })
+          .catch(() => {});
+      }
       this.refreshRoomMembers(r.roomId).catch(() => {});
     }
     this.saveToCache();
   }
 
-  /** Ensure initial page from live timeline is in the store for a room. */
-  async fetchInitial(
+  /** Persist a set of SDK events to IndexedDB and update room/user metadata. */
+  private async persistTimelineEvents(
     roomId: string,
-    limit = this.pageSize
-  ): Promise<{ events: RepoEvent[]; toToken: string | null }> {
-    const c = this.client;
-    if (!c) throw new Error('Matrix client not available');
-
-    const room = c.getRoom(roomId);
-    if (!room) return { events: [], toToken: null };
-    const live = room.getLiveTimeline();
-    const all = live.getEvents();
-    const pick = all.slice(-limit);
-
+    room: matrixSdk.Room,
+    sdkEvents: matrixSdk.MatrixEvent[]
+  ) {
     const converted: RepoEvent[] = [];
     const seenSenders = new Set<string>();
-    for (const ev of pick) {
+    for (const ev of sdkEvents) {
       const re = await this.toRepoEvent(ev);
       if (re) {
         converted.push(re);
         if (re.sender) seenSenders.add(re.sender);
       }
     }
-
-    // write to store
-    if (converted.length) {
-      this.store.prependEvents(roomId, converted);
-      try {
-        await this.db.putEvents(roomId, converted);
-        const r = this.store.getRooms().find((x) => x.id === roomId);
-        if (r)
-          await this.db.putRoom({
-            id: r.id,
-            name: r.name,
-            latestTimestamp: r.latestTimestamp ?? 0,
-          });
-        // Persist sender profiles for this page
-        const users: { userId: string; displayName?: string; avatarUrl?: string }[] = [];
-        for (const uid of seenSenders) {
-          const m = room.getMember(uid);
-          if (m) {
-            const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
-            const display = (m as any).rawDisplayName || m.name;
-            this.store.upsertUser(uid, display, mxc ?? null);
-            users.push({ userId: uid, displayName: display, avatarUrl: mxc });
-          } else {
-            this.store.upsertUser(uid);
-            users.push({ userId: uid });
-          }
+    if (!converted.length) return;
+    try {
+      await this.db.putEvents(roomId, converted);
+      const latest = this.findLatestMessageTs(converted);
+      const existingRooms = await this.db.getRooms();
+      const prev = existingRooms.find((r) => r.id === roomId)?.latestTimestamp || 0;
+      const roomRec = {
+        id: roomId,
+        name: room.name || roomId,
+        latestTimestamp: latest && latest > prev ? latest : prev,
+        avatarUrl:
+          ((room as any).getMxcAvatarUrl ? (room as any).getMxcAvatarUrl() : undefined) ||
+          undefined,
+      };
+      await this.db.putRoom(roomRec);
+      const users: { userId: string; displayName?: string; avatarUrl?: string }[] = [];
+      for (const uid of seenSenders) {
+        const m = room.getMember(uid);
+        if (m) {
+          const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
+          const display = (m as any).rawDisplayName || m.name;
+          users.push({ userId: uid, displayName: display, avatarUrl: mxc });
+        } else {
+          users.push({ userId: uid });
         }
-        if (users.length) await this.db.putUsers(users);
-      } catch {}
-    }
-    // Also ensure we captured the room members for avatar fallbacks
+      }
+      if (users.length) await this.db.putUsers(users);
+    } catch {}
     this.refreshRoomMembers(roomId).catch(() => {});
-
-    const bToken = live.getPaginationToken(Direction.Backward) ?? null;
-    this.store.setBackwardToken(roomId, bToken);
-    try {
-      await this.db.setBackwardToken(roomId, bToken);
-    } catch {}
-    this.saveToCache();
-
-    return { events: converted, toToken: bToken };
   }
 
-  /** Load one backward page and prepend to store. */
-  async loadOlder(roomId: string, limit = this.pageSize) {
+  /**
+   * Fetch a paginated set of events for a room. Uses cached events first and
+   * falls back to the Matrix SDK when more events are needed. Always paginate
+   * by TS. If events from DB are insufficient, fetch more from the SDK and
+   * return last timestamp as the next token.
+   */
+  async getRoomMessages(
+    roomId: string,
+    beforeTs: number | null,
+    limit = this.pageSize
+  ): Promise<{ events: RepoEvent[]; firstTS: number | null }> {
+    // Try to satisfy from cache first
+    console.time(`[MatrixDataLayer] getRoomMessages(${roomId})`);
+    let events = await this.db.getEventsByRoom(roomId, limit, beforeTs ? beforeTs : undefined);
+    console.timeEnd(`[MatrixDataLayer] getRoomMessages(${roomId})`);
+    if (events.length >= limit) {
+      console.log(
+        `[MatrixDataLayer] getRoomMessages(${roomId}) → ${events.length} events from cache`
+      );
+      const firstTS = events.length ? events[events.length - 1].originServerTs : (beforeTs ?? null);
+      return { events, firstTS: firstTS };
+    }
+    console.log(
+      `[MatrixDataLayer] getRoomMessages(${roomId}) → ${events.length}, need ${limit} events from cache, need more...`
+    );
+
     const c = this.client;
     if (!c) throw new Error('Matrix client not available');
     const room = c.getRoom(roomId);
-    if (!room) return null;
+    if (!room) {
+      // Room not found
+      return { events, firstTS: beforeTs };
+    }
 
+    const token = await this.db.getBackwardToken(roomId);
+    let remoteToken: string | null;
     const live = room.getLiveTimeline();
-    const prevToken =
-      live.getPaginationToken(Direction.Forward) ?? this.store.getBackwardToken(roomId) ?? null;
-    if (!prevToken) return null;
-
-    const ok = await c.paginateEventTimeline(live, { backwards: true, limit });
-    if (!ok) return null;
-
-    const windowEvents = live.getEvents().slice(0, limit);
-    const converted: RepoEvent[] = [];
-    const seenSenders = new Set<string>();
-    for (const ev of windowEvents) {
-      const re = await this.toRepoEvent(ev);
-      if (re) {
-        converted.push(re);
-        if (re.sender) seenSenders.add(re.sender);
+    if (!token) {
+      console.log(
+        `[MatrixDataLayer] getRoomMessages(${roomId}) → no token, start paginating from live timeline`
+      );
+      const ok = await c.paginateEventTimeline(live, { backwards: true, limit: limit * 3 });
+      if (ok) {
+        const windowEvents = room.getLiveTimeline().getEvents();
+        await this.persistTimelineEvents(roomId, room, windowEvents);
+        remoteToken = room.getLiveTimeline().getPaginationToken(Direction.Backward);
+      } else {
+        remoteToken = null;
+      }
+    } else {
+      console.log(
+        `[MatrixDataLayer] getRoomMessages(${roomId}) → have token, paginate from ${token}`
+      );
+      live.setPaginationToken(token, Direction.Backward);
+      const ok = await c.paginateEventTimeline(live, { backwards: true, limit: limit * 3 });
+      if (ok) {
+        const windowEvents = room.getLiveTimeline().getEvents();
+        await this.persistTimelineEvents(roomId, room, windowEvents);
+        remoteToken = room.getLiveTimeline().getPaginationToken(Direction.Backward);
+      } else {
+        remoteToken = token;
       }
     }
+    await this.db.setBackwardToken(roomId, remoteToken);
 
-    if (converted.length) {
-      this.store.prependEvents(roomId, converted);
-      try {
-        await this.db.putEvents(roomId, converted);
-        const r = this.store.getRooms().find((x) => x.id === roomId);
-        if (r)
-          await this.db.putRoom({
-            id: r.id,
-            name: r.name,
-            latestTimestamp: r.latestTimestamp ?? 0,
-          });
-        // Persist sender profiles for this page
-        const users: { userId: string; displayName?: string; avatarUrl?: string }[] = [];
-        for (const uid of seenSenders) {
-          const m = room.getMember(uid);
-          if (m) {
-            const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
-            const display = (m as any).rawDisplayName || m.name;
-            this.store.upsertUser(uid, display, mxc ?? null);
-            users.push({ userId: uid, displayName: display, avatarUrl: mxc });
-          } else {
-            this.store.upsertUser(uid);
-            users.push({ userId: uid });
-          }
-        }
-        if (users.length) await this.db.putUsers(users);
-      } catch {}
-    }
+    events = await this.db.getEventsByRoom(roomId, limit, beforeTs ? beforeTs : undefined);
+    const firstTS = events.length ? events[events.length - 1].originServerTs : (beforeTs ?? null);
 
-    const nextToken = live.getPaginationToken(Direction.Backward) ?? null;
-    this.store.setBackwardToken(roomId, nextToken);
-    try {
-      await this.db.setBackwardToken(roomId, nextToken);
-    } catch {}
-    this.saveToCache();
-
-    return { events: converted, fromToken: prevToken, toToken: nextToken };
+    return { events, firstTS };
   }
 
-  /** Ingest one live SDK event into the store. */
+  /** Ingest one live SDK event and persist it. */
   async ingestLiveEvent(ev: matrixSdk.MatrixEvent, room: matrixSdk.Room) {
-    // Update room name/avatar if needed
-    const roomMxc = (room as any).getMxcAvatarUrl ? (room as any).getMxcAvatarUrl() : null;
-    this.store.upsertRoom(room.roomId, room.name || room.roomId, undefined, roomMxc);
     const re = await this.toRepoEvent(ev);
     if (!re) return;
-    this.store.appendEvent(room.roomId, re);
     try {
       await this.db.putEvents(room.roomId, [re]);
+      const existingRooms = await this.db.getRooms();
+      const prev = existingRooms.find((r) => r.id === room.roomId)?.latestTimestamp || 0;
+      const ts = this.findLatestMessageTs([re]) ?? prev;
+      const roomMxc = (room as any).getMxcAvatarUrl ? (room as any).getMxcAvatarUrl() : undefined;
       await this.db.putRoom({
         id: room.roomId,
         name: room.name || room.roomId,
-        latestTimestamp:
-          this.store.getRooms().find((x) => x.id === room.roomId)?.latestTimestamp || 0,
-        avatarUrl: roomMxc || undefined,
+        latestTimestamp: ts,
+        avatarUrl: roomMxc,
       });
-      // Persist sender profile
       if (re.sender) {
         const m = room.getMember(re.sender);
         if (m) {
           const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
           const display = (m as any).rawDisplayName || m.name;
-          this.store.upsertUser(re.sender, display, mxc ?? null);
           await this.db.putUser({ userId: re.sender, displayName: display, avatarUrl: mxc });
         } else {
-          this.store.upsertUser(re.sender);
           await this.db.putUser({ userId: re.sender });
         }
       }
-      // Membership changes might come in via live events; refresh mapping opportunistically
       if (ev.getType() === 'm.room.member') {
         this.refreshRoomMembers(room.roomId).catch(() => {});
       }
@@ -280,174 +312,59 @@ export class MatrixDataLayer {
     this.saveToCache();
   }
 
-  clearRoom(roomId: string) {
-    this.store.clearRoom(roomId);
-    this.db.clearRoom(roomId).catch(() => {});
+  async clearRoom(roomId: string) {
+    await this.db.clearRoom(roomId);
     this.saveToCache();
   }
 
-  // -------- Persistence API --------
-  /**
-   * Hydrate in-memory store from IndexedDB.
-   * @returns Promise<boolean> => true on successful hydration, false on hard failure.
-   */
+  // ------------------------------------------------------------------
+  // Persistence API
+  // ------------------------------------------------------------------
+
   async loadFromCache(limitPerRoom = 5, onHydrated?: () => void): Promise<boolean> {
-    const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    const t0 = now();
-
-    const safe = (fn: () => void) => {
-      try {
-        fn();
-      } catch {
-        /* no-op */
-      }
-    };
-
     try {
-      console.log('[MatrixDataLayer] cache: hydration start');
-
-      // Init DB first (hard failure if this throws)
       await this.db.init();
-
-      // Load meta in parallel
       const [currentUserId, currentUserDisplayName] = await Promise.all([
         this.db.getMeta<string>('currentUserId'),
         this.db.getMeta<string>('currentUserDisplayName'),
       ]);
-      if (currentUserId) {
-        this.store.setCurrentUser(currentUserId, currentUserDisplayName);
-      }
-
-      // Load rooms
-      const tRoomsStart = now();
-      const rooms = await this.db.getRooms(); // if this fails, consider hydration failed
-      console.log('[MatrixDataLayer] cache: loaded', rooms.length, 'rooms');
-      for (const r of rooms) {
-        this.store.upsertRoom(r.id, r.name, r.latestTimestamp ?? 0, r.avatarUrl ?? null);
-      }
-      safe(() =>
-        console.log(
-          '[MatrixDataLayer] cache: rooms loaded in',
-          (now() - tRoomsStart).toFixed(1),
-          'ms'
-        )
-      );
-
-      // Notify after rooms are available
-      safe(() => onHydrated?.());
-
-      // Load users (best-effort, non-fatal)
-      try {
-        const users = await this.db.getUsers();
-        for (const u of users) {
-          this.store.upsertUser(u.userId, u.displayName, u.avatarUrl);
-        }
-      } catch {
-        // ignore user-loading failures
-      }
-
-      // Select top rooms (by latestTimestamp) and hydrate tails/tokens/members
-      const tSelectStart = now();
-      const topRooms = rooms
-        .slice()
-        .sort((a, b) => (b.latestTimestamp ?? 0) - (a.latestTimestamp ?? 0))
-        .slice(0, 30);
-
-      const tPerRoomStart = now();
-      // Do rooms sequentially to avoid hammering IndexedDB; inside each room, parallelize independent reads.
-      for (const r of topRooms) {
-        try {
-          const [eventsDesc, token, members] = await Promise.allSettled([
-            this.db.getEventsByRoom(r.id, limitPerRoom),
-            this.db.getBackwardToken(r.id),
-            this.db.getRoomMembers(r.id),
-          ]);
-
-          if (eventsDesc.status === 'fulfilled') {
-            const asc = eventsDesc.value.slice().reverse();
-            if (asc.length) this.store.prependEvents(r.id, asc);
-          }
-
-          if (token.status === 'fulfilled') {
-            this.store.setBackwardToken(r.id, token.value ?? null);
-          }
-
-          if (members.status === 'fulfilled' && members.value?.length) {
-            this.store.setRoomMembers(
-              r.id,
-              members.value.map((m: any) => ({
-                userId: m.userId,
-                displayName: m.displayName ?? null,
-                avatarUrl: m.avatarUrl ?? null,
-                membership: m.membership ?? null,
-              }))
-            );
-          }
-        } catch {
-          // ignore per-room failures; continue with others
-        }
-      }
-
-      safe(() =>
-        console.log(
-          '[MatrixDataLayer] cache: per-room hydration finished in',
-          (now() - tPerRoomStart).toFixed(1),
-          'ms (selection prep',
-          (tPerRoomStart - tSelectStart).toFixed(1),
-          'ms)'
-        )
-      );
-
-      // Notify again when per-room hydration is finished
-      safe(() => onHydrated?.());
-
+      if (currentUserId) this.currentUserId = currentUserId;
+      if (currentUserDisplayName) this.currentUserDisplayName = currentUserDisplayName;
+      onHydrated?.();
       return true;
     } catch (e) {
       console.error('[MatrixDataLayer] cache: hydration FAILED', e);
       return false;
-    } finally {
-      safe(() => {
-        const ms = now() - t0;
-        console.log('[MatrixDataLayer] cache: hydration total ms =', ms.toFixed(1));
-      });
     }
   }
 
   saveToCache(): void {
-    // Persist current user and rooms eagerly.
-    const userId = this.store.getCurrentUserId();
-    const displayName = this.store.getCurrentUserDisplayName();
-    if (userId) this.db.setMeta('currentUserId', userId).catch(() => {});
-    if (displayName) this.db.setMeta('currentUserDisplayName', displayName).catch(() => {});
-
-    const rooms = this.store.getRooms();
-    this.db
-      .putRooms(
-        rooms.map((r) => ({
-          id: r.id,
-          name: r.name,
-          latestTimestamp: r.latestTimestamp ?? 0,
-          avatarUrl: r.avatarUrl ?? undefined,
-        }))
-      )
-      .catch(() => {});
-
-    // Persist users
-    const users = this.store.getUsers();
-    if (users.length)
-      this.db
-        .putUsers(
-          users.map((u) => ({
-            userId: u.userId,
-            displayName: u.displayName ?? undefined,
-            avatarUrl: u.avatarUrl ?? undefined,
-          }))
-        )
-        .catch(() => {});
+    if (this.currentUserId) this.db.setMeta('currentUserId', this.currentUserId).catch(() => {});
+    if (this.currentUserDisplayName)
+      this.db.setMeta('currentUserDisplayName', this.currentUserDisplayName).catch(() => {});
   }
 
   /** Query cached events by room from IndexedDB, newest first. */
   async queryEventsByRoom(roomId: string, limit = 50, beforeTs?: number): Promise<RepoEvent[]> {
     return this.db.getEventsByRoom(roomId, limit, beforeTs);
+  }
+
+  // ------------------------------------------------------------------
+  // helpers
+  // ------------------------------------------------------------------
+
+  private isMessageLike(ev: RepoEvent): boolean {
+    const t = ev.type;
+    return t === 'm.room.message' || t === 'm.room.encrypted';
+  }
+
+  private findLatestMessageTs(events: RepoEvent[]): number | undefined {
+    let ts: number | undefined;
+    for (const e of events) {
+      if (!this.isMessageLike(e)) continue;
+      const ets = e.originServerTs || 0;
+      if (ets && (ts === undefined || ets > ts)) ts = ets;
+    }
+    return ts;
   }
 }

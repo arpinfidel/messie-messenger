@@ -19,7 +19,6 @@ import { MatrixClientManager } from './core/MatrixClientManager';
 import { OutgoingMessageQueue } from './core/OutgoingMessageQueue';
 import { MatrixEventBinder } from './core/MatrixEventBinder';
 import { MatrixCryptoManager } from './core/MatrixCryptoManager';
-import { MatrixDataStore } from './core/MatrixDataStore';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
 
 export class MatrixViewModel implements IModuleViewModel {
@@ -32,8 +31,7 @@ export class MatrixViewModel implements IModuleViewModel {
   private sessionStore = new MatrixSessionStore();
   private clientMgr = new MatrixClientManager();
   private cryptoMgr = new MatrixCryptoManager({ getClient: () => this.clientMgr.getClient() });
-  private dataStore = new MatrixDataStore();
-  private dataLayer = new MatrixDataLayer(this.dataStore, {
+  private dataLayer = new MatrixDataLayer({
     getClient: () => this.clientMgr.getClient(),
     shouldIncludeEvent: (ev) =>
       ev.getType() === 'm.room.message' || ev.getType() === 'm.room.encrypted',
@@ -45,7 +43,7 @@ export class MatrixViewModel implements IModuleViewModel {
   });
   private avatarSvc = new RoomAvatarService(
     { getClient: () => this.clientMgr.getClient() },
-    this.dataStore,
+    this.dataLayer,
     { maxMemEntries: 200, maxDbEntries: 200 }
   );
   private timelineSvc = new MatrixTimelineService(
@@ -54,7 +52,6 @@ export class MatrixViewModel implements IModuleViewModel {
       isStarted: () => this.clientMgr.isStarted(),
       getHydrationState: () => this.hydrationState,
     },
-    this.dataStore,
     this.dataLayer,
     this.avatarSvc
   );
@@ -94,18 +91,15 @@ export class MatrixViewModel implements IModuleViewModel {
   }
 
   public getCurrentUserId(): string {
-    return this.dataStore.getCurrentUserId() || 'unknown';
+    return this.dataLayer.getCurrentUserId() || 'unknown';
   }
 
   public getCurrentUserDisplayName(): string {
-    return this.dataStore.getCurrentUserDisplayName() || 'unknown';
+    return this.dataLayer.getCurrentUserDisplayName() || 'unknown';
   }
 
-  public async getRoomMessages(roomId: string, fromToken: string | null, limit = 20) {
-    return this.timelineSvc.getRoomMessages(roomId, fromToken, limit);
-  }
-  public async loadOlderMessages(roomId: string, fromToken?: string | null, limit = 20) {
-    return this.timelineSvc.loadOlderMessages(roomId, fromToken, limit);
+  public async getRoomMessages(roomId: string, beforeTS: number | null, limit = 20) {
+    return this.timelineSvc.getRoomMessages(roomId, beforeTS, limit);
   }
   public clearRoomPaginationTokens(roomId: string) {
     this.timelineSvc.clearRoomPaginationTokens(roomId);
@@ -146,7 +140,7 @@ export class MatrixViewModel implements IModuleViewModel {
       try {
         console.log('[MatrixVM] onHydrated → immediate cache-only render');
         // Render without waiting for any timers or client readiness
-        this.timelineSvc.fetchAndSetTimelineItems(true);
+        this.timelineSvc.fetchAndSetTimelineItems();
         this.hydrationState = 'ready';
         console.log('[MatrixVM] onHydrated → scheduleTimelineRefresh(0)');
       } catch (err) {
@@ -172,7 +166,7 @@ export class MatrixViewModel implements IModuleViewModel {
 
     // Initialize current user info in our store (display name may be filled later if desired)
     if (restored.userId) {
-      this.dataStore.setCurrentUser(restored.userId);
+      this.dataLayer.setCurrentUser(restored.userId);
       this.dataLayer.saveToCache();
     }
 

@@ -1,7 +1,7 @@
 import type { MatrixClient } from 'matrix-js-sdk';
 import { AvatarResolver } from './AvatarResolver';
 import { IndexedDbCache } from './IndexedDbCache';
-import { MatrixDataStore } from './MatrixDataStore';
+import { MatrixDataLayer } from './MatrixDataLayer';
 
 /**
  * RoomAvatarService centralizes all avatar logic (room + user), including
@@ -14,7 +14,7 @@ export class RoomAvatarService {
 
   constructor(
     private readonly ctx: { getClient: () => MatrixClient | null },
-    private readonly store: MatrixDataStore,
+    private readonly layer: MatrixDataLayer,
     opts?: { maxMemEntries?: number; maxDbEntries?: number }
   ) {
     this.avatarResolver = new AvatarResolver(ctx.getClient, opts);
@@ -25,7 +25,7 @@ export class RoomAvatarService {
     dims = { w: 32, h: 32, method: 'crop' as const }
   ): Promise<string | undefined> {
     try {
-      const mxc = this.store.getUser(userId)?.avatarUrl || undefined;
+      const mxc = (await this.layer.getUser(userId))?.avatarUrl || undefined;
       if (!mxc) return undefined;
       return await this.avatarResolver.resolve(mxc, dims);
     } catch {
@@ -44,8 +44,8 @@ export class RoomAvatarService {
       if (url) return url;
     }
     // Fallback: top 3 joined member avatars (prefer non-self), compose if multiple exist
-    const members = this.store.getRoomMembers(roomId) || [];
-    const currentUserId = this.store.getCurrentUserId();
+    const members = await this.layer.getRoomMembers(roomId);
+    const currentUserId = this.layer.getCurrentUserId();
     const sorted = members
       .filter((m) => (m.membership || 'join') === 'join')
       .sort((a, b) => {
@@ -55,7 +55,7 @@ export class RoomAvatarService {
       });
     const mxcs: string[] = [];
     for (const m of sorted) {
-      const mxc = this.store.getUser(m.userId)?.avatarUrl || undefined;
+      const mxc = (await this.layer.getUser(m.userId))?.avatarUrl || undefined;
       if (mxc && !mxcs.includes(mxc)) mxcs.push(mxc);
       if (mxcs.length >= 3) break;
     }

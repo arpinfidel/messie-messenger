@@ -16,7 +16,7 @@
 
   const messages = writable<MatrixMessage[]>([]);
   let isLoadingOlderMessages = false;
-  let nextBatchToken: string | null = null;
+  let nextBatch: number | null = null;
 
   let messagesContainer: HTMLDivElement;
   let topSentinel: HTMLDivElement;
@@ -25,10 +25,10 @@
   async function fetchMessages(roomId: string) {
     try {
       console.debug(`[MatrixDetail][fetchMessages] Fetching initial messages for room=${roomId}`);
-      const { messages: fetched, nextBatch } = await matrixViewModel.getRoomMessages(roomId, null);
+      const { messages: fetched, nextBatch: newNextBatch } = await matrixViewModel.getRoomMessages(roomId, null);
       messages.set(fetched);
-      nextBatchToken = nextBatch;
-      console.debug(`[MatrixDetail][fetchMessages] got ${fetched.length}, next=${nextBatch}`);
+      nextBatch = newNextBatch;
+      console.debug(`[MatrixDetail][fetchMessages] got ${fetched.length}, next=${newNextBatch}`);
 
       await tick();
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -49,7 +49,7 @@
       safety-- > 0 &&
       messagesContainer &&
       messagesContainer.scrollHeight <= messagesContainer.clientHeight &&
-      nextBatchToken
+      nextBatch
     ) {
       console.debug(
         `[MatrixDetail][ensureScrollable] Container not scrollable yet (scrollHeight=${messagesContainer.scrollHeight}, clientHeight=${messagesContainer.clientHeight}), loading more...`
@@ -58,29 +58,30 @@
       await tick();
     }
     console.debug(
-      `[MatrixDetail][ensureScrollable] Done. scrollHeight=${messagesContainer?.scrollHeight}, clientHeight=${messagesContainer?.clientHeight}, nextBatchToken=${nextBatchToken}`
+      `[MatrixDetail][ensureScrollable] Done. scrollHeight=${messagesContainer?.scrollHeight}, clientHeight=${messagesContainer?.clientHeight}, nextBatchToken=${nextBatch}`
     );
   }
 
   async function loadMoreMessages() {
-    if (isLoadingOlderMessages || !nextBatchToken) {
+    console.time(`[MatrixDetail][loadMoreMessages] room=${item?.id}`);
+    if (isLoadingOlderMessages || !nextBatch) {
       console.debug(
-        `[MatrixDetail][loadMoreMessages] Skipped: isLoadingOlderMessages=${isLoadingOlderMessages}, nextBatchToken=${nextBatchToken}`
+        `[MatrixDetail][loadMoreMessages] Skipped: isLoadingOlderMessages=${isLoadingOlderMessages}, nextBatchToken=${nextBatch}`
       );
       return;
     }
     isLoadingOlderMessages = true;
     console.debug(
-      `[MatrixDetail][loadMoreMessages] Loading older messages… currentCount=${get(messages).length}, nextBatch=${nextBatchToken}`
+      `[MatrixDetail][loadMoreMessages] Loading older messages… currentCount=${get(messages).length}, nextBatch=${nextBatch}`
     );
 
     const prevScrollHeight = messagesContainer?.scrollHeight ?? 0;
     const prevScrollTop = messagesContainer?.scrollTop ?? 0;
 
-    const { messages: olderMessages, nextBatch } = await matrixViewModel.loadOlderMessages(item.id, nextBatchToken);
+    const { messages: olderMessages, nextBatch: newNextBatch } = await matrixViewModel.getRoomMessages(item.id, nextBatch);
 
     console.debug(
-      `[MatrixDetail][loadMoreMessages] got ${olderMessages?.length || 0} older messages, new nextBatch=${nextBatch}`
+      `[MatrixDetail][loadMoreMessages] got ${olderMessages?.length || 0} older messages, new nextBatch=${newNextBatch}`
     );
 
     if (olderMessages?.length) {
@@ -90,9 +91,9 @@
         return [...newMessages, ...curr];
       });
     }
-    nextBatchToken = nextBatch ?? null;
+    nextBatch = newNextBatch;
 
-    await tick();
+    // await tick();
     if (messagesContainer) {
       // Temporarily disable smooth scroll behavior for instant jump
       messagesContainer.style.scrollBehavior = 'auto';
@@ -102,16 +103,18 @@
         `[MatrixDetail][loadMoreMessages] Adjusted scrollTop to preserve viewport (prevTop=${prevScrollTop}, delta=${newScrollHeight - prevScrollHeight})`
       );
       // Re-enable smooth scroll behavior after adjustment
-      await tick(); // Ensure the scroll adjustment has been applied
+      // await tick(); // Ensure the scroll adjustment has been applied
       messagesContainer.style.scrollBehavior = 'smooth';
     }
 
     isLoadingOlderMessages = false;
+    console.timeEnd(`[MatrixDetail][loadMoreMessages] room=${item?.id}`);
   }
 
   $: if (item?.type === 'matrix' && item.id) {
-    console.debug(`[MatrixDetail][reactive] item changed -> fetching messages for room=${item.id}`);
+    console.time(`[MatrixDetail][fetchMessages] room=${item.id}`);
     fetchMessages(item.id);
+    console.timeEnd(`[MatrixDetail][fetchMessages] room=${item.id}`);
   }
 
   function setupObserver() {
@@ -209,7 +212,7 @@
     {/if}
 
     <!-- No more messages indicator -->
-    {#if !nextBatchToken && $messages.length > 0}
+    {#if !nextBatch && $messages.length > 0}
       <div class="no-more-messages">
         <div class="flex items-center justify-center">
           <div class="rounded-full bg-gray-200 px-4 py-2 text-sm text-gray-600 dark:bg-gray-700 dark:text-gray-400">

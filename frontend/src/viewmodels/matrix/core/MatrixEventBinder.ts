@@ -45,16 +45,5 @@ export class MatrixEventBinder {
         }
       } catch {}
     });
-
-    client.on(ClientEvent.Sync, async (state) => {
-      if (state === 'PREPARED') {
-        this.timelineSvc.scheduleTimelineRefresh();
-        this.queue.process();
-      }
-    });
-
-    client.on(ClientEvent.Room, async () => {
-      this.timelineSvc.scheduleTimelineRefresh(500);
-    });
   }
 }

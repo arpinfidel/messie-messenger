@@ -4,7 +4,6 @@ import { writable, type Writable, get } from 'svelte/store';
 
 import { MatrixTimelineItem, type IMatrixTimelineItem } from './MatrixTimelineItem';
 import type { RepoEvent } from './core/TimelineRepository';
-import { MatrixDataStore } from './core/MatrixDataStore';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
 import type { ImageContent } from 'matrix-js-sdk/lib/@types/media';
 import { MediaResolver } from './core/MediaResolver';
@@ -27,7 +26,6 @@ export interface MatrixMessage {
 export class MatrixTimelineService {
   private _timelineItems: Writable<IMatrixTimelineItem[]> = writable([]);
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private listRefreshInFlight = false;
   private pendingLiveEvents: Array<{ ev: MatrixEvent; room: Room }> = [];
   private mediaResolver = new MediaResolver(() => this.client);
   private readonly maxRooms = 30; // limit room list to most recent N
@@ -38,7 +36,6 @@ export class MatrixTimelineService {
       isStarted: () => boolean;
       getHydrationState: () => 'idle' | 'syncing' | 'decrypting' | 'ready';
     },
-    private readonly store: MatrixDataStore,
     private readonly layer: MatrixDataLayer,
     private readonly avatars: RoomAvatarService
   ) {}
@@ -52,120 +49,87 @@ export class MatrixTimelineService {
   }
 
   /** Unified room list with their latest message preview.
-   * Compute strictly from our MatrixDataStore instead of querying the SDK.
+   * Compute strictly from data provided by MatrixDataLayer instead of querying the SDK.
    */
-  async fetchAndSetTimelineItems(preferCacheOnly = false): Promise<void> {
-    // Build timeline from whatever is available. If the client isn't started yet,
-    // we skip fetching from live timelines and just use cached data.
-    if (this.listRefreshInFlight) return;
+  async fetchAndSetTimelineItems(): Promise<void> {
+    const rooms = await this.layer.getRooms();
+    // Sort rooms by latest activity and keep only top N
+    const sortedRooms = rooms
+      .slice()
+      .sort((a, b) => (b.latestTimestamp ?? 0) - (a.latestTimestamp ?? 0));
+    console.log('[MatrixVM] Rooms from data layer:', sortedRooms);
+    const limitedRooms = sortedRooms.slice(0, this.maxRooms);
 
-    this.listRefreshInFlight = true;
-    try {
-      const rooms = this.store.getRooms();
-      const canFetchInitial = !preferCacheOnly && this.ctx.isStarted();
-      // Sort rooms by latest activity and keep only top N
-      const limitedRooms = rooms
-        .slice()
-        .sort((a, b) => (b.latestTimestamp ?? 0) - (a.latestTimestamp ?? 0))
-        .slice(0, this.maxRooms);
-      
+    console.log('[MatrixVM] fetchAndSetTimelineItems', limitedRooms);
 
-      // If client is started, ensure at least one event via live timeline; otherwise rely on cache.
-      if (canFetchInitial) {
-        for (const r of limitedRooms) {
-          if (!this.store.getLatestEvent(r.id)) {
-            try { await this.layer.fetchInitial(r.id, 1); } catch {}
-          }
-        }
+    const items: IMatrixTimelineItem[] = [];
+    const currentItems = get(this._timelineItems) as IMatrixTimelineItem[];
+    for (const room of limitedRooms) {
+      const last = (await this.layer.queryEventsByRoom(room.id, 1))[0];
+      let description = 'No recent messages';
+      let timestamp = room.latestTimestamp || 0;
+      if (last) {
+        const preview = this.repoEventToPreview(last);
+        description = preview.description;
+        timestamp = last.originServerTs || timestamp || 0;
       }
+      // Reuse previous avatar if any; resolve lazily in background
+      const prev = currentItems?.find((it) => it.id === room.id);
+      const avatarUrl = prev?.avatarUrl;
 
-      const items: IMatrixTimelineItem[] = [];
-      const currentItems = get(this._timelineItems) as IMatrixTimelineItem[];
-      // Build items quickly without awaiting avatar resolution to avoid UI delay
-      for (const room of limitedRooms) {
-        const last = this.store.getLatestEvent(room.id);
-        let description = 'No recent messages';
-        let timestamp = room.latestTimestamp || 0;
-        if (last) {
-          const preview = this.repoEventToPreview(last);
-          description = preview.description;
-          timestamp = last.originServerTs || timestamp || 0;
-        }
-        // Reuse previous avatar if any; resolve lazily in background
-        const prev = currentItems?.find((it) => it.id === room.id);
-        const avatarUrl = prev?.avatarUrl;
-
-        items.push(
-          new MatrixTimelineItem({
-            id: room.id,
-            type: 'matrix',
-            title: room.name || room.id,
-            description,
-            avatarUrl,
-            timestamp,
-          })
-        );
-      }
-
-      // Sort and set immediately so UI renders fast
-      items.sort((a, b) => b.timestamp - a.timestamp);
-      this._timelineItems.set(items);
-
-      // Resolve avatars in background with limited concurrency and patch items as they arrive
-      const maxConcurrent = 6;
-      let i = 0;
-      const work = async () => {
-        while (i < limitedRooms.length) {
-          const idx = i++;
-          const room = limitedRooms[idx];
-          try {
-            const url = await this.avatars.resolveRoomAvatar(
-              room.id,
-              room.avatarUrl as string | null | undefined,
-              { w: 64, h: 64, method: 'crop' }
-            );
-            if (!url) continue;
-            this._timelineItems.update((arr) => {
-              const j = arr.findIndex((t) => t.id === room.id);
-              if (j === -1) return arr;
-              const updated = arr.slice();
-              updated[j] = new MatrixTimelineItem({ ...updated[j], avatarUrl: url });
-              return updated;
-            });
-          } catch {}
-        }
-      };
-      // Kick off workers without awaiting completion
-      for (let k = 0; k < Math.min(maxConcurrent, limitedRooms.length); k++) {
-        work();
-      }
-    } finally {
-      this.listRefreshInFlight = false;
+      items.push(
+        new MatrixTimelineItem({
+          id: room.id,
+          type: 'matrix',
+          title: room.name || room.id,
+          description,
+          avatarUrl,
+          timestamp,
+        })
+      );
     }
-  }
 
-  scheduleTimelineRefresh(delay = 200) {
-    if (this.refreshTimer) clearTimeout(this.refreshTimer);
-    this.refreshTimer = setTimeout(async () => {
-      this.refreshTimer = null;
-      if (this.listRefreshInFlight) return;
+    // Sort and set immediately so UI renders fast
+    items.sort((a, b) => b.timestamp - a.timestamp);
+    this._timelineItems.set(items);
 
-      this.listRefreshInFlight = true;
-      try {
-        await this.fetchAndSetTimelineItems();
-      } finally {
-        this.listRefreshInFlight = false;
+    // Resolve avatars in background with limited concurrency and patch items as they arrive
+    const maxConcurrent = 6;
+    let i = 0;
+    const work = async () => {
+      while (i < limitedRooms.length) {
+        const idx = i++;
+        const room = limitedRooms[idx];
+        try {
+          const url = await this.avatars.resolveRoomAvatar(room.id, room.avatarUrl, {
+            w: 64,
+            h: 64,
+            method: 'crop',
+          });
+          if (!url) continue;
+          this._timelineItems.update((arr) => {
+            const j = arr.findIndex((t) => t.id === room.id);
+            if (j === -1) return arr;
+            const updated = arr.slice();
+            updated[j] = new MatrixTimelineItem({ ...updated[j], avatarUrl: url });
+            return updated;
+          });
+        } catch {}
       }
-    }, delay);
+    };
+    // Kick off workers without awaiting completion
+    for (let k = 0; k < Math.min(maxConcurrent, limitedRooms.length); k++) {
+      work();
+    }
   }
 
   /** Live pipeline: ingest event into store via data layer, then update preview. */
   async pushTimelineItemFromEvent(ev: MatrixEvent, room: Room) {
     await this.layer.ingestLiveEvent(ev, room);
 
-    const last = this.store.getLatestEvent(room.roomId);
-    const fallbackTs =
-      this.store.getRooms().find((r) => r.id === room.roomId)?.latestTimestamp || 0;
+    const last = (await this.layer.queryEventsByRoom(room.roomId, 1))[0];
+    const rooms = await this.layer.getRooms();
+    const fallbackTs = rooms.find((r) => r.id === room.roomId)?.latestTimestamp || 0;
     const timestamp = last?.originServerTs ?? fallbackTs;
     const id = room.roomId;
     const title = room.name || room.roomId;
@@ -174,11 +138,11 @@ export class MatrixTimelineService {
     let avatarUrl: string | undefined;
     try {
       const roomMxc = room.getMxcAvatarUrl();
-      avatarUrl = await this.avatars.resolveRoomAvatar(
-        room.roomId,
-        roomMxc || undefined,
-        { w: 64, h: 64, method: 'crop' }
-      );
+      avatarUrl = await this.avatars.resolveRoomAvatar(room.roomId, roomMxc || undefined, {
+        w: 64,
+        h: 64,
+        method: 'crop',
+      });
     } catch {}
 
     const updated = new MatrixTimelineItem({
@@ -219,31 +183,17 @@ export class MatrixTimelineService {
 
   /* ---------------- Room messages API (delegates to repo) ---------------- */
 
-  /** First page: from live timeline (repo.fetchInitial). */
+  /** First page: from live timeline when fromToken is null, otherwise older page. */
   async getRoomMessages(
     roomId: string,
-    fromToken: string | null,
+    beforeTS: number | null,
     limit = 20
-  ): Promise<{ messages: MatrixMessage[]; nextBatch: string | null }> {
-    if (!fromToken) {
-      const { events, toToken } = await this.layer.fetchInitial(roomId, limit);
-      const messages = await this.mapRepoEventsToMessages(events);
-      return { messages, nextBatch: toToken };
-    }
-    const page = await this.layer.loadOlder(roomId, limit);
-    if (!page) return { messages: [], nextBatch: null };
-    return { messages: await this.mapRepoEventsToMessages(page.events), nextBatch: page.toToken };
-  }
-
-  async loadOlderMessages(
-    roomId: string,
-    fromToken?: string | null,
-    limit = 20
-  ): Promise<{ messages: MatrixMessage[]; nextBatch: string | null }> {
-    // We ignore `fromToken` and use the store's backward token from live timeline.
-    const page = await this.layer.loadOlder(roomId, limit);
-    if (!page) return { messages: [], nextBatch: null };
-    return { messages: await this.mapRepoEventsToMessages(page.events), nextBatch: page.toToken };
+  ): Promise<{ messages: MatrixMessage[]; nextBatch: number | null }> {
+    const { events, firstTS } = await this.layer.getRoomMessages(roomId, beforeTS, limit);
+    console.time(`[MatrixTimelineService] mapRepoEventsToMessages(${roomId})`);
+    const messages = await this.mapRepoEventsToMessages(events);
+    console.timeEnd(`[MatrixTimelineService] mapRepoEventsToMessages(${roomId})`);
+    return { messages, nextBatch: firstTS };
   }
 
   clearRoomPaginationTokens(roomId: string) {
@@ -253,7 +203,7 @@ export class MatrixTimelineService {
   /* ---------------- Mapping helpers ---------------- */
 
   private async mapRepoEventsToMessages(events: RepoEvent[]): Promise<MatrixMessage[]> {
-    const currentUserId = this.store.getCurrentUserId() ?? '';
+    const currentUserId = this.layer.getCurrentUserId() ?? '';
     const msgs: MatrixMessage[] = [];
     const resolvers: Array<Promise<void>> = [];
     for (const re of events.filter(
@@ -262,17 +212,18 @@ export class MatrixTimelineService {
       // Try to ensure we have decrypted content by consulting the SDK event if available
       let effectiveType = re.type;
       let effectiveContent: any = re.content;
-      try {
-        const c = this.client;
-        const room = c?.getRoom(re.roomId!);
-        const live = room?.getLiveTimeline?.();
-        const sdkEv = live?.getEvents?.().find((e: any) => e.getId?.() === re.eventId);
-        if (sdkEv) {
-          await c?.decryptEventIfNeeded?.(sdkEv);
-          effectiveType = sdkEv.getType?.() || effectiveType;
-          effectiveContent = sdkEv.getContent?.() || effectiveContent;
-        }
-      } catch {}
+      // TODO: wtf is this
+      // try {
+      //   const c = this.client;
+      //   const room = c?.getRoom(re.roomId!);
+      //   const live = room?.getLiveTimeline?.();
+      //   const sdkEv = live?.getEvents?.().find((e: any) => e.getId?.() === re.eventId);
+      //   if (sdkEv) {
+      //     await c?.decryptEventIfNeeded?.(sdkEv);
+      //     effectiveType = sdkEv.getType?.() || effectiveType;
+      //     effectiveContent = sdkEv.getContent?.() || effectiveContent;
+      //   }
+      // } catch {}
 
       const { description } = this.repoEventToPreview({
         ...re,
@@ -281,20 +232,12 @@ export class MatrixTimelineService {
       } as RepoEvent);
       const isSelf = re.sender === currentUserId;
       // Prefer cached display name from store, then SDK membership, else MXID
-      let senderDisplayName = this.store.getUserDisplayName(re.sender) || re.sender;
+      let senderDisplayName = (await this.layer.getUserDisplayName(re.sender)) || re.sender;
       if (!senderDisplayName) senderDisplayName = re.sender;
-      if (senderDisplayName === re.sender) {
-        try {
-          const c = this.client;
-          const room = c?.getRoom(re.roomId!);
-          const member = room?.getMember(re.sender);
-          if (member) senderDisplayName = member.rawDisplayName || member.name || re.sender;
-        } catch {}
-      }
       const msgtype = effectiveContent?.msgtype;
 
       const msg: MatrixMessage = {
-        id: re.eventId || `${Date.now()}-${Math.random()}`,
+        id: re.eventId,
         sender: re.sender || 'unknown sender',
         senderDisplayName, // Assign display name
         senderAvatarUrl: undefined,
@@ -342,22 +285,23 @@ export class MatrixTimelineService {
 
   /** Create a human preview from RepoEvent content (works for decrypted encrypted). */
   private repoEventToPreview(re: RepoEvent): { description: string } {
-    let c: any = re.content;
+    let c = re.content;
     // Fallback: try to decrypt via SDK if content doesn't look like a message
     if (!c?.body && re.type === 'm.room.encrypted') {
-      try {
-        const cli = this.client;
-        const room = cli?.getRoom(re.roomId!);
-        const live = room?.getLiveTimeline?.();
-        const sdkEv = live?.getEvents?.().find((e: any) => e.getId?.() === re.eventId);
-        if (sdkEv) {
-          // Fire and forget; if it decrypts, content may already be clear
-          try {
-            cli?.decryptEventIfNeeded?.(sdkEv);
-          } catch {}
-          c = sdkEv.getContent?.() || c;
-        }
-      } catch {}
+      // TODO: wtf is this
+      // try {
+      //   const cli = this.client;
+      //   const room = cli?.getRoom(re.roomId!);
+      //   const live = room?.getLiveTimeline?.();
+      //   const sdkEv = live?.getEvents?.().find((e: any) => e.getId?.() === re.eventId);
+      //   if (sdkEv) {
+      //     // Fire and forget; if it decrypts, content may already be clear
+      //     try {
+      //       cli?.decryptEventIfNeeded?.(sdkEv);
+      //     } catch {}
+      //     c = sdkEv.getContent?.() || c;
+      //   }
+      // } catch {}
     }
     if (c.msgtype === matrixSdk.MsgType.Image) {
       const body = c.body;
@@ -370,8 +314,7 @@ export class MatrixTimelineService {
     if (relates?.rel_type === 'm.annotation') {
       const key = typeof c.key === 'string' ? (c.key as string) : undefined;
       if (key) {
-        const name = this.store.getUserDisplayName(re.sender) || re.sender;
-        return { description: `${name} reacted with ${key}` };
+        return { description: `${re.sender} reacted with ${key}` };
       }
     }
     if (relates?.rel_type === 'm.reference') {

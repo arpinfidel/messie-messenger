@@ -67,6 +67,10 @@ export class AvatarResolver {
       }
     } catch {}
 
+    console.debug(
+      `[AvatarResolver][resolveInternal] cache miss fetching mxc ${mxc} at ${dims.w}x${dims.h} (${dims.method})`
+    );
+
     const cli = this.getClient();
     if (!cli) return undefined;
     const http = cli?.mxcUrlToHttp?.(mxc, dims.w, dims.h, dims.method, false, true, false) as
