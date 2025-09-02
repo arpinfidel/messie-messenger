@@ -277,7 +277,8 @@ export class MatrixTimelineService {
       msgs.push(msg);
     }
 
-    if (resolvers.length) await Promise.allSettled(resolvers);
+    // Kick off avatar and image resolution without blocking
+    if (resolvers.length) void Promise.allSettled(resolvers);
     return msgs;
   }
 
