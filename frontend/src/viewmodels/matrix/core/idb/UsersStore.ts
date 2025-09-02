@@ -1,4 +1,3 @@
-
 import { DbConnection } from './DbConnection';
 import { STORES, type DbUser } from './constants';
 import QuickLRU from 'quick-lru';
@@ -39,6 +38,7 @@ export class UsersStore {
   }
 
   async getUser(userId: string): Promise<DbUser | undefined> {
+    if (this.cache.has(userId)) return this.cache.get(userId);
     await this.conn.init();
     return this.conn.tx<DbUser | undefined>(STORES.USERS, 'readonly', (s) => {
       const req = s.get(userId);
