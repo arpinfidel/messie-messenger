@@ -153,10 +153,6 @@
   onDestroy(() => {
     scrollObserver?.disconnect();
     console.debug('[MatrixDetail][onDestroy] Observer disconnected');
-    if (item?.type === 'matrix' && item.id) {
-      matrixViewModel.clearRoomPaginationTokens(item.id);
-      console.debug(`[MatrixDetail][onDestroy] Cleared pagination tokens for room=${item.id}`);
-    }
   });
 
   let isSending = false;

@@ -12,28 +12,18 @@ import type { DbRoom, DbUser, DbMember } from './idb/constants';
 
 export class IndexedDbCache {
   private readonly conn = new DbConnection();
-  private readonly rooms = new RoomsStore(this.conn);
   private readonly events = new EventsStore(this.conn);
   private readonly tokens = new TokensStore(this.conn);
   private readonly meta = new MetaStore(this.conn);
-  private readonly users = new UsersStore(this.conn);
   private readonly media = new MediaStore(this.conn);
   private readonly members = new MembersStore(this.conn);
+
+  readonly rooms = new RoomsStore(this.conn);
+  readonly users = new UsersStore(this.conn);
 
   // Connection lifecycle
   init(): Promise<void> {
     return this.conn.init();
-  }
-
-  // Rooms
-  putRooms(rooms: DbRoom[]): Promise<void> {
-    return this.rooms.putRooms(rooms);
-  }
-  putRoom(room: DbRoom): Promise<void> {
-    return this.rooms.putRoom(room);
-  }
-  getRooms(): Promise<DbRoom[]> {
-    return this.rooms.getRooms();
   }
 
   // Events
@@ -52,32 +42,12 @@ export class IndexedDbCache {
     return this.tokens.getBackwardToken(roomId);
   }
 
-  // Clear room (events + token)
-  async clearRoom(roomId: string): Promise<void> {
-    await this.events.deleteEventsByRoom(roomId);
-    await this.tokens.deleteToken(roomId);
-  }
-
   // Meta
   setMeta(key: string, value: any): Promise<void> {
     return this.meta.setMeta(key, value);
   }
   getMeta<T = any>(key: string): Promise<T | undefined> {
     return this.meta.getMeta<T>(key);
-  }
-
-  // Users
-  putUsers(users: DbUser[]): Promise<void> {
-    return this.users.putUsers(users);
-  }
-  putUser(user: DbUser): Promise<void> {
-    return this.users.putUser(user);
-  }
-  getUsers(): Promise<DbUser[]> {
-    return this.users.getUsers();
-  }
-  getUser(userId: string): Promise<DbUser | undefined> {
-    return this.users.getUser(userId);
   }
 
   // Members

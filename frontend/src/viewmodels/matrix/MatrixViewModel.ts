@@ -102,9 +102,6 @@ export class MatrixViewModel implements IModuleViewModel {
   public async getRoomMessages(roomId: string, beforeTS: number | null, limit = 20) {
     return this.timelineSvc.getRoomMessages(roomId, beforeTS, limit);
   }
-  public clearRoomPaginationTokens(roomId: string) {
-    this.timelineSvc.clearRoomPaginationTokens(roomId);
-  }
 
   public async getRoomMembers(roomId: string) {
     try {
@@ -185,6 +182,10 @@ export class MatrixViewModel implements IModuleViewModel {
     console.time('[MatrixVM] bind listeners');
     this.binder.bind();
     console.timeEnd('[MatrixVM] bind listeners');
+
+    console.time('[MatrixVM] bind data layer');
+    this.dataLayer.bind();
+    console.timeEnd('[MatrixVM] bind data layer');
 
     if (!this.clientMgr.isStarted()) {
       console.time('[MatrixVM] startClient');

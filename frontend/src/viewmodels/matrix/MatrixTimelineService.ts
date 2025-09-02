@@ -125,7 +125,7 @@ export class MatrixTimelineService {
 
   /** Live pipeline: ingest event into store via data layer, then update preview. */
   async pushTimelineItemFromEvent(ev: MatrixEvent, room: Room) {
-    await this.data.ingestLiveEvent(ev, room);
+    // await this.data.ingestLiveEvent(ev, room);
 
     const last = (await this.data.queryEventsByRoom(room.roomId, 1))[0];
     const rooms = await this.data.getRooms();
@@ -194,10 +194,6 @@ export class MatrixTimelineService {
     messages.sort((a, b) => a.timestamp - b.timestamp);
     console.timeEnd(`[MatrixTimelineService] mapRepoEventsToMessages(${roomId})`);
     return { messages, nextBatch: firstTS };
-  }
-
-  clearRoomPaginationTokens(roomId: string) {
-    this.data.clearRoom(roomId);
   }
 
   /* ---------------- Mapping helpers ---------------- */

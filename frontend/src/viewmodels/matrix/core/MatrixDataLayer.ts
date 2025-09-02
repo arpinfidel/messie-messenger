@@ -29,6 +29,7 @@ export class MatrixDataLayer {
 
   private avatarResolver: AvatarResolver;
   private mediaResolver: MediaResolver;
+  private boundClient: matrixSdk.MatrixClient | null = null;
 
   constructor(private readonly opts: MatrixDataLayerOptions) {
     this.pageSize = opts.pageSize ?? 20;
@@ -37,6 +38,13 @@ export class MatrixDataLayer {
       maxDbEntries: 200,
     });
     this.mediaResolver = new MediaResolver(opts.getClient, { maxEntries: 200 });
+  }
+
+  bind(): void {
+    const c = this.client;
+    if (!c || c === this.boundClient) return;
+    this.handleMatrixMessages(c);
+    this.boundClient = c;
   }
 
   private get client(): matrixSdk.MatrixClient | null {
@@ -67,7 +75,7 @@ export class MatrixDataLayer {
   // ------------------------------------------------------------------
 
   async getRooms() {
-    return this.db.getRooms();
+    return this.db.rooms.getAll();
   }
 
   async getRoomMembers(roomId: string) {
@@ -75,7 +83,7 @@ export class MatrixDataLayer {
   }
 
   async getUser(userId: string) {
-    const u = this.db.getUser(userId);
+    const u = this.db.users.get(userId);
     if (u) return u;
     // Try to fetch from SDK if not in DB
     const c = this.client;
@@ -86,7 +94,7 @@ export class MatrixDataLayer {
     const mxc = m.avatarUrl;
     const user: DbUser = { userId, displayName: display, avatarMxcUrl: mxc };
     try {
-      await this.db.putUser(user);
+      await this.db.users.put(user);
     } catch {
       // ignore
     }
@@ -129,7 +137,7 @@ export class MatrixDataLayer {
       }
       await this.db.replaceRoomMembers(roomId, out);
       if (out.length)
-        await this.db.putUsers(
+        await this.db.users.putMany(
           out.map((x) => ({
             userId: x.userId,
             displayName: x.displayName,
@@ -173,7 +181,7 @@ export class MatrixDataLayer {
     let existing: { [id: string]: number | undefined } = {};
     let existingIds = new Set<string>();
     try {
-      const current = await this.db.getRooms();
+      const current = await this.db.rooms.getAll();
       for (const r of current) {
         existing[r.id] = r.latestTimestamp;
         existingIds.add(r.id);
@@ -188,8 +196,8 @@ export class MatrixDataLayer {
       // latestTimestamp that may already be up-to-date from live events.
       if (!existingIds.has(r.roomId)) {
         const preservedTs = existing[r.roomId];
-        this.db
-          .putRoom({
+        this.db.rooms
+          .put({
             id: r.roomId,
             name: r.name || r.roomId,
             latestTimestamp: preservedTs ?? 0,
@@ -221,7 +229,7 @@ export class MatrixDataLayer {
     try {
       await this.db.putEvents(roomId, converted);
       const latest = this.findLatestMessageTs(converted);
-      const existingRooms = await this.db.getRooms();
+      const existingRooms = await this.db.rooms.getAll();
       const prev = existingRooms.find((r) => r.id === roomId)?.latestTimestamp || 0;
       const roomRec = {
         id: roomId,
@@ -229,7 +237,7 @@ export class MatrixDataLayer {
         latestTimestamp: latest && latest > prev ? latest : prev,
         avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
       };
-      await this.db.putRoom(roomRec);
+      await this.db.rooms.put(roomRec);
       const users: DbUser[] = [];
       for (const uid of seenSenders) {
         const m = room.getMember(uid);
@@ -241,7 +249,7 @@ export class MatrixDataLayer {
           users.push({ userId: uid });
         }
       }
-      if (users.length) await this.db.putUsers(users);
+      if (users.length) await this.db.users.putMany(users);
     } catch {}
     this.refreshRoomMembers(roomId).catch(() => {});
   }
@@ -323,42 +331,66 @@ export class MatrixDataLayer {
     return { events, firstTS };
   }
 
-  /** Ingest one live SDK event and persist it. */
-  async ingestLiveEvent(ev: matrixSdk.MatrixEvent, room: matrixSdk.Room) {
-    const re = await this.toRepoEvent(ev);
-    if (!re) return;
-    try {
-      await this.db.putEvents(room.roomId, [re]);
-      const existingRooms = await this.db.getRooms();
-      const prev = existingRooms.find((r) => r.id === room.roomId)?.latestTimestamp || 0;
-      const ts = this.findLatestMessageTs([re]) ?? prev;
-      const roomMxc = (room as any).getMxcAvatarUrl ? (room as any).getMxcAvatarUrl() : undefined;
-      await this.db.putRoom({
-        id: room.roomId,
-        name: room.name || room.roomId,
-        latestTimestamp: ts,
-        avatarMxcUrl: roomMxc,
-      });
-      if (re.sender) {
-        const m = room.getMember(re.sender);
-        if (m) {
-          const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
-          const display = (m as any).rawDisplayName || m.name;
-          await this.db.putUser({ userId: re.sender, displayName: display, avatarMxcUrl: mxc });
-        } else {
-          await this.db.putUser({ userId: re.sender });
-        }
-      }
-      if (ev.getType() === 'm.room.member') {
-        this.refreshRoomMembers(room.roomId).catch(() => {});
-      }
-    } catch {}
-    this.saveToCache();
-  }
+  // /** Ingest one live SDK event and persist it. */
+  // async ingestLiveEvent(ev: matrixSdk.MatrixEvent, room: matrixSdk.Room) {
+  //   const re = await this.toRepoEvent(ev);
+  //   if (!re) return;
+  //   try {
+  //     await this.db.putEvents(room.roomId, [re]);
+  //     const existingRooms = await this.db.rooms.getAll();
+  //     const prev = existingRooms.find((r) => r.id === room.roomId)?.latestTimestamp || 0;
+  //     const ts = this.findLatestMessageTs([re]) ?? prev;
+  //     const roomMxc = (room as any).getMxcAvatarUrl ? (room as any).getMxcAvatarUrl() : undefined;
+  //     await this.db.rooms.put({
+  //       id: room.roomId,
+  //       name: room.name || room.roomId,
+  //       latestTimestamp: ts,
+  //       avatarMxcUrl: roomMxc,
+  //     });
+  //     if (re.sender) {
+  //       const m = room.getMember(re.sender);
+  //       if (m) {
+  //         const mxc = (m as any).getMxcAvatarUrl ? (m as any).getMxcAvatarUrl() : undefined;
+  //         const display = (m as any).rawDisplayName || m.name;
+  //         await this.db.users.put({ userId: re.sender, displayName: display, avatarMxcUrl: mxc });
+  //       } else {
+  //         await this.db.users.put({ userId: re.sender });
+  //       }
+  //     }
+  //     if (ev.getType() === 'm.room.member') {
+  //       this.refreshRoomMembers(room.roomId).catch(() => {});
+  //     }
+  //   } catch {}
+  //   this.saveToCache();
+  // }
 
-  async clearRoom(roomId: string) {
-    await this.db.clearRoom(roomId);
-    this.saveToCache();
+  private handleMatrixMessages(client: matrixSdk.MatrixClient) {
+    client.on(matrixSdk.RoomEvent.Timeline, async (ev, room, toStartOfTimeline, removed) => {
+      console.log('[MatrixDataLayer] timeline event', { ev, room, toStartOfTimeline, removed });
+      const re = await this.toRepoEvent(ev);
+      if (!re) return;
+      if (!this.isMessageLike(re)) {
+        console.debug('[MatrixDataLayer] ignoring non-message timeline event', re);
+        return;
+      }
+      if (!room) {
+        console.warn('[MatrixDataLayer] timeline event without room?');
+        return;
+      }
+      const r = this.db.rooms.get(room.roomId);
+      if (!r) {
+        // New room?
+        await this.db.rooms.put({
+          id: room.roomId,
+          name: room.name || room.roomId,
+          latestTimestamp: 0,
+          avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
+        });
+      }
+      this.db.putEvents(room.roomId, [re]).catch(() => {
+        console.warn('[MatrixDataLayer] failed to persist timeline event', re);
+      });
+    });
   }
 
   // ------------------------------------------------------------------
