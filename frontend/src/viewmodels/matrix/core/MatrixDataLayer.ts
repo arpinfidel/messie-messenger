@@ -6,11 +6,13 @@ import { AvatarResolver } from './AvatarResolver';
 import { MediaResolver } from './MediaResolver';
 import type { DbUser } from './idb/constants';
 import type { ImageContent } from 'matrix-js-sdk/lib/types';
+import { MatrixViewModel } from '../MatrixViewModel';
 
 export interface MatrixDataLayerOptions {
   getClient: () => matrixSdk.MatrixClient | null;
   shouldIncludeEvent?: (ev: matrixSdk.MatrixEvent) => boolean;
   tryDecryptEvent?: (ev: matrixSdk.MatrixEvent) => Promise<void> | void;
+  waitForPrepared: () => Promise<void>;
   pageSize?: number; // default 20
 }
 
@@ -271,10 +273,14 @@ export class MatrixDataLayer {
       `[MatrixDataLayer] getRoomMessages(${roomId}) → ${events.length}, need ${limit} events from cache, need more...`
     );
 
+    console.log(`[MatrixDataLayer] getRoomMessages(${roomId}) → waiting for SDK prepared`);
+    await this.opts.waitForPrepared();
+    console.log(`[MatrixDataLayer] getRoomMessages(${roomId}) → SDK prepared`);
     const c = this.client;
     if (!c) throw new Error('Matrix client not available');
     const room = c.getRoom(roomId);
     if (!room) {
+      console.log(`[MatrixDataLayer] getRoomMessages(${roomId}) → room not found`);
       // Room not found
       return { events, firstTS: beforeTs };
     }

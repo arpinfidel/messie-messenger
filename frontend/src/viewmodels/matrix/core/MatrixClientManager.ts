@@ -61,13 +61,14 @@ export class MatrixClientManager {
   }
 
   async waitForPrepared(): Promise<void> {
-    const c: any = this.client;
+    const c = this.client;
     if (!c) return;
-    const state = c.getSyncState?.();
-    if (state === 'PREPARED') return;
+    if (c.isInitialSyncComplete()) {
+      return;
+    }
 
     await new Promise<void>((resolve) => {
-      const onSync = (s: string) => {
+      const onSync = (s: matrixSdk.SyncState) => {
         if (s === 'PREPARED') {
           c.removeListener(ClientEvent.Sync, onSync);
           resolve();

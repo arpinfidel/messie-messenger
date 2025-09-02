@@ -39,6 +39,7 @@ export class MatrixViewModel implements IModuleViewModel {
       const c = this.clientMgr.getClient();
       if (c?.decryptEventIfNeeded) await c.decryptEventIfNeeded(ev);
     },
+    waitForPrepared: () => this.clientMgr.waitForPrepared(),
     pageSize: 20,
   });
   private avatarSvc = new AvatarService(
