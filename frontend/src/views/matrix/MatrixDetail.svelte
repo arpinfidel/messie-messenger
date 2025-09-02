@@ -132,7 +132,9 @@
       {
         root: messagesContainer,
         threshold: 0.01,
-        rootMargin: '600px 0px -90% 0px', 
+        rootMargin: '1000px 0px -99% 0px'
+        // threshold: 0,
+        // rootMargin: '600px 0px 0px 0px',
       }
     );
 

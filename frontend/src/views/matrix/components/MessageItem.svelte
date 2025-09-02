@@ -65,7 +65,6 @@
 
   .avatar-slot { width: 28px; display: flex; align-items: flex-start; flex-shrink: 0; }
   .avatar-slot.other { margin-right: 8px; }
-  .avatar-slot.self { margin-left: 8px; }
   .avatar-small { width: 24px; height: 24px; border-radius: 9999px; object-fit: cover; }
   .avatar-spacer { width: 24px; height: 24px; }
 
@@ -86,10 +85,18 @@
   .message-bubble.other { background: var(--color-bubble-other); color: var(--color-text); }
   .message-bubble.other:hover { background: var(--color-bubble-other-hover); }
 
-  .message-bubble.first-in-group.other { border-top-left-radius: 1rem; margin-top: 6px; }
+  
+  /* .message-bubble.first-in-group.other { border-top-left-radius: 1rem; margin-top: 6px; }
   .message-bubble.first-in-group.self { border-top-right-radius: 1rem; margin-top: 6px; }
   .message-bubble.last-in-group.other { border-bottom-left-radius: 1rem; margin-bottom: 0.75rem; }
-  .message-bubble.last-in-group.self { border-bottom-right-radius: 1rem; margin-bottom: 0.75rem; }
+  .message-bubble.last-in-group.self { border-bottom-right-radius: 1rem; margin-bottom: 0.75rem; } */
+  
+  .message-bubble.first-in-group.other { border-top-left-radius: 1rem; border-bottom-left-radius: 0.25rem; }
+  .message-bubble.first-in-group.self { border-top-right-radius: 1rem; border-bottom-right-radius: 0.25rem; }
+  .message-bubble.last-in-group.other { border-bottom-left-radius: 1rem; border-top-left-radius: 0.25rem; margin-bottom: 0.75rem; }
+  .message-bubble.last-in-group.self { border-bottom-right-radius: 1rem; border-top-right-radius: 0.25rem; margin-bottom: 0.75rem; }
+  .message-bubble.first-in-group.last-in-group.other { border-radius: 1rem; margin-bottom: 0.5rem; }
+  .message-bubble.first-in-group.last-in-group.self { border-radius: 1rem; margin-bottom: 0.5rem; }
   .message-bubble:not(.first-in-group):not(.last-in-group).other { border-top-left-radius: 0.25rem; border-bottom-left-radius: 0.25rem; }
   .message-bubble:not(.first-in-group):not(.last-in-group).self { border-top-right-radius: 0.25rem; border-bottom-right-radius: 0.25rem; }
 
@@ -103,4 +110,3 @@
   .message-timestamp { font-size: 0.65rem; line-height: 1; opacity: 0.7; position: absolute; right: 0.5rem; bottom: 0.35rem; margin: 0; text-align: right; pointer-events: none; }
   .message-bubble.last-in-group .message-content::after { content: ''; display: inline-block; width: 3ch; }
 </style>
-
