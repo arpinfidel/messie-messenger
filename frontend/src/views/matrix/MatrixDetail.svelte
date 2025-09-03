@@ -76,40 +76,56 @@
       `[MatrixDetail][loadMoreMessages] Loading older messages… currentCount=${get(messages).length}, nextBatch=${nextBatch}`
     );
 
+    // Store scroll position relative to the bottom before loading
     const prevScrollHeight = messagesContainer?.scrollHeight ?? 0;
     const prevScrollTop = messagesContainer?.scrollTop ?? 0;
+    const distanceFromBottom = prevScrollHeight - prevScrollTop - messagesContainer.clientHeight;
 
-    const { messages: olderMessages, nextBatch: newNextBatch } = await matrixViewModel.getRoomMessages(item.id, nextBatch);
+    try {
+      const { messages: olderMessages, nextBatch: newNextBatch } = await matrixViewModel.getRoomMessages(item.id, nextBatch);
 
-    console.debug(
-      `[MatrixDetail][loadMoreMessages] got ${olderMessages?.length || 0} older messages, new nextBatch=${newNextBatch}`
-    );
-
-    if (olderMessages?.length) {
-      messages.update((curr) => {
-        const existingIds = new Set(curr.map((m) => m.id));
-        const newMessages = olderMessages.filter((m) => !existingIds.has(m.id));
-        return [...newMessages, ...curr];
-      });
-    }
-    nextBatch = newNextBatch;
-
-    // await tick();
-    if (messagesContainer) {
-      // Temporarily disable smooth scroll behavior for instant jump
-      messagesContainer.style.scrollBehavior = 'auto';
-      const newScrollHeight = messagesContainer.scrollHeight;
-      messagesContainer.scrollTop = prevScrollTop + (newScrollHeight - prevScrollHeight - 50);
       console.debug(
-        `[MatrixDetail][loadMoreMessages] Adjusted scrollTop to preserve viewport (prevTop=${prevScrollTop}, delta=${newScrollHeight - prevScrollHeight})`
+        `[MatrixDetail][loadMoreMessages] got ${olderMessages?.length || 0} older messages, new nextBatch=${newNextBatch}`
       );
-      // Re-enable smooth scroll behavior after adjustment
-      // await tick(); // Ensure the scroll adjustment has been applied
-      messagesContainer.style.scrollBehavior = 'smooth';
-    }
 
-    isLoadingOlderMessages = false;
-    console.timeEnd(`[MatrixDetail][loadMoreMessages] room=${item?.id}`);
+      if (olderMessages?.length) {
+        messages.update((curr) => {
+          const existingIds = new Set(curr.map((m) => m.id));
+          const newMessages = olderMessages.filter((m) => !existingIds.has(m.id));
+          return [...newMessages, ...curr];
+        });
+
+        // Wait for DOM to update
+        await tick();
+        
+        if (messagesContainer) {
+          // Disable smooth scrolling temporarily
+          const originalScrollBehavior = messagesContainer.style.scrollBehavior;
+          messagesContainer.style.scrollBehavior = 'auto';
+          
+          // Calculate new scroll position to maintain the same distance from bottom
+          const newScrollHeight = messagesContainer.scrollHeight;
+          const newScrollTop = newScrollHeight - messagesContainer.clientHeight - distanceFromBottom;
+          
+          console.debug(
+            `[MatrixDetail][loadMoreMessages] Scroll adjustment: prevHeight=${prevScrollHeight}, newHeight=${newScrollHeight}, distanceFromBottom=${distanceFromBottom}, newScrollTop=${newScrollTop}`
+          );
+          
+          // Set the new scroll position
+          messagesContainer.scrollTop = Math.max(0, newScrollTop);
+          
+          // Restore original scroll behavior
+          messagesContainer.style.scrollBehavior = originalScrollBehavior;
+        }
+      }
+
+      nextBatch = newNextBatch;
+    } catch (error) {
+      console.error(`[MatrixDetail][loadMoreMessages] Error loading messages:`, error);
+    } finally {
+      isLoadingOlderMessages = false;
+      console.timeEnd(`[MatrixDetail][loadMoreMessages] room=${item?.id}`);
+    }
   }
 
   $: if (item?.type === 'matrix' && item.id) {
@@ -123,7 +139,7 @@
 
     scrollObserver = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
+        if (entries[0].isIntersecting && !isLoadingOlderMessages) {
           console.debug(
             '[MatrixDetail][IntersectionObserver] Top sentinel intersecting → loadMoreMessages()'
           );
@@ -132,10 +148,8 @@
       },
       {
         root: messagesContainer,
-        threshold: 0.01,
-        rootMargin: '1000px 0px -99% 0px'
-        // threshold: 0,
-        // rootMargin: '600px 0px 0px 0px',
+        threshold: 1.0,
+        rootMargin: '500px 0px -70% 0px', // Increased from 200px to 500px for earlier loading
       }
     );
 
@@ -152,13 +166,22 @@
       if (ev.roomId !== item.id) return;
       const newMsgs = await matrixViewModel.mapRepoEventsToMessages([ev]);
       if (!newMsgs.length) return;
+      
+      // Check if user is near bottom before adding new messages
+      const wasNearBottom = messagesContainer.scrollTop + messagesContainer.clientHeight >= messagesContainer.scrollHeight - 100;
+      
       messages.update((curr) => {
         const existing = new Set(curr.map((m) => m.id));
         const toAdd = newMsgs.filter((m) => !existing.has(m.id));
         return [...curr, ...toAdd];
       });
+      
       await tick();
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      
+      // Only auto-scroll if user was near bottom
+      if (wasNearBottom) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
     });
     console.debug('[MatrixDetail][onMount] Component mounted');
   });
@@ -186,7 +209,7 @@
         {
           id: `temp-${Date.now()}`,
           sender: matrixViewModel.getCurrentUserId(),
-          senderDisplayName: matrixViewModel.getCurrentUserDisplayName(), // Add senderDisplayName
+          senderDisplayName: matrixViewModel.getCurrentUserDisplayName(),
           description: content,
           timestamp: Date.now(),
           isSelf: true,
@@ -197,7 +220,6 @@
       messagesContainer.scrollTop = messagesContainer.scrollHeight;
     } catch (e) {
       console.error('[MatrixDetail][sendMessage] Failed to send message:', e);
-      // Let the input component keep the text if sending fails
     } finally {
       isSending = false;
     }
@@ -261,8 +283,8 @@
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
-    /* Temporarily remove scroll-behavior: smooth from here */
     background: var(--color-panel);
+    scroll-behavior: smooth;
   }
 
   .sentinel {
@@ -298,6 +320,4 @@
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
   }
-
-
 </style>
