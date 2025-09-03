@@ -11,7 +11,10 @@ import {
   type IMatrixTimelineItem,
 } from '@/viewmodels/matrix/MatrixTimelineItem';
 import { matrixSettings } from '@/viewmodels/matrix/MatrixSettings';
-import { MatrixTimelineService, type MatrixMessage } from '@/viewmodels/matrix/MatrixTimelineService';
+import {
+  MatrixTimelineService,
+  type MatrixMessage,
+} from '@/viewmodels/matrix/MatrixTimelineService';
 import { AvatarService } from './core/AvatarService';
 import type { RepoEvent } from './core/TimelineRepository';
 
@@ -250,17 +253,11 @@ export class MatrixViewModel implements IModuleViewModel {
     await this.cryptoMgr.restoreFromRecoveryKey();
     console.timeEnd('[MatrixVM] crypto.restoreFromRecoveryKey');
 
-    // Background decryption updates are handled via binder events; no bulk retries here.
-
     console.time('[MatrixVM] fetch timeline items');
     await this.timelineSvc.fetchAndSetTimelineItems();
     console.timeEnd('[MatrixVM] fetch timeline items');
 
     this.hydrationState = 'ready';
-    // console.time('[MatrixVM] flush pending events');
-    // await this.timelineSvc.flushPendingLiveEvents();
-    // console.timeEnd('[MatrixVM] flush pending events');
-
     console.timeEnd('[MatrixVM] initialize total');
   }
 

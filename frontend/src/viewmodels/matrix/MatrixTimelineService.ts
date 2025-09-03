@@ -95,7 +95,8 @@ export class MatrixTimelineService {
 
     // Sort and set immediately so UI renders fast
     items.sort((a, b) => b.timestamp - a.timestamp);
-    this._timelineItems.set(items);
+    this.nextTimeline = items.slice();
+    this.flushTimeline();
 
     // Resolve avatars in background with limited concurrency and patch items as they arrive
     const maxConcurrent = 6;
@@ -110,14 +111,23 @@ export class MatrixTimelineService {
             h: 64,
             method: 'crop',
           });
-          if (!url) continue;
-          this._timelineItems.update((arr) => {
-            const j = arr.findIndex((t) => t.id === room.id);
-            if (j === -1) return arr;
-            const updated = arr.slice();
-            updated[j] = new MatrixTimelineItem({ ...updated[j], avatarUrl: url });
-            return updated;
+          // No 'continue' here, allow fallback avatar
+          const existingItem = this.nextTimeline.find((t) => t.id === room.id);
+          if (!existingItem) {
+            continue;
+          }
+
+          const updated = new MatrixTimelineItem({
+            id: existingItem.id,
+            type: existingItem.type,
+            title: existingItem.title,
+            description: existingItem.description,
+            timestamp: existingItem.timestamp,
+            avatarUrl: url || existingItem.avatarUrl, // Use new URL or fallback to existing
           });
+
+          this.bufferTimelineUpdate(updated);
+          this.scheduleFlush();
         } catch {}
       }
     };
