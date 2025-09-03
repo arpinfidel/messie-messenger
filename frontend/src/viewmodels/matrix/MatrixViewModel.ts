@@ -11,8 +11,9 @@ import {
   type IMatrixTimelineItem,
 } from '@/viewmodels/matrix/MatrixTimelineItem';
 import { matrixSettings } from '@/viewmodels/matrix/MatrixSettings';
-import { MatrixTimelineService } from '@/viewmodels/matrix/MatrixTimelineService';
+import { MatrixTimelineService, type MatrixMessage } from '@/viewmodels/matrix/MatrixTimelineService';
 import { AvatarService } from './core/AvatarService';
+import type { RepoEvent } from './core/TimelineRepository';
 
 import { MatrixSessionStore, type MatrixSessionData } from './core/MatrixSessionStore';
 import { MatrixClientManager } from './core/MatrixClientManager';
@@ -101,6 +102,14 @@ export class MatrixViewModel implements IModuleViewModel {
 
   public async getRoomMessages(roomId: string, beforeTS: number | null, limit = 20) {
     return this.timelineSvc.getRoomMessages(roomId, beforeTS, limit);
+  }
+
+  public onRepoEvent(listener: (ev: RepoEvent, room: matrixSdk.Room) => void): () => void {
+    return this.dataLayer.onRepoEvent(listener);
+  }
+
+  public async mapRepoEventsToMessages(events: RepoEvent[]): Promise<MatrixMessage[]> {
+    return this.timelineSvc.mapRepoEventsToMessages(events);
   }
 
   public async getRoomMembers(roomId: string) {

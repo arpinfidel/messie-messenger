@@ -204,7 +204,7 @@ export class MatrixTimelineService {
 
   /* ---------------- Mapping helpers ---------------- */
 
-  private async mapRepoEventsToMessages(events: RepoEvent[]): Promise<MatrixMessage[]> {
+  async mapRepoEventsToMessages(events: RepoEvent[]): Promise<MatrixMessage[]> {
     const currentUserId = this.data.getCurrentUserId() ?? '';
     const msgs: MatrixMessage[] = [];
     const resolvers: Array<Promise<void>> = [];

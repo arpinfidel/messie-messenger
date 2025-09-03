@@ -21,6 +21,7 @@
   let messagesContainer: HTMLDivElement;
   let topSentinel: HTMLDivElement;
   let scrollObserver: IntersectionObserver;
+  let unsubscribeRepoEvent: (() => void) | null = null;
 
   async function fetchMessages(roomId: string) {
     try {
@@ -147,11 +148,24 @@
   onMount(async () => {
     await tick();
     setupObserver();
+    unsubscribeRepoEvent = matrixViewModel.onRepoEvent(async (ev, _room) => {
+      if (ev.roomId !== item.id) return;
+      const newMsgs = await matrixViewModel.mapRepoEventsToMessages([ev]);
+      if (!newMsgs.length) return;
+      messages.update((curr) => {
+        const existing = new Set(curr.map((m) => m.id));
+        const toAdd = newMsgs.filter((m) => !existing.has(m.id));
+        return [...curr, ...toAdd];
+      });
+      await tick();
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    });
     console.debug('[MatrixDetail][onMount] Component mounted');
   });
 
   onDestroy(() => {
     scrollObserver?.disconnect();
+    unsubscribeRepoEvent?.();
     console.debug('[MatrixDetail][onDestroy] Observer disconnected');
   });
 
