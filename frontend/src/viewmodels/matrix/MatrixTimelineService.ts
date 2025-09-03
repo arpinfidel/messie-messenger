@@ -25,6 +25,8 @@ export interface MatrixMessage {
 
 export class MatrixTimelineService {
   private _timelineItems: Writable<IMatrixTimelineItem[]> = writable([]);
+  private nextTimeline: IMatrixTimelineItem[] = [];
+  private flushTimeout: ReturnType<typeof setTimeout> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingLiveEvents: Array<{ ev: MatrixEvent; room: Room }> = [];
   private mediaResolver = new MediaResolver(() => this.client);
@@ -38,7 +40,9 @@ export class MatrixTimelineService {
     },
     private readonly data: MatrixDataLayer,
     private readonly avatars: AvatarService
-  ) {}
+  ) {
+    this.handleEvent();
+  }
 
   private get client() {
     return this.ctx.getClient();
@@ -124,59 +128,61 @@ export class MatrixTimelineService {
   }
 
   /** Live pipeline: ingest event into store via data layer, then update preview. */
-  async pushTimelineItemFromEvent(ev: MatrixEvent, room: Room) {
+  async handleEvent() {
     // await this.data.ingestLiveEvent(ev, room);
+    this.data.onRepoEvent(async (ev, room) => {
+      const rooms = await this.data.getRooms();
+      const fallbackTs = rooms.find((r) => r.id === room.roomId)?.latestTimestamp || 0;
+      const timestamp = ev?.originServerTs ?? fallbackTs;
+      const id = room.roomId;
+      const title = room.name || room.roomId;
+      const { description } = ev ? this.repoEventToPreview(ev) : { description: '' };
 
-    const last = (await this.data.queryEventsByRoom(room.roomId, 1))[0];
-    const rooms = await this.data.getRooms();
-    const fallbackTs = rooms.find((r) => r.id === room.roomId)?.latestTimestamp || 0;
-    const timestamp = last?.originServerTs ?? fallbackTs;
-    const id = room.roomId;
-    const title = room.name || room.roomId;
-    const { description } = last ? this.repoEventToPreview(last) : { description: '' };
+      let avatarUrl: string | undefined;
+      const roomMxc = room.getMxcAvatarUrl();
+      avatarUrl = await this.avatars.resolveRoomAvatar(room.roomId, roomMxc || undefined, {
+        w: 64,
+        h: 64,
+        method: 'crop',
+      });
 
-    let avatarUrl: string | undefined;
-    const roomMxc = room.getMxcAvatarUrl();
-    avatarUrl = await this.avatars.resolveRoomAvatar(room.roomId, roomMxc || undefined, {
-      w: 64,
-      h: 64,
-      method: 'crop',
-    });
+      const updated = new MatrixTimelineItem({
+        id,
+        type: 'matrix',
+        title,
+        description,
+        // Keep previous avatar if resolve failed
+        avatarUrl:
+          avatarUrl ||
+          (get(this._timelineItems).find((it) => it.id === id) as IMatrixTimelineItem | undefined)
+            ?.avatarUrl,
+        timestamp,
+      });
 
-    const updated = new MatrixTimelineItem({
-      id,
-      type: 'matrix',
-      title,
-      description,
-      // Keep previous avatar if resolve failed
-      avatarUrl:
-        avatarUrl ||
-        (get(this._timelineItems).find((it) => it.id === id) as IMatrixTimelineItem | undefined)
-          ?.avatarUrl,
-      timestamp,
-    });
-
-    this._timelineItems.update((items) => {
-      const idx = items.findIndex((it) => it.id === id);
-      if (idx === -1) return [updated, ...items];
-      const next = items.slice();
-      if ((next[idx]?.timestamp ?? 0) <= timestamp) next[idx] = updated;
-      return next;
+      this.bufferTimelineUpdate(updated);
+      this.scheduleFlush();
     });
   }
 
-  bufferLiveEvent(ev: MatrixEvent, room: Room) {
-    this.pendingLiveEvents.push({ ev, room });
-  }
-
-  async flushPendingLiveEvents() {
-    if (!this.pendingLiveEvents.length) return;
-    for (const { ev, room } of this.pendingLiveEvents) {
-      try {
-        await this.pushTimelineItemFromEvent(ev, room);
-      } catch {}
+  bufferTimelineUpdate(ev: MatrixTimelineItem) {
+    const idx = this.nextTimeline.findIndex((it) => it.id === ev.id);
+    if (idx === -1) {
+      this.nextTimeline.push(ev);
+    } else if ((this.nextTimeline[idx]?.timestamp ?? 0) <= ev.timestamp) {
+      this.nextTimeline[idx] = ev;
     }
-    this.pendingLiveEvents.length = 0;
+  }
+
+  async flushTimeline() {
+    this._timelineItems.set(this.nextTimeline);
+  }
+
+  async scheduleFlush() {
+    if (this.flushTimeout) return;
+    this.flushTimeout = setTimeout(() => {
+      this.flushTimeline();
+      this.flushTimeout = null;
+    }, 100);
   }
 
   /* ---------------- Room messages API (delegates to repo) ---------------- */
@@ -280,7 +286,8 @@ export class MatrixTimelineService {
 
   // Media cache management
   clearMediaCache(): void {
-    this.avatars.clear();
+    // this.avatars.clear();
+    this.mediaResolver.clear();
   }
 
   /** Create a human preview from RepoEvent content (works for decrypted encrypted). */

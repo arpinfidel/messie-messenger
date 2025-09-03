@@ -248,9 +248,9 @@ export class MatrixViewModel implements IModuleViewModel {
     console.timeEnd('[MatrixVM] fetch timeline items');
 
     this.hydrationState = 'ready';
-    console.time('[MatrixVM] flush pending events');
-    await this.timelineSvc.flushPendingLiveEvents();
-    console.timeEnd('[MatrixVM] flush pending events');
+    // console.time('[MatrixVM] flush pending events');
+    // await this.timelineSvc.flushPendingLiveEvents();
+    // console.timeEnd('[MatrixVM] flush pending events');
 
     console.timeEnd('[MatrixVM] initialize total');
   }

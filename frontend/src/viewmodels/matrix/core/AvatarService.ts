@@ -82,17 +82,17 @@ export class AvatarService {
     return composed.url;
   }
 
-  clear(): void {
-    try {
-      this.avatarResolver.clear();
-    } catch {}
-    for (const [, url] of this.compositeAvatarCache) {
-      try {
-        URL.revokeObjectURL(url);
-      } catch {}
-    }
-    this.compositeAvatarCache.clear();
-  }
+  // clear(): void {
+  //   try {
+  //     this.avatarResolver.clear();
+  //   } catch {}
+  //   for (const [, url] of this.compositeAvatarCache) {
+  //     try {
+  //       URL.revokeObjectURL(url);
+  //     } catch {}
+  //   }
+  //   this.compositeAvatarCache.clear();
+  // }
 
   // ---- helpers ----
   private async composeBubbleAvatars(

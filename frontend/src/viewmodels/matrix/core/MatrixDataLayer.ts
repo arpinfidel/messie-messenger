@@ -8,6 +8,27 @@ import type { DbUser } from './idb/constants';
 import type { ImageContent } from 'matrix-js-sdk/lib/types';
 import { MatrixViewModel } from '../MatrixViewModel';
 
+type RepoEventListener = (ev: RepoEvent, room: matrixSdk.Room) => void;
+
+class RepoEventEmitter {
+  private listeners = new Set<RepoEventListener>();
+
+  on(listener: RepoEventListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  emit(ev: RepoEvent, room: matrixSdk.Room) {
+    for (const l of this.listeners) {
+      try {
+        l(ev, room);
+      } catch (err) {
+        console.error('[MatrixDataLayer] RepoEvent listener failed', err);
+      }
+    }
+  }
+}
+
 export interface MatrixDataLayerOptions {
   getClient: () => matrixSdk.MatrixClient | null;
   shouldIncludeEvent?: (ev: matrixSdk.MatrixEvent) => boolean;
@@ -30,6 +51,7 @@ export class MatrixDataLayer {
   private avatarResolver: AvatarResolver;
   private mediaResolver: MediaResolver;
   private boundClient: matrixSdk.MatrixClient | null = null;
+  private repoEventEmitter = new RepoEventEmitter();
 
   constructor(private readonly opts: MatrixDataLayerOptions) {
     this.pageSize = opts.pageSize ?? 20;
@@ -38,6 +60,10 @@ export class MatrixDataLayer {
       maxDbEntries: 200,
     });
     this.mediaResolver = new MediaResolver(opts.getClient, { maxEntries: 200 });
+  }
+
+  onRepoEvent(listener: (ev: RepoEvent, room: matrixSdk.Room) => void): () => void {
+    return this.repoEventEmitter.on(listener);
   }
 
   bind(): void {
@@ -369,15 +395,19 @@ export class MatrixDataLayer {
       console.log('[MatrixDataLayer] timeline event', { ev, room, toStartOfTimeline, removed });
       const re = await this.toRepoEvent(ev);
       if (!re) return;
-      if (!this.isMessageLike(re)) {
-        console.debug('[MatrixDataLayer] ignoring non-message timeline event', re);
-        return;
-      }
       if (!room) {
         console.warn('[MatrixDataLayer] timeline event without room?');
         return;
       }
-      const r = this.db.rooms.get(room.roomId);
+
+      // Emit immediately
+      this.repoEventEmitter.emit(re, room);
+
+      if (!this.isMessageLike(re)) {
+        console.debug('[MatrixDataLayer] ignoring non-message timeline event', re);
+        return;
+      }
+      const r = await this.db.rooms.get(room.roomId);
       if (!r) {
         // New room?
         await this.db.rooms.put({
@@ -429,7 +459,7 @@ export class MatrixDataLayer {
   // helpers
   // ------------------------------------------------------------------
 
-  private isMessageLike(ev: RepoEvent): boolean {
+  isMessageLike(ev: RepoEvent): boolean {
     const t = ev.type;
     return t === 'm.room.message' || t === 'm.room.encrypted';
   }
