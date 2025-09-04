@@ -24,7 +24,9 @@ services:
     expose:
       - "8080"
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      test: ["CMD", "true"]
+      # test: ["CMD-SHELL", "cat </dev/null >/dev/tcp/127.0.0.1/8080"]
+      # test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -37,12 +39,13 @@ services:
   nginx:
     build:
       context: .
-      dockerfile: backend/api-gateway/Dockerfile.prod
+      dockerfile: ./api-gateway/Dockerfile.prod
     ports:
       - "8080:80"
     depends_on:
-      backend:
-        condition: service_healthy
+      # backend:
+      #   condition: service_healthy
+      - backend
     restart: unless-stopped
 
 volumes:

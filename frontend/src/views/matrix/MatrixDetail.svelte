@@ -434,14 +434,6 @@
     display: flex;
     justify-content: flex-end;
     pointer-events: none;    /* let clicks pass through except on the button */
-    /* Add a subtle fade to separate from messages */
-    background: linear-gradient(
-      to top,
-      color-mix(in srgb, var(--color-panel) 92%, transparent),
-      transparent 70%
-    );
-    padding: 0.5rem 0.25rem 0.25rem 0.25rem; /* small breathing room */
-    margin-top: 0.25rem;
   }
 
   /* The actual button is clickable */

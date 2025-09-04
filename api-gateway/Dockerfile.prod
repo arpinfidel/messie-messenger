@@ -9,5 +9,5 @@ RUN cd frontend && npm run build
 
 # 2) Nginx to serve SPA + proxy /api
 FROM nginx:alpine
-COPY backend/api-gateway/nginx.prod.conf /etc/nginx/nginx.conf
+COPY ./api-gateway/nginx.prod.conf /etc/nginx/nginx.conf
 COPY --from=fe /app/frontend/dist /usr/share/nginx/html
