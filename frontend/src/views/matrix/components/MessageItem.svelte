@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { MatrixMessage } from '@/viewmodels/matrix/MatrixTimelineService';
+  import type { MatrixMessage } from '@/viewmodels/matrix/MatrixTypes';
 
   export let message: MatrixMessage;
   export let isFirstInGroup: boolean;

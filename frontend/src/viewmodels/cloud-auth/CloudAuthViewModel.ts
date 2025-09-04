@@ -1,7 +1,9 @@
 import { MatrixViewModel } from '../matrix/MatrixViewModel';
-import type { IOpenIDToken } from 'matrix-js-sdk';
 import { DefaultApi } from '../../api/generated/apis';
 import type { MatrixOpenIDRequest } from '../../api/generated/models';
+
+// Minimal shape needed from Matrix OpenID token
+export type IOpenIDToken = { access_token: string; matrix_server_name: string };
 
 export class CloudAuthViewModel {
   private static instance: CloudAuthViewModel | null = null;

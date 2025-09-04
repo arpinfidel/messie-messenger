@@ -30,5 +30,11 @@
     "vite-env.d.ts",
     "src/utils/**/*.ts",
     "src/utils/debounce.ts"
+  ],
+  "exclude": [
+    // Exclude old SDK-based implementation in Phase 1
+    "src/viewmodels/matrix/MatrixSdkViewModel.ts",
+    "src/viewmodels/matrix/MatrixTimelineService.ts",
+    "src/viewmodels/matrix/core/**/*"
   ]
 }

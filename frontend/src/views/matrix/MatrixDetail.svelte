@@ -4,7 +4,7 @@
   import { MatrixViewModel } from '../../viewmodels/matrix/MatrixViewModel';
   import type { TimelineItem } from '../../models/shared/TimelineItem';
   import { writable, get } from 'svelte/store';
-  import type { MatrixMessage } from '@/viewmodels/matrix/MatrixTimelineService';
+  import type { MatrixMessage } from '@/viewmodels/matrix/MatrixTypes';
   import RoomHeader from './components/RoomHeader.svelte';
   import MessageItem from './components/MessageItem.svelte';
   import MessageInput from './components/MessageInput.svelte';

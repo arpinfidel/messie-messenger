@@ -27,7 +27,6 @@
   },
   "dependencies": {
     "date-fns": "^4.1.0",
-    "matrix-js-sdk": "^37.13.0",
     "quick-lru": "^7.1.0"
   }
 }

@@ -1,7 +1,7 @@
 import { writable, type Writable } from 'svelte/store';
 import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
 import { MatrixTimelineItem, type IMatrixTimelineItem } from '@/viewmodels/matrix/MatrixTimelineItem';
-import type { MatrixMessage } from '@/viewmodels/matrix/MatrixTimelineService';
+import type { MatrixMessage } from '@/viewmodels/matrix/MatrixTypes';
 import {
   loginWithPassword,
   logout as liteLogout,
