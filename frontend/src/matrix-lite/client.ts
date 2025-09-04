@@ -5,6 +5,7 @@ interface Session {
   access_token: string;
   user_id: string;
   device_id: string;
+  homeserverUrl: string;
 }
 
 interface RoomStateEvent {
@@ -48,9 +49,7 @@ const fakeMembers: Record<string, RoomMember[]> = {
     { user_id: '@alice:example.org', displayname: 'Alice' },
     { user_id: '@bob:example.org', displayname: 'Bob' },
   ],
-  '!room2:example.org': [
-    { user_id: '@carol:example.org', displayname: 'Carol' },
-  ],
+  '!room2:example.org': [{ user_id: '@carol:example.org', displayname: 'Carol' }],
 };
 
 const fakeEvents: Record<string, RoomMessage[]> = {
@@ -82,23 +81,43 @@ function warn(method: string) {
   console.warn(`[compat-mock] ${method} is mocked`);
 }
 
-export async function loginWithPassword(username: string, password: string) {
-  warn('loginWithPassword');
+export async function loginWithPassword(homeserverUrl: string, username: string, password: string) {
+  const res = await fetch(`${homeserverUrl}/_matrix/client/v3/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      type: 'm.login.password',
+      identifier: { type: 'm.id.user', user: username },
+      password,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(`Login failed with status ${res.status}`);
+  }
+  const data = await res.json();
   currentSession = {
-    access_token: 'mock_access_token',
-    user_id: `@${username}:example.org`,
-    device_id: 'DEVICE',
+    access_token: data.access_token,
+    user_id: data.user_id,
+    device_id: data.device_id,
+    homeserverUrl,
   };
   return currentSession;
 }
 
 export async function logout() {
-  warn('logout');
+  if (!currentSession) return;
+  await fetch(`${currentSession.homeserverUrl}/_matrix/client/v3/logout`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${currentSession.access_token}` },
+  });
   currentSession = null;
 }
 
+export function hasSession(): boolean {
+  return currentSession !== null;
+}
+
 export function setSession(session: Session) {
-  warn('setSession');
   currentSession = session;
 }
 
@@ -117,19 +136,15 @@ export async function getRoomMembers(roomId: string) {
   return fakeMembers[roomId] || [];
 }
 
-export async function getMessages(
-  roomId: string,
-  from?: string,
-  dir: 'b' | 'f' = 'b',
-  limit = 20
-) {
+export async function getMessages(roomId: string, from?: string, dir: 'b' | 'f' = 'b', limit = 20) {
   warn('getMessages');
   const events = fakeEvents[roomId] || [];
   let start = from ? parseInt(from, 10) : events.length;
   if (Number.isNaN(start)) start = events.length;
   const end = Math.max(0, dir === 'b' ? start - limit : start + limit);
   const slice = dir === 'b' ? events.slice(end, start) : events.slice(start, end);
-  const next = dir === 'b' ? (end > 0 ? String(end) : null) : end < events.length ? String(end) : null;
+  const next =
+    dir === 'b' ? (end > 0 ? String(end) : null) : end < events.length ? String(end) : null;
   return { chunk: slice, nextBatch: next };
 }
 
@@ -182,4 +197,3 @@ export async function encryptEvent(roomId: string, type: string, plain: any) {
   warn('encryptEvent');
   return { type, content: plain };
 }
-

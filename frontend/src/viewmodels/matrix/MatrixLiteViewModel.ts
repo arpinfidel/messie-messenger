@@ -9,6 +9,7 @@ import {
   getRoomState,
   getMessages as liteGetMessages,
   getRoomMembers as liteGetMembers,
+  hasSession,
 } from '@/matrix-lite/client';
 
 export class MatrixLiteViewModel implements IModuleViewModel {
@@ -49,6 +50,12 @@ export class MatrixLiteViewModel implements IModuleViewModel {
   }
 
   async initialize(): Promise<void> {
+    if (!hasSession()) {
+      this.loggedIn = false;
+      this.timelineItems.set([]);
+      return;
+    }
+
     const rooms = await listJoinedRooms();
     const items: IMatrixTimelineItem[] = [];
     for (const id of rooms) {
@@ -71,7 +78,7 @@ export class MatrixLiteViewModel implements IModuleViewModel {
   }
 
   async login(hsUrl: string, username: string, password: string): Promise<void> {
-    await loginWithPassword(username, password);
+    await loginWithPassword(hsUrl, username, password);
     await this.initialize();
   }
 
