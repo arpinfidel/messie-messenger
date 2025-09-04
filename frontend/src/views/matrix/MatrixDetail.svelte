@@ -1,7 +1,7 @@
 <!-- MatrixDetail.svelte -->
 <script lang="ts">
   import { onMount, onDestroy, tick } from 'svelte';
-  import { MatrixViewModel } from '../../viewmodels/matrix/MatrixViewModel';
+  import { MatrixViewModel } from '../../viewmodels/matrix';
   import type { TimelineItem } from '../../models/shared/TimelineItem';
   import { writable, get } from 'svelte/store';
   import type { MatrixMessage } from '@/viewmodels/matrix/MatrixTimelineService';

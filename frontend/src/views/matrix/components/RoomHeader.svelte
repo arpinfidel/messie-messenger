@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { MatrixViewModel } from '../../../viewmodels/matrix/MatrixViewModel';
+  import { MatrixViewModel } from '../../../viewmodels/matrix';
 
   export let title: string = 'Matrix Room';
   export let messageCount: number = 0;

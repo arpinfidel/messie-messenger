@@ -1,4 +1,4 @@
-import { MatrixViewModel } from '../matrix/MatrixViewModel';
+import { MatrixViewModel } from '../matrix';
 import type { IOpenIDToken } from 'matrix-js-sdk';
 import { DefaultApi } from '../../api/generated/apis';
 import type { MatrixOpenIDRequest } from '../../api/generated/models';

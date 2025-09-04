@@ -2,7 +2,7 @@ import { derived, writable, readable, type Readable, type Writable } from 'svelt
 import type { TimelineItem } from '@/models/shared/TimelineItem';
 import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
 import { TodoViewModel } from '@/viewmodels/todo/TodoViewModel';
-import { MatrixViewModel } from '@/viewmodels/matrix/MatrixViewModel';
+import { MatrixViewModel } from '@/viewmodels/matrix';
 import { EmailViewModel } from '@/viewmodels/email/EmailViewModel';
 
 export class UnifiedTimelineViewModel {

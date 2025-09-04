@@ -1,6 +1,6 @@
 <script lang="ts">
   import { matrixSettings } from '../../viewmodels/matrix/MatrixSettings';
-  import { MatrixViewModel } from '../../viewmodels/matrix/MatrixViewModel';
+  import { MatrixViewModel } from '../../viewmodels/matrix';
 
   const matrixViewModel = MatrixViewModel.getInstance();
 

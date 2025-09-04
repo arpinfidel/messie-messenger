@@ -6,7 +6,7 @@ import { AvatarResolver } from './AvatarResolver';
 import { MediaResolver } from './MediaResolver';
 import type { DbUser } from './idb/constants';
 import type { ImageContent } from 'matrix-js-sdk/lib/types';
-import { MatrixViewModel } from '../MatrixViewModel';
+import { MatrixViewModel } from '../MatrixSdkViewModel';
 
 type RepoEventListener = (ev: RepoEvent, room: matrixSdk.Room) => void;
 

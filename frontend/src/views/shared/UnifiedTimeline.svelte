@@ -2,7 +2,7 @@
 <script lang="ts">
   import { onMount, createEventDispatcher, onDestroy } from 'svelte';
   import { UnifiedTimelineViewModel } from '@/viewmodels/shared/UnifiedTimelineViewModel';
-  import { MatrixViewModel } from '@/viewmodels/matrix/MatrixViewModel';
+  import { MatrixViewModel } from '@/viewmodels/matrix';
   import { EmailViewModel } from '@/viewmodels/email/EmailViewModel';
   import type { TimelineItem } from '@/models/shared/TimelineItem';
   import { DefaultApi } from '@/api/generated/apis/DefaultApi';

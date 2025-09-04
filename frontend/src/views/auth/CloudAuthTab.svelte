@@ -1,6 +1,6 @@
 <script lang="ts">
   import { CloudAuthViewModel } from '../../viewmodels/cloud-auth/CloudAuthViewModel';
-  import { MatrixViewModel } from '../../viewmodels/matrix/MatrixViewModel';
+  import { MatrixViewModel } from '../../viewmodels/matrix';
   import { onMount } from 'svelte';
 
   let matrixVm: MatrixViewModel;

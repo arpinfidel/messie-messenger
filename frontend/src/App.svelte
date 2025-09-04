@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import UnifiedTimeline from './views/shared/UnifiedTimeline.svelte';
   import DetailPanel from './views/shared/DetailPanel.svelte';
-  import { MatrixViewModel } from './viewmodels/matrix/MatrixViewModel';
+  import { MatrixViewModel } from './viewmodels/matrix';
   import SettingsPopup from './views/shared/SettingsPopup.svelte';
   import MatrixSettingsTab from './views/matrix/MatrixSettingsTab.svelte';
   import CloudAuthTab from './views/auth/CloudAuthTab.svelte';
