@@ -21,7 +21,6 @@ import type { RepoEvent } from './core/TimelineRepository';
 import { MatrixSessionStore, type MatrixSessionData } from './core/MatrixSessionStore';
 import { MatrixClientManager } from './core/MatrixClientManager';
 import { OutgoingMessageQueue } from './core/OutgoingMessageQueue';
-import { MatrixEventBinder } from './core/MatrixEventBinder';
 import { MatrixCryptoManager } from './core/MatrixCryptoManager';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
 
@@ -61,12 +60,6 @@ export class MatrixViewModel implements IModuleViewModel {
     this.avatarSvc
   );
   private queue = new OutgoingMessageQueue(() => this.clientMgr.getClient());
-  private binder = new MatrixEventBinder(
-    () => this.clientMgr.getClient(),
-    () => this.hydrationState,
-    this.timelineSvc,
-    this.queue
-  );
 
   private constructor() {}
 
@@ -190,10 +183,6 @@ export class MatrixViewModel implements IModuleViewModel {
     console.time('[MatrixVM] initRustCrypto');
     await this.clientMgr.initCryptoIfNeeded();
     console.timeEnd('[MatrixVM] initRustCrypto');
-
-    console.time('[MatrixVM] bind listeners');
-    this.binder.bind();
-    console.timeEnd('[MatrixVM] bind listeners');
 
     console.time('[MatrixVM] bind data layer');
     this.dataLayer.bind();

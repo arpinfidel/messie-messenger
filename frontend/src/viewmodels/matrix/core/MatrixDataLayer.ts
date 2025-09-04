@@ -326,28 +326,16 @@ export class MatrixDataLayer {
       console.log(
         `[MatrixDataLayer] getRoomMessages(${roomId}) → no token, start paginating from live timeline`
       );
-      const ok = await c.paginateEventTimeline(live, { backwards: true, limit: limit * 3 });
-      if (ok) {
-        const windowEvents = room.getLiveTimeline().getEvents();
-        await this.persistTimelineEvents(roomId, room, windowEvents);
-        remoteToken = room.getLiveTimeline().getPaginationToken(Direction.Backward);
-      } else {
-        remoteToken = null;
-      }
     } else {
       console.log(
         `[MatrixDataLayer] getRoomMessages(${roomId}) → have token, paginate from ${token}`
       );
       live.setPaginationToken(token, Direction.Backward);
-      const ok = await c.paginateEventTimeline(live, { backwards: true, limit: limit * 3 });
-      if (ok) {
-        const windowEvents = room.getLiveTimeline().getEvents();
-        await this.persistTimelineEvents(roomId, room, windowEvents);
-        remoteToken = room.getLiveTimeline().getPaginationToken(Direction.Backward);
-      } else {
-        remoteToken = token;
-      }
     }
+    const ok = await c.paginateEventTimeline(live, { backwards: true, limit: limit * 3 });
+    const windowEvents = room.getLiveTimeline().getEvents();
+    await this.persistTimelineEvents(roomId, room, windowEvents);
+    remoteToken = room.getLiveTimeline().getPaginationToken(Direction.Backward);
     await this.db.setBackwardToken(roomId, remoteToken);
 
     events = await this.db.getEventsByRoom(roomId, limit, beforeTs ?? undefined);

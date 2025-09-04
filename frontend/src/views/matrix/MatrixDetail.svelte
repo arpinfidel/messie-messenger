@@ -9,6 +9,8 @@
   import MessageItem from './components/MessageItem.svelte';
   import MessageInput from './components/MessageInput.svelte';
 
+  const scrollThreshold = 0.25;
+
   export let item: TimelineItem;
   export let className: string = '';
 
@@ -47,9 +49,8 @@
   }
 
   let messagesContainer: HTMLDivElement;
-  let topSentinel: HTMLDivElement;
-  let scrollObserver: IntersectionObserver;
   let unsubscribeRepoEvent: (() => void) | null = null;
+  let scrollHandler: (() => void) | null = null;
   let onScroll: (() => void) | undefined;
 
   async function fetchMessages(roomId: string) {
@@ -61,7 +62,12 @@
       console.debug(`[MatrixDetail][fetchMessages] got ${fetched.length}, next=${newNextBatch}`);
 
       await tick();
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      // Ensure we scroll to the very bottom without smooth scrolling on initial load
+      if (messagesContainer) {
+        messagesContainer.style.scrollBehavior = 'auto';
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        messagesContainer.style.scrollBehavior = 'smooth';
+      }
       await ensureScrollable();
     } catch (e) {
       console.debug(`[MatrixDetail][fetchMessages] ERROR:`, e);
@@ -105,10 +111,9 @@
       `[MatrixDetail][loadMoreMessages] Loading older messages… currentCount=${get(messages).length}, nextBatch=${nextBatch}`
     );
 
-    // Store scroll position relative to the bottom before loading
+    // Store scroll position before loading
     const prevScrollHeight = messagesContainer?.scrollHeight ?? 0;
     const prevScrollTop = messagesContainer?.scrollTop ?? 0;
-    const distanceFromBottom = prevScrollHeight - prevScrollTop - messagesContainer.clientHeight;
 
     try {
       const { messages: olderMessages, nextBatch: newNextBatch } = await matrixViewModel.getRoomMessages(item.id, nextBatch);
@@ -117,27 +122,33 @@
         `[MatrixDetail][loadMoreMessages] got ${olderMessages?.length || 0} older messages, new nextBatch=${newNextBatch}`
       );
 
+      let actualNewMessages = 0;
       if (olderMessages?.length) {
         messages.update((curr) => {
           const existingIds = new Set(curr.map((m) => m.id));
           const newMessages = olderMessages.filter((m) => !existingIds.has(m.id));
+          actualNewMessages = newMessages.length;
           return [...newMessages, ...curr];
         });
 
         // Wait for DOM to update
         await tick();
         
-        if (messagesContainer) {
+        // Only adjust scroll if we actually got NEW messages (not duplicates)
+        if (actualNewMessages > 0 && messagesContainer) {
+          console.debug(`[MatrixDetail][loadMoreMessages] Got ${actualNewMessages} new messages, adjusting scroll`);
+          
           // Disable smooth scrolling temporarily
           const originalScrollBehavior = messagesContainer.style.scrollBehavior;
           messagesContainer.style.scrollBehavior = 'auto';
           
-          // Calculate new scroll position to maintain the same distance from bottom
+          // Use height delta approach for more precise positioning
           const newScrollHeight = messagesContainer.scrollHeight;
-          const newScrollTop = newScrollHeight - messagesContainer.clientHeight - distanceFromBottom;
+          const heightDelta = newScrollHeight - prevScrollHeight;
+          const newScrollTop = prevScrollTop + heightDelta;
           
           console.debug(
-            `[MatrixDetail][loadMoreMessages] Scroll adjustment: prevHeight=${prevScrollHeight}, newHeight=${newScrollHeight}, distanceFromBottom=${distanceFromBottom}, newScrollTop=${newScrollTop}`
+            `[MatrixDetail][loadMoreMessages] Height delta adjustment: prevHeight=${prevScrollHeight}, newHeight=${newScrollHeight}, heightDelta=${heightDelta}, newScrollTop=${newScrollTop}`
           );
           
           // Set the new scroll position
@@ -145,7 +156,11 @@
           
           // Restore original scroll behavior
           messagesContainer.style.scrollBehavior = originalScrollBehavior;
+        } else if (actualNewMessages === 0) {
+          console.debug(`[MatrixDetail][loadMoreMessages] No new messages added (duplicates filtered), keeping scroll position unchanged`);
         }
+      } else {
+        console.debug(`[MatrixDetail][loadMoreMessages] No messages returned from API, keeping scroll position unchanged`);
       }
 
       nextBatch = newNextBatch;
@@ -163,37 +178,38 @@
     console.timeEnd(`[MatrixDetail][fetchMessages] room=${item.id}`);
   }
 
-  function setupObserver() {
-    if (scrollObserver) scrollObserver.disconnect();
+  function setupScrollHandler() {
+    if (scrollHandler) {
+      messagesContainer?.removeEventListener('scroll', scrollHandler);
+    }
 
-    scrollObserver = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !isLoadingOlderMessages) {
-          console.debug(
-            '[MatrixDetail][IntersectionObserver] Top sentinel intersecting → loadMoreMessages()'
-          );
-          loadMoreMessages();
-        }
-      },
-      {
-        root: messagesContainer,
-        threshold: 1.0,
-        rootMargin: '500px 0px -70% 0px', // Increased from 200px to 500px for earlier loading
+    scrollHandler = () => {
+      // Update jump-to-bottom visibility
+      updateJumpVisibility();
+      
+      // Don't trigger loading if already loading or no more messages
+      if (isLoadingOlderMessages || !nextBatch || !messagesContainer) return;
+      
+      const { scrollTop, scrollHeight, clientHeight } = messagesContainer;
+      const scrollPercentage = scrollTop / Math.max(1, scrollHeight - clientHeight);
+      
+      if (scrollPercentage < scrollThreshold) {
+        console.debug(
+          `[MatrixDetail][ScrollHandler] Near top (${(scrollPercentage * 100).toFixed(1)}%) → loadMoreMessages()`
+        );
+        loadMoreMessages();
       }
-    );
+    };
 
-    if (topSentinel) {
-      scrollObserver.observe(topSentinel);
-      console.debug('[MatrixDetail][setupObserver] Observer attached to top sentinel');
+    if (messagesContainer) {
+      messagesContainer.addEventListener('scroll', scrollHandler, { passive: true });
+      console.debug('[MatrixDetail][setupScrollHandler] Scroll handler attached');
     }
   }
 
   onMount(async () => {
     await tick();
-    setupObserver();
-
-    onScroll = () => updateJumpVisibility();
-    messagesContainer?.addEventListener('scroll', onScroll, { passive: true });
+    setupScrollHandler();
 
     // Replace the current unsubscribeRepoEvent assignment with this enhanced handler:
     unsubscribeRepoEvent = matrixViewModel.onRepoEvent(async (ev, _room) => {
@@ -202,22 +218,62 @@
       if (!newMsgs.length) return;
 
       const wasNear = isNearBottom(messagesContainer);
+      let newMessagesAtEnd = 0;
+      
       messages.update((curr) => {
-        const existing = new Set(curr.map((m) => m.id));
-        const toAdd = newMsgs.filter((m) => !existing.has(m.id));
-        return toAdd.length ? [...curr, ...toAdd] : curr;
+        // Create a working copy
+        let result = [...curr];
+        
+        newMsgs.forEach(newMsg => {
+          // Check if message already exists (for updates)
+          const existingIndex = result.findIndex(m => m.id === newMsg.id);
+          
+          if (existingIndex !== -1) {
+            // Update existing message in place
+            result[existingIndex] = newMsg;
+          } else {
+            // Find the correct position to insert based on timestamp
+            let low = 0;
+            let high = result.length - 1;
+            let insertIndex = result.length; // Default to end if newMsg is the newest
+
+            // Use binary search to find the correct position to insert based on timestamp
+            while (low <= high) {
+              const mid = Math.floor((low + high) / 2);
+              if (newMsg.timestamp < result[mid].timestamp) {
+                insertIndex = mid;
+                high = mid - 1;
+              } else {
+                low = mid + 1;
+              }
+            }
+            
+            // Insert at the correct position
+            result.splice(insertIndex, 0, newMsg);
+            
+            // Track if this is a new message at the end (for unread count)
+            if (insertIndex === result.length - 1) {
+              newMessagesAtEnd++;
+            }
+          }
+        });
+        
+        return result;
       });
 
       await tick();
 
-      if (wasNear) {
+      // Only auto-scroll if user was near bottom AND the new message(s) are at the end
+      if (wasNear && newMessagesAtEnd > 0) {
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
         unreadCount = 0;
         showJumpToBottom = false;
-      } else {
-        unreadCount += newMsgs.length;
+      } else if (newMessagesAtEnd > 0) {
+        // Only increment unread count for new messages that appear at the end
+        unreadCount += newMessagesAtEnd;
         showJumpToBottom = true;
       }
+      // If messages were inserted in the middle (older messages), don't change scroll or unread count
     });
 
     // Initial compute
@@ -226,10 +282,11 @@
   });
 
   onDestroy(() => {
-    scrollObserver?.disconnect();
+    if (scrollHandler && messagesContainer) {
+      messagesContainer.removeEventListener('scroll', scrollHandler);
+    }
     unsubscribeRepoEvent?.();
-    messagesContainer?.removeEventListener('scroll', onScroll as any);
-    console.debug('[MatrixDetail][onDestroy] Observer disconnected');
+    console.debug('[MatrixDetail][onDestroy] Scroll handler removed');
   });
 
   let isSending = false;
@@ -275,8 +332,6 @@
 
   <!-- Messages Container -->
   <div class="messages-container" bind:this={messagesContainer}>
-    <div bind:this={topSentinel} class="sentinel"></div>
-
     <!-- Loading indicator for older messages -->
     {#if isLoadingOlderMessages}
       <div class="loading-indicator">
@@ -342,11 +397,6 @@
     background: var(--color-panel);
     scroll-behavior: smooth;
     padding-bottom: 0.5rem; /* Optional: tiny bottom padding so the last message isn't flush with the sticky bar */
-  }
-
-  .sentinel {
-    height: 1px;
-    opacity: 0;
   }
 
   .loading-indicator,
