@@ -7,7 +7,8 @@ import { httpRequest } from '../http/base';
 export function startMiniSync(
   homeserverUrl: string,
   accessToken: string,
-  emit: (ev: any) => void
+  emit: (ev: any) => void,
+  onSync?: (data: any) => void | Promise<void>
 ): () => void {
   let since: string | undefined;
   let stopped = false;
@@ -26,6 +27,11 @@ export function startMiniSync(
         const res = await httpRequest(homeserverUrl, path, { accessToken });
         if (typeof res?.next_batch === 'string') {
           since = res.next_batch;
+        }
+        try {
+          await onSync?.(res);
+        } catch (err) {
+          console.warn('[matrix-lite] onSync error', err);
         }
         const events: any[] | undefined = res?.to_device?.events;
         if (Array.isArray(events)) {

@@ -96,6 +96,7 @@ The old SDK remains in the repo until the end for reference and parity checks.
 
 - Implement device key upload/query/claim.
 - Fulfill crypto engine requests.
+- Explain to user how to test.
 
 **Visible result:** Other clients can see this device in their list.
 

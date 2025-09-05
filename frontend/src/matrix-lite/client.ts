@@ -5,6 +5,10 @@ import { roomMessages, sendRoomMessage } from './api/messages';
 import { getRoomPrevBatchToken } from './api/sync';
 import { saveSession, loadSession, clearSession, type LiteSession } from './runtime/session';
 import { startMiniSync } from './runtime/sync';
+import {
+  initCrypto as initOlmCrypto,
+  handleSync as handleCryptoSync,
+} from './crypto/engine';
 
 /**
  * Public interface for the lightweight Matrix client.
@@ -24,6 +28,7 @@ export interface MatrixLiteClient {
   getRoomMembers(roomId: string): Promise<LiteMember[]>;
   onToDevice(cb: (ev: any) => void): () => void;
   isSyncing(): boolean;
+  initCrypto(): Promise<void>;
 }
 
 /**
@@ -131,6 +136,9 @@ export function createMockClient(): MatrixLiteClient {
     isSyncing(): boolean {
       return false;
     },
+    async initCrypto(): Promise<void> {
+      console.warn('[compat-mock] initCrypto() called');
+    },
   };
 }
 
@@ -159,7 +167,12 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
     if (stopSync) return;
     const session = loadSession();
     if (!session) return;
-    stopSync = startMiniSync(session.homeserverUrl, session.accessToken, emit);
+    stopSync = startMiniSync(
+      session.homeserverUrl,
+      session.accessToken,
+      emit,
+      handleCryptoSync
+    );
   }
 
   function stopSyncLoop(): void {
@@ -321,6 +334,12 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
     },
     isSyncing(): boolean {
       return !!stopSync;
+    },
+    async initCrypto(): Promise<void> {
+      const session = loadSession();
+      if (!session) return;
+      await initOlmCrypto(session.userId, session.deviceId);
+      startSync();
     },
   };
 }
