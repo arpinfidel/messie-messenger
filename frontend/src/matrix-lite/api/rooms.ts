@@ -177,3 +177,24 @@ export async function getRoomMembers(
   }
   return out;
 }
+
+/**
+ * Fetch the m.room.encryption state event for a room.
+ * Returns the algorithm string if the room is encrypted, otherwise null.
+ */
+export async function getRoomEncryption(
+  homeserverUrl: string,
+  accessToken: string,
+  roomId: string
+): Promise<string | null> {
+  try {
+    const path = `/_matrix/client/v3/rooms/${encodeURIComponent(
+      roomId
+    )}/state/m.room.encryption`;
+    const res = await httpRequest(homeserverUrl, path, { accessToken });
+    const algo = typeof res?.algorithm === 'string' ? res.algorithm : null;
+    return algo || null;
+  } catch {
+    return null;
+  }
+}

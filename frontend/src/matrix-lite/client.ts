@@ -5,8 +5,9 @@ import {
   getRoomName,
   getRoomMembers as fetchRoomMembers,
   listJoinedRoomsWithNames,
+  getRoomEncryption,
 } from './api/rooms';
-import { roomMessages, sendRoomMessage } from './api/messages';
+import { roomMessages, sendRoomEvent } from './api/messages';
 import { getRoomPrevBatchToken } from './api/sync';
 import { getBackupVersion, getBackupKeys } from './api/backup';
 import { saveSession, loadSession, clearSession, type LiteSession } from './runtime/session';
@@ -16,6 +17,7 @@ import {
   handleSync as handleCryptoSync,
   importRoomKeys,
   decryptEvent,
+  encryptEvent,
 } from './crypto/engine';
 import { decodeRecoveryKey, deriveBackupKey, decryptBackupEntry } from './crypto/backup';
 import {
@@ -378,20 +380,36 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
     async sendMessage(roomId: string, content: string): Promise<LiteMessage> {
       const session = loadSession();
       if (!session) throw new Error('Not logged in');
-      const eventId = await sendRoomMessage(
+      const algo = await getRoomEncryption(
+        session.homeserverUrl,
+        session.accessToken,
+        roomId
+      );
+      let eventType = 'm.room.message';
+      let body: any = { msgtype: 'm.text', body: content };
+      if (algo) {
+        if (algo !== 'm.megolm.v1.aes-sha2') {
+          throw new Error(`Unsupported encryption algorithm: ${algo}`);
+        }
+        const enc = await encryptEvent(roomId, 'm.room.message', body);
+        if (!enc) throw new Error('Encryption failed');
+        eventType = 'm.room.encrypted';
+        body = enc;
+      }
+      const eventId = await sendRoomEvent(
         session.homeserverUrl,
         session.accessToken,
         roomId,
-        content
+        eventType,
+        body
       );
-      const msg: LiteMessage = {
+      return {
         id: eventId,
         roomId,
         sender: session.userId,
         content,
         timestamp: Date.now(),
       };
-      return msg;
     },
     async getRoomMembers(roomId: string): Promise<LiteMember[]> {
       const session = loadSession();

@@ -7,10 +7,14 @@ import {
   RoomId,
   DecryptionSettings,
   TrustRequirement,
+  EncryptionSettings,
+  EncryptionAlgorithm,
 } from '@matrix-org/matrix-sdk-crypto-wasm';
 import { loadSession } from '../runtime/session';
 import { keysUpload, keysQuery, keysClaim } from '../api/keys';
 import { RequestType } from '@matrix-org/matrix-sdk-crypto-wasm';
+import { sendToDevice } from '../api/to_device';
+import { getRoomMembers } from '../api/rooms';
 
 let machine: OlmMachine | null = null;
 let debugLoggedProto = false;
@@ -205,6 +209,21 @@ async function drainOutgoingRequests(): Promise<void> {
           response = await keysQuery(homeserverUrl, accessToken, body ?? {});
         } else if (typeStr === 'KeysClaim' || typeNum === RequestType?.KeysClaim || typeVal === RequestType?.KeysClaim) {
           response = await keysClaim(homeserverUrl, accessToken, body ?? {});
+        } else if (
+          typeStr === 'ToDevice' ||
+          typeNum === RequestType?.ToDevice ||
+          typeVal === RequestType?.ToDevice
+        ) {
+          const eventType = body?.event_type || body?.eventType;
+          const txnId = body?.txn_id || body?.txnId || Date.now().toString();
+          const messages = body?.messages || {};
+          response = await sendToDevice(
+            homeserverUrl,
+            accessToken,
+            eventType,
+            txnId,
+            messages
+          );
         } else {
           // Not handled in this phase; log for visibility
           console.log('[matrix-lite] unhandled crypto request type:', typeRaw);
@@ -284,6 +303,101 @@ export async function decryptEvent(ev: any, roomId: string): Promise<any | null>
     return result;
   } catch (err) {
     console.warn('[matrix-lite] decryptEvent failed', err);
+    return null;
+  }
+}
+
+/**
+ * Encrypt an event for a given room. Automatically shares the
+ * Megolm session with all joined members if needed.
+ */
+export async function encryptEvent(
+  roomId: string,
+  eventType: string,
+  content: any
+): Promise<any | null> {
+  if (!machine) throw new Error('Crypto engine not initialized');
+  const session = loadSession();
+  if (!session) throw new Error('Not logged in');
+  const { homeserverUrl, accessToken } = session;
+
+  try {
+    // Fetch joined members to determine key share targets
+    const members = await getRoomMembers(homeserverUrl, accessToken, roomId);
+    const users = members.map((m) => new UserId(m.userId));
+
+    const settings = new EncryptionSettings();
+    settings.algorithm = EncryptionAlgorithm.MegolmV1AesSha2;
+
+    // @ts-ignore wasm types
+    const shareMessages: any[] = await (machine as any).shareRoomKey(
+      new RoomId(roomId),
+      users,
+      settings
+    );
+
+    if (Array.isArray(shareMessages)) {
+      for (const req of shareMessages) {
+        try {
+          const getField = (o: any, names: string[]): any => {
+            for (const n of names) {
+              try {
+                const v = o?.[n];
+                if (v === undefined) continue;
+                if (typeof v === 'function') {
+                  return v.call(o);
+                }
+                return v;
+              } catch {}
+            }
+            return undefined;
+          };
+
+          const id = getField(req, ['id', 'requestId', 'request_id']);
+          const evType = getField(req, ['event_type', 'eventType']);
+          const txnId = getField(req, ['txn_id', 'txnId']);
+          const bodyRaw: any = getField(req, ['body', 'json', 'request']);
+          const bodyObj =
+            typeof bodyRaw === 'string' && bodyRaw.length > 0
+              ? JSON.parse(bodyRaw)
+              : bodyRaw || {};
+          const messages = bodyObj?.messages || bodyObj;
+          const resp = await sendToDevice(
+            homeserverUrl,
+            accessToken,
+            evType,
+            txnId,
+            messages
+          );
+          try {
+            // @ts-ignore wasm types
+            await (machine as any).markRequestAsSent(
+              id,
+              RequestType.ToDevice,
+              JSON.stringify(resp ?? {})
+            );
+          } catch (err) {
+            console.warn('[matrix-lite] markRequestAsSent failed', err);
+          }
+        } catch (err) {
+          console.warn('[matrix-lite] sendToDevice failed', err);
+        }
+      }
+    }
+
+    // Process any follow-up requests (e.g., key queries)
+    await drainOutgoingRequests();
+
+    const json = JSON.stringify(content);
+    // @ts-ignore wasm types
+    const enc = await (machine as any).encryptRoomEvent(
+      new RoomId(roomId),
+      eventType,
+      json
+    );
+    return JSON.parse(enc);
+  } catch (err) {
+    console.warn('[matrix-lite] encryptEvent failed', err);
     return null;
   }
 }

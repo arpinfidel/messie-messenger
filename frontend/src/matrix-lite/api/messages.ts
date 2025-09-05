@@ -34,3 +34,26 @@ export async function sendRoomMessage(
   });
   return res.event_id;
 }
+
+/**
+ * Send an arbitrary room event.
+ * Used for encrypted events where the event type is not m.room.message.
+ */
+export async function sendRoomEvent(
+  homeserverUrl: string,
+  accessToken: string,
+  roomId: string,
+  eventType: string,
+  content: any
+): Promise<string> {
+  const txnId = Date.now().toString();
+  const path = `/_matrix/client/v3/rooms/${encodeURIComponent(
+    roomId
+  )}/send/${encodeURIComponent(eventType)}/${txnId}`;
+  const res = await httpRequest(homeserverUrl, path, {
+    method: 'PUT',
+    accessToken,
+    body: content,
+  });
+  return res.event_id;
+}

@@ -224,12 +224,100 @@ export async function restoreBackupWithRecoveryKey(recoveryKey: string): Promise
 
 ---
 
-## Phase 10 — Encrypt + Send
+# Phase 10 — Encrypt + Send
 
-- Implement `encryptEvent` using Olm/Megolm.
-- Update `sendMessage` to auto-encrypt if room is encrypted.
+## Requirements
 
-**Visible result:** Messages sent are encrypted, readable in Element/Hydrogen.
+### Core Functionality
+
+- Implement `encryptEvent(roomId, eventType, content)` using existing crypto engine
+- Update `sendMessage` to auto-encrypt when room requires encryption
+- Ensure encrypted messages are compatible with Element/Hydrogen clients
+- Handle Megolm session creation and key sharing automatically
+
+### Integration Points
+
+- Use existing crypto engine from Phase 6
+- Leverage device key infrastructure from Phase 7
+- Hook into existing room state management from Phase 2
+- Utilize existing HTTP client for to-device message sending
+
+### Error Handling
+
+- Graceful fallback if crypto engine not initialized
+- Clear error messages for unsupported encryption algorithms
+- Retry logic for temporary encryption failures
+
+## Matrix Specifications
+
+### Room Encryption Detection
+
+- **Spec**: [MSC1772](https://spec.matrix.org/v1.9/client-server-api/#mroomencryption) - Room Encryption Event
+- Check `m.room.encryption` state event in room
+- Support `m.megolm.v1.aes-sha2` algorithm only
+- Event format:
+
+  ```json
+  {
+    "type": "m.room.encryption",
+    "content": {
+      "algorithm": "m.megolm.v1.aes-sha2"
+    }
+  }
+  ```
+
+### Encrypted Event Format
+
+- **Spec**: [MSC1416](https://spec.matrix.org/v1.9/client-server-api/#mroomencrypted) - Encrypted Events
+- Event type: `m.room.encrypted`
+- Content schema:
+
+  ```json
+  {
+    "algorithm": "m.megolm.v1.aes-sha2",
+    "ciphertext": "<encrypted-payload>",
+    "sender_key": "<curve25519-key>",
+    "session_id": "<megolm-session-id>",
+    "device_id": "<sender-device-id>"
+  }
+  ```
+
+### Megolm Key Sharing
+
+- **Spec**: [MSC1267](https://spec.matrix.org/v1.9/client-server-api/#sharing-keys-between-devices) - Key Sharing
+- Use `m.room_key` to-device events
+- Share with all verified devices in room
+- Content format:
+
+  ```json
+  {
+    "algorithm": "m.megolm.v1.aes-sha2",
+    "room_id": "!room:example.org",
+    "session_id": "<session-id>",
+    "session_key": "<base64-session-key>"
+  }
+  ```
+
+### To-Device Message Sending
+
+- **Spec**: [MSC2674](https://spec.matrix.org/v1.9/client-server-api/#send-to-device-messaging) - Send-to-Device
+- Endpoint: `PUT /_matrix/client/v3/sendToDevice/{eventType}/{txnId}`
+- Encrypt key sharing messages using Olm sessions
+
+### Device Key Requirements
+
+- Must have queried and verified recipient device keys
+- Use existing device key cache from Phase 7
+- Handle device list updates from sync
+
+## Visible Result
+
+✅ **Messages sent in encrypted rooms are automatically encrypted and readable in Element/Hydrogen**
+
+- Console shows encryption activity
+- Other Matrix clients can decrypt the messages
+- Session keys properly shared with room members
+- Seamless user experience (no manual encryption steps)
 
 ---
 
