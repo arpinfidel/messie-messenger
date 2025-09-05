@@ -6,7 +6,7 @@ import {
   getRoomMembers as fetchRoomMembers,
   listJoinedRoomsWithNames,
 } from './api/rooms';
-import { roomMessages, sendRoomMessage } from './api/messages';
+import { roomMessages, sendRoomMessage, sendRoomEvent } from './api/messages';
 import { getRoomPrevBatchToken } from './api/sync';
 import { getBackupVersion, getBackupKeys } from './api/backup';
 import { saveSession, loadSession, clearSession, type LiteSession } from './runtime/session';
@@ -16,7 +16,14 @@ import {
   handleSync as handleCryptoSync,
   importRoomKeys,
   decryptEvent,
+  encryptEvent,
+  drainOutgoingRequests,
+  rotateMegolm as rotateMegolmEngine,
+  getRoomSettingsSnapshot,
+  getLastShareDebug,
 } from './crypto/engine';
+import { bootstrapCrossSigning as bootstrapCrossSigningEngine } from './crypto/engine';
+import { importSecretsBundleFromJson } from './crypto/engine';
 import { decodeRecoveryKey, deriveBackupKey, decryptBackupEntry } from './crypto/backup';
 import {
   getDefaultSecretStorageKey,
@@ -26,7 +33,10 @@ import {
   fetchSSSSViaSync,
 } from './api/secret_storage';
 import { initAsync as initCryptoWasm, BackupDecryptionKey } from '@matrix-org/matrix-sdk-crypto-wasm';
+import { isRoomEncrypted, getRoomEncryptionState, getRoomHistoryVisibility } from './api/rooms';
 import { decryptSSSSSecretAESHMAC } from './crypto/ssss';
+import { importCrossSigningKeys } from './crypto/engine';
+import { getCrossSigningStatusSnapshot, getDeviceVerificationSnapshot, drainUntilIdle } from './crypto/engine';
 
 /**
  * Public interface for the lightweight Matrix client.
@@ -48,6 +58,13 @@ export interface MatrixLiteClient {
   isSyncing(): boolean;
   initCrypto(): Promise<void>;
   restoreBackupWithRecoveryKey(recoveryKey: string): Promise<number>;
+  rotateMegolm(roomId: string): Promise<void>;
+  getCryptoDebugInfo(roomId: string): Promise<any>;
+  verifyWithRecoveryKey(recoveryKey: string): Promise<{ hasMaster: boolean; hasSelfSigning: boolean; hasUserSigning: boolean } | null>;
+  bootstrapCrossSigning(reset?: boolean): Promise<boolean>;
+  importSecretsBundleJson(json: any): Promise<boolean>;
+  checkCrossSigningStatus(): Promise<{ status: any; device: any } | null>;
+  publishSelfSignature(): Promise<{ ok: boolean; status: any; device: any } | null>;
 }
 
 /**
@@ -378,12 +395,60 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
     async sendMessage(roomId: string, content: string): Promise<LiteMessage> {
       const session = loadSession();
       if (!session) throw new Error('Not logged in');
-      const eventId = await sendRoomMessage(
-        session.homeserverUrl,
-        session.accessToken,
-        roomId,
-        content
-      );
+      let eventId: string;
+      try {
+        const encrypted = await isRoomEncrypted(
+          session.homeserverUrl,
+          session.accessToken,
+          roomId
+        );
+        console.log('[matrix-lite][debug] sendMessage path', { roomId, encrypted });
+        if (encrypted) {
+          const enc = await encryptEvent(roomId, 'm.room.message', {
+            msgtype: 'm.text',
+            body: content,
+          });
+          if (enc && enc.type === 'm.room.encrypted') {
+            eventId = await sendRoomEvent(
+              session.homeserverUrl,
+              session.accessToken,
+              roomId,
+              enc.type,
+              enc.content
+            );
+            // Best-effort: drain any pending crypto requests from sharing
+            try { await drainOutgoingRequests(); } catch {}
+            console.log('[matrix-lite][debug] sent encrypted message', { roomId, eventId });
+          } else {
+            // Fallback to plaintext if encryption failed
+            eventId = await sendRoomMessage(
+              session.homeserverUrl,
+              session.accessToken,
+              roomId,
+              content
+            );
+            console.log('[matrix-lite][debug] encryption failed; sent plaintext', { roomId, eventId });
+          }
+        } else {
+          // Plaintext room
+          eventId = await sendRoomMessage(
+            session.homeserverUrl,
+            session.accessToken,
+            roomId,
+            content
+          );
+          console.log('[matrix-lite][debug] sent plaintext message', { roomId, eventId });
+        }
+      } catch (e) {
+        console.warn('[matrix-lite] sendMessage encryption path failed; sending plaintext', e);
+        eventId = await sendRoomMessage(
+          session.homeserverUrl,
+          session.accessToken,
+          roomId,
+          content
+        );
+        console.log('[matrix-lite][debug] sent plaintext due to error', { roomId, eventId });
+      }
       const msg: LiteMessage = {
         id: eventId,
         roomId,
@@ -587,5 +652,212 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
       console.log(`[backup-restore] Imported ${count} sessions`);
       return count;
     },
+    async rotateMegolm(roomId: string): Promise<void> {
+      await rotateMegolmEngine(roomId);
+    },
+    async getCryptoDebugInfo(roomId: string): Promise<any> {
+      const session = loadSession();
+      if (!session) return null;
+      const [encState, hist, settings, lastShare] = await Promise.all([
+        getRoomEncryptionState(session.homeserverUrl, session.accessToken, roomId).catch(() => null),
+        getRoomHistoryVisibility(session.homeserverUrl, session.accessToken, roomId).catch(() => undefined),
+        getRoomSettingsSnapshot(roomId).catch(() => null),
+        Promise.resolve(getLastShareDebug(roomId)),
+      ]);
+      return {
+        roomId,
+        encryptionState: encState,
+        historyVisibility: hist,
+        roomSettings: settings,
+        lastShare,
+      };
+    },
+    async verifyWithRecoveryKey(recoveryKey: string): Promise<{ imported: boolean; statusBefore: any; statusAfter: any; deviceVerified: boolean } | null> {
+      const session = loadSession();
+      if (!session) return null;
+      const raw = decodeRecoveryKey(recoveryKey);
+      // Determine default SSSS key id from account data (SDK does this)
+      let defaultKeyId: string | undefined;
+      const def = await getDefaultSecretStorageKeyFromAccountData(
+        session.homeserverUrl,
+        session.accessToken,
+        session.userId
+      );
+      defaultKeyId = def?.key;
+      if (!defaultKeyId) {
+        const via = await fetchSSSSViaSync(session.homeserverUrl, session.accessToken);
+        defaultKeyId = via?.defaultKeyId;
+      }
+      const get = async (name: string): Promise<string | null> => {
+        try {
+          // Fetch secret from account data (SDK stores secrets under their name)
+          const secret = await getSecretFromAccountData(
+            session.homeserverUrl,
+            session.accessToken,
+            session.userId,
+            name
+          );
+          const encByKey = (secret?.encrypted as Record<string, any>) || undefined;
+          if (!encByKey || typeof encByKey !== 'object') return null;
+          // Try default key id first, then all others
+          const order: any[] = [];
+          if (defaultKeyId && encByKey[defaultKeyId]) order.push(encByKey[defaultKeyId]);
+          for (const v of Object.values(encByKey)) order.push(v);
+          for (const encEntry of order) {
+            if (!encEntry) continue;
+            const bytes = await decryptSSSSSecretAESHMAC(encEntry, raw, name);
+            if (bytes) {
+              try { return new TextDecoder().decode(bytes).trim(); } catch { return null; }
+            }
+          }
+          return null;
+        } catch { return null; }
+      };
+      const master = await get('m.cross_signing.master');
+      const selfS = await get('m.cross_signing.self_signing');
+      const userS = await get('m.cross_signing.user_signing');
+      if (!master && !selfS && !userS) {
+        console.warn('[matrix-lite] No cross-signing secrets found in SSSS');
+        return null;
+      }
+      const statusBefore = await getCrossSigningStatusSnapshot();
+      const importRes = await importCrossSigningKeys({ master, selfSigning: selfS, userSigning: userS });
+      // Drain outgoing (including SignatureUpload) until idle
+      await drainUntilIdle(6);
+      const statusAfter = await getCrossSigningStatusSnapshot();
+      const device = await getDeviceVerificationSnapshot(session.userId, session.deviceId);
+      return {
+        imported: !!importRes,
+        statusBefore,
+        statusAfter,
+        deviceVerified: !!device?.verified,
+      };
+    },
+    async checkCrossSigningStatus(): Promise<{ status: any; device: any } | null> {
+      const session = loadSession();
+      if (!session) return null;
+      const status = await getCrossSigningStatusSnapshot();
+      const device = await getDeviceVerificationSnapshot(session.userId, session.deviceId);
+      return { status, device };
+    },
+    async publishSelfSignature(): Promise<{ ok: boolean; status: any; device: any } | null> {
+      const session = loadSession();
+      if (!session) return null;
+      const ok = await bootstrapCrossSigningEngine(false);
+      await drainUntilIdle(6);
+      const status = await getCrossSigningStatusSnapshot();
+      const device = await getDeviceVerificationSnapshot(session.userId, session.deviceId);
+      return { ok, status, device };
+    },
+    async bootstrapCrossSigning(reset = false): Promise<boolean> {
+      return bootstrapCrossSigningEngine(reset);
+    },
+    async importSecretsBundleJson(json: any): Promise<boolean> {
+      return importSecretsBundleFromJson(json);
+    },
   };
 }
+
+// Expose concise, non-spammy debug helpers on window for interactive use
+// Usage from DevTools:
+//   await window.__matrixLiteDebug.snapshotSSSS()
+//   await window.__matrixLiteDebug.testDecryptWithRecoveryKey('<recovery key>')
+//   await window.__matrixLiteDebug.getCryptoDebugInfo('<roomId>')
+//   await window.__matrixLiteDebug.rotateMegolm('<roomId>')
+try {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const w: any = (globalThis as any)?.window || (globalThis as any);
+  if (w && !w.__matrixLiteDebug) {
+    // Local, shared helpers
+    const snapshotSSSS = async () => {
+      const session = loadSession();
+      if (!session) return { error: 'not_logged_in' };
+      const { homeserverUrl, accessToken, userId } = session;
+      let defaultKeyId: string | undefined;
+      try {
+        const def = await getDefaultSecretStorageKeyFromAccountData(homeserverUrl, accessToken, userId);
+        defaultKeyId = def?.key;
+      } catch {}
+      if (!defaultKeyId) {
+        try { defaultKeyId = (await fetchSSSSViaSync(homeserverUrl, accessToken))?.defaultKeyId; } catch {}
+      }
+      const names = [
+        'm.cross_signing.master',
+        'm.cross_signing.self_signing',
+        'm.cross_signing.user_signing',
+        'm.megolm_backup.v1',
+      ];
+      const secrets: Record<string, { present: boolean; keyIds: string[] }> = {} as any;
+      for (const n of names) {
+        try {
+          const ev = await getSecretFromAccountData(homeserverUrl, accessToken, userId, n);
+          const enc = (ev?.encrypted as Record<string, any>) || {};
+          secrets[n] = { present: Object.keys(enc).length > 0, keyIds: Object.keys(enc) };
+        } catch {
+          secrets[n] = { present: false, keyIds: [] } as any;
+        }
+      }
+      return { defaultKeyId, secrets };
+    };
+
+    const testDecryptWithRecoveryKey = async (recoveryKey: string) => {
+      const session = loadSession();
+      if (!session) return { error: 'not_logged_in' };
+      const { homeserverUrl, accessToken, userId } = session;
+      let defaultKeyId: string | undefined;
+      try {
+        const def = await getDefaultSecretStorageKeyFromAccountData(homeserverUrl, accessToken, userId);
+        defaultKeyId = def?.key;
+      } catch {}
+      if (!defaultKeyId) {
+        try { defaultKeyId = (await fetchSSSSViaSync(homeserverUrl, accessToken))?.defaultKeyId; } catch {}
+      }
+      let raw: Uint8Array | null = null;
+      try { raw = decodeRecoveryKey(recoveryKey); } catch (e) { return { error: 'bad_recovery_key', message: String(e) }; }
+
+      const names = ['m.cross_signing.master', 'm.cross_signing.self_signing', 'm.cross_signing.user_signing'];
+      const attempts: Record<string, { tried: string[]; ok: boolean }> = {} as any;
+      for (const name of names) {
+        attempts[name] = { tried: [], ok: false } as any;
+        try {
+          const ev = await getSecretFromAccountData(homeserverUrl, accessToken, userId, name);
+          const enc = (ev?.encrypted as Record<string, any>) || {};
+          const keyOrder: any[] = [];
+          if (defaultKeyId && enc[defaultKeyId]) keyOrder.push({ id: defaultKeyId, payload: enc[defaultKeyId] });
+          for (const [id, payload] of Object.entries(enc)) keyOrder.push({ id, payload });
+          for (const entry of keyOrder) {
+            if (!entry?.payload) continue;
+            attempts[name].tried.push(entry.id as string);
+            try {
+              const bytes = await decryptSSSSSecretAESHMAC(entry.payload, raw!, name);
+              if (bytes) { attempts[name].ok = true; break; }
+            } catch {}
+          }
+        } catch {}
+      }
+      return { defaultKeyId, attempts };
+    };
+
+    w.__matrixLiteDebug = {
+      snapshotSSSS,
+      testDecryptWithRecoveryKey,
+      // Wire through methods when a real client exists (after login)
+      getCryptoDebugInfo: async (roomId: string) => {
+        try {
+          const vmMod = await import('../viewmodels/matrix');
+          const vm: any = vmMod.MatrixViewModel.getInstance();
+          const client: any = vm?.client ?? vm;
+          return client?.getCryptoDebugInfo ? client.getCryptoDebugInfo(roomId) : null;
+        } catch { return null; }
+      },
+      rotateMegolm: async (roomId: string) => {
+        try {
+          const vmMod = await import('../viewmodels/matrix');
+          const vm: any = vmMod.MatrixViewModel.getInstance();
+          const client: any = vm?.client ?? vm;
+          return client?.rotateMegolm ? client.rotateMegolm(roomId) : null;
+        } catch { return null; }
+      },
+    };
+  }
+} catch {}

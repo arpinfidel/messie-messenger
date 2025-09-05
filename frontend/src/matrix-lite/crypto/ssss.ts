@@ -16,11 +16,10 @@ async function hkdfSha256(rawKey: Uint8Array, info: Uint8Array, length: number):
   const subtle = globalThis.crypto?.subtle;
   if (!subtle) throw new Error('WebCrypto is not available');
   const ikm = await subtle.importKey('raw', rawKey, 'HKDF', false, ['deriveBits']);
-  const bits = await subtle.deriveBits(
-    { name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(0), info },
-    ikm,
-    length * 8
-  );
+  // SDK uses 8-byte zero salt for SSSS HKDF
+  const zeroSalt = new Uint8Array(8);
+  // @ts-ignore info supported
+  const bits = await subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: zeroSalt, info }, ikm, length * 8);
   return new Uint8Array(bits);
 }
 
@@ -42,26 +41,34 @@ export async function decryptSSSSSecretAESHMAC(
     const ct = base64ToBytes(ctB64);
     const mac = base64ToBytes(macB64);
 
-    try {
-      // Per sdk: HKDF info = secret name (e.g., 'm.megolm_backup.v1'); HMAC over ciphertext only
-      const derived = await hkdfSha256(ssssKey, new TextEncoder().encode(name), 64);
-      const aesKeyBytes = derived.slice(0, 32);
-      const hmacKeyBytes = derived.slice(32);
-      const hmacKey = await subtle.importKey(
-        'raw',
-        hmacKeyBytes,
-        { name: 'HMAC', hash: 'SHA-256' },
-        false,
-        ['verify']
-      );
-      const verified = await subtle.verify('HMAC', hmacKey, mac, ct);
-      if (!verified) return null;
-      const aesKey = await subtle.importKey('raw', aesKeyBytes, { name: 'AES-CTR' }, false, ['decrypt']);
-      const decBuf = await subtle.decrypt({ name: 'AES-CTR', counter: iv, length: 64 }, aesKey, ct);
-      return new Uint8Array(decBuf);
-    } catch (e) {
-      return null;
+    // SDK derives with info = secret name; keep that first, but try a couple fallbacks for robustness
+    const infos = [name, 'm.secret_storage.v1.aes-hmac-sha2', ''];
+    for (const info of infos) {
+      try {
+        const derived = await hkdfSha256(ssssKey, new TextEncoder().encode(info), 64);
+        const aesKeyBytes = derived.slice(0, 32);
+        const hmacKeyBytes = derived.slice(32);
+        const hmacKey = await subtle.importKey(
+          'raw',
+          hmacKeyBytes,
+          { name: 'HMAC', hash: 'SHA-256' },
+          false,
+          ['verify']
+        );
+        // SDK verifies MAC over ciphertext only
+        let verified = await subtle.verify('HMAC', hmacKey, mac, ct);
+        if (!verified) {
+          // Older implementations may have used IV||ciphertext
+          const ivPlusCt = bytesConcat(iv, ct);
+          verified = await subtle.verify('HMAC', hmacKey, mac, ivPlusCt);
+        }
+        if (!verified) continue;
+        const aesKey = await subtle.importKey('raw', aesKeyBytes, { name: 'AES-CTR' }, false, ['decrypt']);
+        const decBuf = await subtle.decrypt({ name: 'AES-CTR', counter: iv, length: 64 }, aesKey, ct);
+        return new Uint8Array(decBuf);
+      } catch {}
     }
+    return null;
     return null;
   } catch (e) {
     console.warn('[ssss] decrypt failed', e);

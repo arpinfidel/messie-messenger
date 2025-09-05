@@ -177,3 +177,50 @@ export async function getRoomMembers(
   }
   return out;
 }
+
+/** Determine if a room is encrypted by checking for m.room.encryption state. */
+export async function isRoomEncrypted(
+  homeserverUrl: string,
+  accessToken: string,
+  roomId: string
+): Promise<boolean> {
+  const path = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.encryption`;
+  try {
+    const res = await httpRequest(homeserverUrl, path, { accessToken });
+    return !!res && typeof res === 'object';
+  } catch (e) {
+    // 404 is expected for non-encrypted rooms
+    return false;
+  }
+}
+
+/** Fetch the raw m.room.encryption state content for a room (or null). */
+export async function getRoomEncryptionState(
+  homeserverUrl: string,
+  accessToken: string,
+  roomId: string
+): Promise<Record<string, any> | null> {
+  const path = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.encryption`;
+  try {
+    const res = await httpRequest(homeserverUrl, path, { accessToken });
+    return (res && typeof res === 'object') ? (res as Record<string, any>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch the m.room.history_visibility value for a room (or undefined). */
+export async function getRoomHistoryVisibility(
+  homeserverUrl: string,
+  accessToken: string,
+  roomId: string
+): Promise<string | undefined> {
+  const path = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/state/m.room.history_visibility`;
+  try {
+    const res = await httpRequest(homeserverUrl, path, { accessToken });
+    const v = (res && typeof res === 'object') ? (res as any).history_visibility : undefined;
+    return typeof v === 'string' ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}

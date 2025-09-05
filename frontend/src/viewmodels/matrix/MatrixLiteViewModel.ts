@@ -202,6 +202,33 @@ export class MatrixLiteViewModel implements IModuleViewModel {
     }
   }
 
+  async rotateMegolm(roomId: string): Promise<void> {
+    try {
+      // @ts-ignore new API on lite client
+      if (typeof this.client.rotateMegolm === 'function') {
+        // @ts-ignore
+        await this.client.rotateMegolm(roomId);
+        console.log('[matrix-lite] rotated Megolm session for', roomId);
+      } else {
+        console.warn('[matrix-lite] rotateMegolm not available on client');
+      }
+    } catch (e) {
+      console.warn('[matrix-lite] rotateMegolm failed', e);
+    }
+  }
+
+  // Surface crypto debug info for the UI debug panel
+  async getCryptoDebugInfo(roomId: string): Promise<any> {
+    try {
+      // @ts-ignore present on lite client
+      if (typeof (this.client as any).getCryptoDebugInfo === 'function') {
+        // @ts-ignore
+        return await (this.client as any).getCryptoDebugInfo(roomId);
+      }
+    } catch {}
+    return null;
+  }
+
   async getOpenIdToken(): Promise<any> {
     console.warn('[compat-mock] getOpenIdToken() called');
     return {
