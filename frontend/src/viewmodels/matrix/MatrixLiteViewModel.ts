@@ -140,6 +140,7 @@ export class MatrixLiteViewModel implements IModuleViewModel {
         isSelf: m.sender === this.currentUser,
       } as MatrixMessage;
     });
+    msgs.sort((a, b) => a.timestamp - b.timestamp);
     return { messages: msgs, nextBatch: nextToken ?? null };
   }
 

@@ -372,6 +372,7 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
           }
         }
       }
+      newMsgs.sort((a, b) => a.timestamp - b.timestamp);
       return { messages: newMsgs, nextToken: res.end ?? null };
     },
     async sendMessage(roomId: string, content: string): Promise<LiteMessage> {
