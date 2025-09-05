@@ -213,7 +213,12 @@ export class MatrixLiteViewModel implements IModuleViewModel {
   }
 
   async verifyCurrentDevice(): Promise<void> {
-    console.warn('[compat-mock] verifyCurrentDevice() called');
+    try {
+      await this.client.verifyCurrentDevice();
+    } catch (err) {
+      console.warn('[matrix-lite] verifyCurrentDevice failed', err);
+      throw err;
+    }
   }
 
   async restoreFromRecoveryKey(): Promise<void> {

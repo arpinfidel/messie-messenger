@@ -39,6 +39,32 @@ export class MatrixCryptoManager {
       return;
     }
 
+    // Try to ensure secret storage is usable (no-op if already set up)
+    try {
+      // bootstrapSecretStorage will only set up if needed; otherwise it is a no-op.
+      // We do not pass createSecretStorageKey because we expect the account to
+      // already have SSSS configured and the app provides getSecretStorageKey via
+      // cryptoCallbacks using the recovery key from settings.
+      await crypto.bootstrapSecretStorage?.({});
+      console.log('Secret storage available (bootstrapped or already present).');
+    } catch (e) {
+      console.warn('bootstrapSecretStorage failed or unavailable:', e);
+    }
+
+    // Attempt to bootstrap cross-signing using keys from SSSS (recovery key).
+    // This should verify the current device (signedByOwner=true) if SSSS is unlocked.
+    try {
+      await crypto.bootstrapCrossSigning({
+        authUploadDeviceSigningKeys: async (makeRequest) => {
+          // Rely on UIA-less path; servers may not require auth for this request.
+          await makeRequest({});
+        },
+      });
+      console.log('Cross-signing bootstrapped or already present.');
+    } catch (e) {
+      console.warn('bootstrapCrossSigning failed (likely UIA or missing SSSS):', e);
+    }
+
     const { hasSSSS } = await this.hasSecretStorageAndBackup();
     try {
       if (hasSSSS || matrixSettings.recoveryKey?.trim()) {
@@ -58,7 +84,7 @@ export class MatrixCryptoManager {
     try {
       const status = await crypto.getDeviceVerificationStatus(userId, deviceId);
       if (!status?.signedByOwner) {
-        console.warn('Device is unverified — prompting/initiating verification is recommended.');
+        console.warn('Device is unverified — cross-signing via SSSS may be needed.');
       }
     } catch (e) {
       console.warn('Failed to get device verification status:', e);

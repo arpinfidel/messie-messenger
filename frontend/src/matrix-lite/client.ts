@@ -50,6 +50,7 @@ export interface MatrixLiteClient {
   isSyncing(): boolean;
   initCrypto(): Promise<void>;
   restoreBackupWithRecoveryKey(recoveryKey: string): Promise<number>;
+  verifyCurrentDevice(): Promise<void>;
 }
 
 /**
@@ -165,6 +166,9 @@ export function createMockClient(suppressLog = false): MatrixLiteClient {
     async restoreBackupWithRecoveryKey(_recoveryKey: string): Promise<number> {
       console.warn('[compat-mock] restoreBackupWithRecoveryKey() called');
       return 0;
+    },
+    async verifyCurrentDevice(): Promise<void> {
+      console.warn('[compat-mock] verifyCurrentDevice() called');
     },
   };
 }
@@ -604,6 +608,17 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
       }
       console.log(`[backup-restore] Imported ${count} sessions`);
       return count;
+    },
+    async verifyCurrentDevice(): Promise<void> {
+      const session = loadSession();
+      if (!session) throw new Error('Not logged in');
+      const { verifyOwnDeviceWithRecoveryKey } = await import('./crypto/crosssign');
+      await verifyOwnDeviceWithRecoveryKey(
+        session.homeserverUrl,
+        session.accessToken,
+        session.userId,
+        session.deviceId
+      );
     },
   };
 }
