@@ -92,10 +92,19 @@ export class MatrixLiteViewModel implements IModuleViewModel {
     this.client = createMockClient();
   }
 
-  async getRoomMessages(roomId: string, _beforeTS: number | null, _limit = 20): Promise<{ messages: MatrixMessage[]; nextBatch: number | null }> {
-    const msgs = await this.client.getRoomMessages(roomId);
+  async getRoomMessages(
+    roomId: string,
+    beforeToken: any,
+    limit = 20
+  ): Promise<{ messages: MatrixMessage[]; nextBatch: string | null }> {
+    const token = typeof beforeToken === 'string' ? beforeToken : undefined;
+    const { messages: page, nextToken } = await this.client.getRoomMessages(
+      roomId,
+      token,
+      limit
+    );
     return {
-      messages: msgs.map((m) => ({
+      messages: page.map((m) => ({
         id: m.id,
         sender: m.sender,
         senderDisplayName: m.sender,
@@ -103,7 +112,7 @@ export class MatrixLiteViewModel implements IModuleViewModel {
         timestamp: m.timestamp,
         isSelf: m.sender === this.currentUser,
       })),
-      nextBatch: null,
+      nextBatch: nextToken ?? null,
     };
   }
 

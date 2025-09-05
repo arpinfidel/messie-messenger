@@ -1,6 +1,8 @@
 import type { LiteRoom, LiteMessage, LiteMember } from './types';
 import { login as httpLogin, logout as httpLogout } from './api/auth';
 import { joinedRooms, getRoomName } from './api/rooms';
+import { roomMessages, sendRoomMessage } from './api/messages';
+import { getRoomPrevBatchToken } from './api/sync';
 import { saveSession, loadSession, clearSession, type LiteSession } from './runtime/session';
 
 /**
@@ -12,7 +14,11 @@ export interface MatrixLiteClient {
   login(username: string, password: string): Promise<void>;
   logout(): Promise<void>;
   listRooms(): Promise<LiteRoom[]>;
-  getRoomMessages(roomId: string, limit?: number): Promise<LiteMessage[]>;
+  getRoomMessages(
+    roomId: string,
+    fromToken?: string,
+    limit?: number
+  ): Promise<{ messages: LiteMessage[]; nextToken: string | null }>;
   sendMessage(roomId: string, content: string): Promise<LiteMessage>;
   getRoomMembers(roomId: string): Promise<LiteMember[]>;
 }
@@ -83,9 +89,15 @@ export function createMockClient(): MatrixLiteClient {
       console.warn('[compat-mock] listRooms() called');
       return rooms.map((r) => r.room);
     },
-    async getRoomMessages(roomId: string): Promise<LiteMessage[]> {
+    async getRoomMessages(
+      roomId: string,
+      _fromToken?: string,
+      _limit = 20
+    ): Promise<{ messages: LiteMessage[]; nextToken: string | null }> {
       console.warn('[compat-mock] getRoomMessages() called');
-      return rooms.find((r) => r.room.id === roomId)?.messages ?? [];
+      // For mock, return everything without pagination and indicate no more.
+      const all = rooms.find((r) => r.room.id === roomId)?.messages ?? [];
+      return { messages: all, nextToken: null };
     },
     async sendMessage(roomId: string, content: string): Promise<LiteMessage> {
       console.warn('[compat-mock] sendMessage() called');
@@ -110,8 +122,8 @@ export function createMockClient(): MatrixLiteClient {
 
 /**
  * Create a MatrixLiteClient that performs real login/logout calls
- * and fetches real joined rooms, while reusing mock implementations
- * for messages and members.
+ * and fetches real joined rooms and messages, while reusing mock
+ * implementations for member lookups.
  */
 export function createClient(homeserverUrl: string): MatrixLiteClient {
   const mock = createMockClient();
@@ -159,6 +171,85 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
       };
       await Promise.all(new Array(maxWorkers).fill(0).map(() => worker()));
       return out.filter(Boolean);
+    },
+    async getRoomMessages(
+      roomId: string,
+      fromToken?: string,
+      limit = 20
+    ): Promise<{ messages: LiteMessage[]; nextToken: string | null }> {
+      const session = loadSession();
+      if (!session) return { messages: [], nextToken: null };
+      // If no token provided, try to obtain a real prev_batch via /sync to support servers
+      // that don't implement from=END properly (commonly seen with some bridged rooms).
+      let startToken = fromToken;
+      if (!startToken) {
+        try {
+          startToken = await getRoomPrevBatchToken(
+            session.homeserverUrl,
+            session.accessToken,
+            roomId
+          );
+        } catch {}
+      }
+      const res = await roomMessages(
+        session.homeserverUrl,
+        session.accessToken,
+        roomId,
+        startToken || fromToken || 'END',
+        limit
+      );
+      const newMsgs: LiteMessage[] = Array.isArray(res.chunk)
+        ? res.chunk
+            .filter((ev: any) =>
+              ev?.type === 'm.room.message' || ev?.type === 'm.room.encrypted'
+            )
+            .map((ev: any) => {
+              if (ev.type === 'm.room.message') {
+                const body = ev.content?.body;
+                // Fallback to msgtype description if body is missing but msgtype present
+                const desc =
+                  typeof body === 'string'
+                    ? body
+                    : typeof ev.content?.msgtype === 'string'
+                    ? `[${ev.content.msgtype}]`
+                    : '';
+                return {
+                  id: ev.event_id as string,
+                  roomId,
+                  sender: ev.sender as string,
+                  content: desc,
+                  timestamp: ev.origin_server_ts as number,
+                } as LiteMessage;
+              }
+              // Encrypted event: show placeholder so it appears in timeline
+              return {
+                id: ev.event_id as string,
+                roomId,
+                sender: ev.sender as string,
+                content: 'Encrypted message',
+                timestamp: ev.origin_server_ts as number,
+              } as LiteMessage;
+            })
+        : [];
+      return { messages: newMsgs, nextToken: res.end ?? null };
+    },
+    async sendMessage(roomId: string, content: string): Promise<LiteMessage> {
+      const session = loadSession();
+      if (!session) throw new Error('Not logged in');
+      const eventId = await sendRoomMessage(
+        session.homeserverUrl,
+        session.accessToken,
+        roomId,
+        content
+      );
+      const msg: LiteMessage = {
+        id: eventId,
+        roomId,
+        sender: session.userId,
+        content,
+        timestamp: Date.now(),
+      };
+      return msg;
     },
   };
 }
