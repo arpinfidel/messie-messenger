@@ -1,4 +1,6 @@
 import type { LiteRoom, LiteMessage, LiteMember } from './types';
+import { login as httpLogin, logout as httpLogout } from './api/auth';
+import { saveSession, loadSession, clearSession, type LiteSession } from './runtime/session';
 
 /**
  * Public interface for the lightweight Matrix client.
@@ -101,6 +103,31 @@ export function createMockClient(): MatrixLiteClient {
     async getRoomMembers(roomId: string): Promise<LiteMember[]> {
       console.warn('[compat-mock] getRoomMembers() called');
       return rooms.find((r) => r.room.id === roomId)?.members ?? [];
+    },
+  };
+}
+
+/**
+ * Create a MatrixLiteClient that performs real login/logout calls
+ * while reusing the mock implementations for rooms/messages.
+ */
+export function createClient(homeserverUrl: string): MatrixLiteClient {
+  const mock = createMockClient();
+  return {
+    ...mock,
+    async login(username: string, password: string): Promise<void> {
+      const session = await httpLogin(homeserverUrl, username, password);
+      saveSession(session);
+    },
+    async logout(): Promise<void> {
+      const session: LiteSession | null = loadSession();
+      if (session) {
+        try {
+          await httpLogout(session.homeserverUrl, session.accessToken);
+        } finally {
+          clearSession();
+        }
+      }
     },
   };
 }

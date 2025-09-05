@@ -1,7 +1,8 @@
 import { writable, type Writable } from 'svelte/store';
 import type { IModuleViewModel } from '../shared/IModuleViewModel';
-import { createMockClient, type MatrixLiteClient } from '@/matrix-lite/client';
+import { createClient, createMockClient, type MatrixLiteClient } from '@/matrix-lite/client';
 import type { LiteMessage, LiteRoom, LiteMember } from '@/matrix-lite/types';
+import { loadSession, type LiteSession, clearSession } from '@/matrix-lite/runtime/session';
 import { MatrixTimelineItem, type IMatrixTimelineItem } from './MatrixTimelineItem';
 import type { MatrixMessage } from './MatrixTimelineService';
 
@@ -13,10 +14,13 @@ import type { MatrixMessage } from './MatrixTimelineService';
 export class MatrixLiteViewModel implements IModuleViewModel {
   private static instance: MatrixLiteViewModel;
 
-  private client: MatrixLiteClient = createMockClient();
+  private session: LiteSession | null = loadSession();
+  private client: MatrixLiteClient = this.session
+    ? createClient(this.session.homeserverUrl)
+    : createMockClient();
   private timeline: Writable<IMatrixTimelineItem[]> = writable([]);
   private rooms: LiteRoom[] = [];
-  private currentUser = '@alice:example.org';
+  private currentUser = this.session?.userId || '@alice:example.org';
   private repoListeners = new Set<(ev: any, room: any) => void>();
 
   private constructor() {}
@@ -29,7 +33,9 @@ export class MatrixLiteViewModel implements IModuleViewModel {
   }
 
   async initialize(): Promise<void> {
-    console.warn('[compat-mock] MatrixLiteViewModel.initialize()');
+    if (!this.session) {
+      console.warn('[compat-mock] MatrixLiteViewModel.initialize()');
+    }
     this.rooms = await this.client.listRooms();
     if (this.rooms.length > 0) {
       const msgs = await this.client.getRoomMessages(this.rooms[0].id);
@@ -60,7 +66,7 @@ export class MatrixLiteViewModel implements IModuleViewModel {
   }
 
   isLoggedIn(): boolean {
-    return true;
+    return !!this.session;
   }
 
   getCurrentUserId(): string {
@@ -69,6 +75,24 @@ export class MatrixLiteViewModel implements IModuleViewModel {
 
   getCurrentUserDisplayName(): string {
     return 'Alice';
+  }
+
+  async login(homeserverUrl: string, username: string, password: string): Promise<void> {
+    this.client = createClient(homeserverUrl);
+    await this.client.login(username, password);
+    this.session = loadSession();
+    this.currentUser = this.session?.userId || username;
+    await this.initialize();
+  }
+
+  async logout(): Promise<void> {
+    await this.client.logout();
+    clearSession();
+    this.session = null;
+    this.currentUser = '@alice:example.org';
+    this.timeline.set([]);
+    this.rooms = [];
+    this.client = createMockClient();
   }
 
   async getRoomMessages(roomId: string, _beforeTS: number | null, _limit = 20): Promise<{ messages: MatrixMessage[]; nextBatch: number | null }> {
