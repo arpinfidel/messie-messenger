@@ -10,6 +10,7 @@ import {
   initCrypto as initOlmCrypto,
   handleSync as handleCryptoSync,
   importRoomKeys,
+  decryptEvent,
 } from './crypto/engine';
 import { decodeRecoveryKey, deriveBackupKey, decryptBackupEntry } from './crypto/backup';
 import {
@@ -280,39 +281,53 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
         startToken || fromToken || 'END',
         limit
       );
-      const newMsgs: LiteMessage[] = Array.isArray(res.chunk)
-        ? res.chunk
-            .filter((ev: any) =>
-              ev?.type === 'm.room.message' || ev?.type === 'm.room.encrypted'
-            )
-            .map((ev: any) => {
-              if (ev.type === 'm.room.message') {
-                const body = ev.content?.body;
-                // Fallback to msgtype description if body is missing but msgtype present
-                const desc =
-                  typeof body === 'string'
-                    ? body
-                    : typeof ev.content?.msgtype === 'string'
-                    ? `[${ev.content.msgtype}]`
-                    : '';
-                return {
-                  id: ev.event_id as string,
-                  roomId,
-                  sender: ev.sender as string,
-                  content: desc,
-                  timestamp: ev.origin_server_ts as number,
-                } as LiteMessage;
-              }
-              // Encrypted event: show placeholder so it appears in timeline
-              return {
+      const newMsgs: LiteMessage[] = [];
+      if (Array.isArray(res.chunk)) {
+        for (const ev of res.chunk) {
+          if (ev?.type === 'm.room.message') {
+            const body = ev.content?.body;
+            const desc =
+              typeof body === 'string'
+                ? body
+                : typeof ev.content?.msgtype === 'string'
+                ? `[${ev.content.msgtype}]`
+                : '';
+            newMsgs.push({
+              id: ev.event_id as string,
+              roomId,
+              sender: ev.sender as string,
+              content: desc,
+              timestamp: ev.origin_server_ts as number,
+            });
+          } else if (ev?.type === 'm.room.encrypted') {
+            const dec = await decryptEvent(ev, roomId);
+            if (dec?.type === 'm.room.message') {
+              const body = dec.content?.body;
+              const desc =
+                typeof body === 'string'
+                  ? body
+                  : typeof dec.content?.msgtype === 'string'
+                  ? `[${dec.content.msgtype}]`
+                  : '';
+              newMsgs.push({
+                id: ev.event_id as string,
+                roomId,
+                sender: ev.sender as string,
+                content: desc,
+                timestamp: ev.origin_server_ts as number,
+              });
+            } else {
+              newMsgs.push({
                 id: ev.event_id as string,
                 roomId,
                 sender: ev.sender as string,
                 content: 'Encrypted message',
                 timestamp: ev.origin_server_ts as number,
-              } as LiteMessage;
-            })
-        : [];
+              });
+            }
+          }
+        }
+      }
       return { messages: newMsgs, nextToken: res.end ?? null };
     },
     async sendMessage(roomId: string, content: string): Promise<LiteMessage> {

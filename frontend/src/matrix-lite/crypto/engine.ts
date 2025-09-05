@@ -4,6 +4,9 @@ import {
   UserId,
   DeviceId,
   DeviceLists,
+  RoomId,
+  DecryptionSettings,
+  TrustRequirement,
 } from '@matrix-org/matrix-sdk-crypto-wasm';
 import { loadSession } from '../runtime/session';
 import { keysUpload, keysQuery, keysClaim } from '../api/keys';
@@ -30,8 +33,8 @@ export function getOlmMachine(): OlmMachine | null {
   return machine;
 }
 
-export async function handleSync(data: any): Promise<void> {
-  if (!machine || !data) return;
+export async function handleSync(data: any): Promise<any[]> {
+  if (!machine || !data) return [];
   try {
     const toDevice = JSON.stringify(data.to_device?.events || []);
     const changed = (data.device_lists?.changed || []).map((u: string) => new UserId(u));
@@ -47,11 +50,28 @@ export async function handleSync(data: any): Promise<void> {
     const unused = Array.isArray(data.device_unused_fallback_key_types)
       ? new Set<string>(data.device_unused_fallback_key_types)
       : undefined;
-    await machine.receiveSyncChanges(toDevice, deviceLists, otk, unused);
+    // @ts-ignore wasm types
+    const processed: any[] = await (machine as any).receiveSyncChanges(
+      toDevice,
+      deviceLists,
+      otk,
+      unused
+    );
     // Receiving sync may create outgoing requests (query/claim keys); drain them
     await drainOutgoingRequests();
+    const out: any[] = [];
+    for (const p of processed || []) {
+      try {
+        const raw: string | undefined = (p as any)?.event || (p as any)?.rawEvent;
+        if (typeof raw === 'string') {
+          out.push(JSON.parse(raw));
+        }
+      } catch {}
+    }
+    return out;
   } catch (err) {
     console.warn('[matrix-lite] crypto sync error', err);
+    return [];
   }
 }
 
@@ -240,5 +260,30 @@ export async function importRoomKeys(keys: any[]): Promise<void> {
     }
   } catch (err) {
     console.warn('[matrix-lite] importRoomKeys failed', err);
+  }
+}
+
+export async function decryptEvent(ev: any, roomId: string): Promise<any | null> {
+  if (!machine) return null;
+  try {
+    const json = JSON.stringify(ev);
+    const ds = new DecryptionSettings(TrustRequirement.Untrusted);
+    // @ts-ignore wasm types
+    const dec: any = await (machine as any).decryptRoomEvent(
+      json,
+      new RoomId(roomId),
+      ds
+    );
+    const result = JSON.parse(dec.event);
+    try {
+      dec.free?.();
+    } catch {}
+    try {
+      ds.free?.();
+    } catch {}
+    return result;
+  } catch (err) {
+    console.warn('[matrix-lite] decryptEvent failed', err);
+    return null;
   }
 }

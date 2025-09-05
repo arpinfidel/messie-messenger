@@ -28,12 +28,13 @@ export function startMiniSync(
         if (typeof res?.next_batch === 'string') {
           since = res.next_batch;
         }
+        let events: any[] | undefined;
         try {
-          await onSync?.(res);
+          events = (await onSync?.(res)) || res?.to_device?.events;
         } catch (err) {
           console.warn('[matrix-lite] onSync error', err);
+          events = res?.to_device?.events;
         }
-        const events: any[] | undefined = res?.to_device?.events;
         if (Array.isArray(events)) {
           for (const ev of events) {
             emit(ev);
