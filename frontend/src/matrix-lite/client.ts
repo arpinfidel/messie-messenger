@@ -1,6 +1,11 @@
 import type { LiteRoom, LiteMessage, LiteMember } from './types';
 import { login as httpLogin, logout as httpLogout } from './api/auth';
-import { joinedRooms, getRoomName, getRoomMembers as fetchRoomMembers } from './api/rooms';
+import {
+  joinedRooms,
+  getRoomName,
+  getRoomMembers as fetchRoomMembers,
+  listJoinedRoomsWithNames,
+} from './api/rooms';
 import { roomMessages, sendRoomMessage } from './api/messages';
 import { getRoomPrevBatchToken } from './api/sync';
 import { getBackupVersion, getBackupKeys } from './api/backup';
@@ -229,31 +234,70 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
     async listRooms(): Promise<LiteRoom[]> {
       const session = loadSession();
       if (!session) return [];
-      // Fetch joined room IDs first
-      const ids = await joinedRooms(session.homeserverUrl, session.accessToken);
+      // Prefer a single /sync pass to gather names and avoid per-room 404s
+      try {
+        const rooms = await listJoinedRoomsWithNames(
+          session.homeserverUrl,
+          session.accessToken,
+          session.userId
+        );
+        // Refine DM names to use bridged display names via room members
+        const toRefine = rooms.filter((r) => {
+          // If name equals room id, or looks like an mxid or a heroes-joined string, refine
+          if (!r.name || r.name === r.id) return true;
+          const looksLikeMxid = r.name.startsWith('@') && r.name.includes(':');
+          const looksLikeAlias = r.name.startsWith('#') && r.name.includes(':');
+          const inferredDM = (r.joinedCount === 2) || (r.heroes && r.heroes.length === 1);
+          return inferredDM && (looksLikeMxid || looksLikeAlias);
+        });
 
-      // Resolve room names with limited concurrency (10 workers)
-      const maxWorkers = Math.min(10, ids.length || 0);
-      if (maxWorkers === 0) return [];
-
-      const out: LiteRoom[] = new Array(ids.length);
-      let i = 0;
-      const worker = async () => {
-        while (true) {
-          const idx = i++;
-          if (idx >= ids.length) break;
-          const id = ids[idx];
-          try {
-            const name =
-              (await getRoomName(session.homeserverUrl, session.accessToken, id)) || id;
-            out[idx] = { id, name };
-          } catch {
-            out[idx] = { id, name: id };
-          }
+        const maxWorkers = Math.min(8, toRefine.length || 0);
+        if (maxWorkers > 0) {
+          let i = 0;
+          const worker = async () => {
+            while (true) {
+              const idx = i++;
+              if (idx >= toRefine.length) break;
+              const rec = toRefine[idx];
+              try {
+                const members = await fetchRoomMembers(
+                  session.homeserverUrl,
+                  session.accessToken,
+                  rec.id
+                );
+                const other = members.find((m) => m.userId !== session.userId);
+                if (other && other.displayName) {
+                  // Update in place
+                  const target = rooms.find((x) => x.id === rec.id);
+                  if (target) target.name = other.displayName;
+                }
+              } catch {}
+            }
+          };
+          await Promise.all(new Array(maxWorkers).fill(0).map(() => worker()));
         }
-      };
-      await Promise.all(new Array(maxWorkers).fill(0).map(() => worker()));
-      return out.filter(Boolean);
+
+        // Map to LiteRoom
+        return rooms.map((r) => ({ id: r.id, name: r.name }));
+      } catch (e) {
+        console.warn('[matrix-lite] listRooms via /sync failed; falling back', e);
+        // Fallback: joined room IDs then best-effort name lookups
+        const ids = await joinedRooms(session.homeserverUrl, session.accessToken);
+        const out: LiteRoom[] = [];
+        for (const id of ids) {
+          let name: string | undefined;
+          try {
+            name = await getRoomName(
+              session.homeserverUrl,
+              session.accessToken,
+              id,
+              session.userId
+            );
+          } catch {}
+          out.push({ id, name: name || id });
+        }
+        return out;
+      }
     },
     async getRoomMessages(
       roomId: string,
