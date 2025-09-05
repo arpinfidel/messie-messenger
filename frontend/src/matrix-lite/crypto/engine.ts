@@ -326,6 +326,35 @@ export async function encryptEvent(
     const members = await getRoomMembers(homeserverUrl, accessToken, roomId);
     const users = members.map((m) => new UserId(m.userId));
 
+    // Ensure we have Olm sessions with all target devices
+    // `getMissingSessions` consumes the passed UserIds, so pass in clones
+    // @ts-ignore wasm types
+    const claimReq: any = await (machine as any).getMissingSessions(
+      users.map((u) => u.clone())
+    );
+    if (claimReq) {
+      try {
+        const bodyRaw: any = (claimReq as any).body;
+        const body =
+          typeof bodyRaw === 'string' && bodyRaw.length > 0
+            ? JSON.parse(bodyRaw)
+            : bodyRaw || {};
+        const resp = await keysClaim(homeserverUrl, accessToken, body);
+        const id = (claimReq as any).id;
+        // @ts-ignore wasm types
+        await (machine as any).markRequestAsSent(
+          id,
+          RequestType.KeysClaim,
+          JSON.stringify(resp ?? {})
+        );
+      } catch (err) {
+        console.warn('[matrix-lite] keysClaim failed', err);
+      }
+    }
+
+    // Process any follow-up requests from session establishment
+    await drainOutgoingRequests();
+
     const settings = new EncryptionSettings();
     settings.algorithm = EncryptionAlgorithm.MegolmV1AesSha2;
 
