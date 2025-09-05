@@ -1,5 +1,6 @@
 import type { LiteRoom, LiteMessage, LiteMember } from './types';
 import { login as httpLogin, logout as httpLogout } from './api/auth';
+import { joinedRooms, getRoomName } from './api/rooms';
 import { saveSession, loadSession, clearSession, type LiteSession } from './runtime/session';
 
 /**
@@ -109,7 +110,8 @@ export function createMockClient(): MatrixLiteClient {
 
 /**
  * Create a MatrixLiteClient that performs real login/logout calls
- * while reusing the mock implementations for rooms/messages.
+ * and fetches real joined rooms, while reusing mock implementations
+ * for messages and members.
  */
 export function createClient(homeserverUrl: string): MatrixLiteClient {
   const mock = createMockClient();
@@ -128,6 +130,35 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
           clearSession();
         }
       }
+    },
+    async listRooms(): Promise<LiteRoom[]> {
+      const session = loadSession();
+      if (!session) return [];
+      // Fetch joined room IDs first
+      const ids = await joinedRooms(session.homeserverUrl, session.accessToken);
+
+      // Resolve room names with limited concurrency (10 workers)
+      const maxWorkers = Math.min(10, ids.length || 0);
+      if (maxWorkers === 0) return [];
+
+      const out: LiteRoom[] = new Array(ids.length);
+      let i = 0;
+      const worker = async () => {
+        while (true) {
+          const idx = i++;
+          if (idx >= ids.length) break;
+          const id = ids[idx];
+          try {
+            const name =
+              (await getRoomName(session.homeserverUrl, session.accessToken, id)) || id;
+            out[idx] = { id, name };
+          } catch {
+            out[idx] = { id, name: id };
+          }
+        }
+      };
+      await Promise.all(new Array(maxWorkers).fill(0).map(() => worker()));
+      return out.filter(Boolean);
     },
   };
 }

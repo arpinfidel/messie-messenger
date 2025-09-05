@@ -37,21 +37,18 @@ export class MatrixLiteViewModel implements IModuleViewModel {
       console.warn('[compat-mock] MatrixLiteViewModel.initialize()');
     }
     this.rooms = await this.client.listRooms();
-    if (this.rooms.length > 0) {
-      const msgs = await this.client.getRoomMessages(this.rooms[0].id);
-      this.timeline.set(msgs.map(this.toTimelineItem));
-    }
+    const items = this.rooms.map((r) =>
+      new MatrixTimelineItem({
+        id: r.id,
+        type: 'matrix',
+        title: r.name,
+        description: '',
+        timestamp: Date.now(),
+      })
+    );
+    this.timeline.set(items);
   }
 
-  private toTimelineItem = (msg: LiteMessage): IMatrixTimelineItem => {
-    return new MatrixTimelineItem({
-      id: msg.id,
-      title: this.rooms.find((r) => r.id === msg.roomId)?.name || 'Room',
-      description: msg.content,
-      timestamp: msg.timestamp,
-      sender: msg.sender,
-    });
-  };
 
   getTimelineItems(): Writable<IMatrixTimelineItem[]> {
     return this.timeline;
@@ -129,10 +126,6 @@ export class MatrixLiteViewModel implements IModuleViewModel {
 
   async sendMessage(roomId: string, messageContent: string): Promise<void> {
     await this.client.sendMessage(roomId, messageContent);
-    if (this.rooms[0]?.id === roomId) {
-      const msgs = await this.client.getRoomMessages(roomId);
-      this.timeline.set(msgs.map(this.toTimelineItem));
-    }
     for (const l of this.repoListeners) {
       try {
         l({ type: 'message' }, { id: roomId });
