@@ -38,6 +38,14 @@ export class MatrixLiteViewModel implements IModuleViewModel {
     if (!this.session) {
       console.warn('[compat-mock] MatrixLiteViewModel.initialize()');
     }
+    // If already logged in (session present), initialize crypto to upload/query keys
+    if (this.session) {
+      try {
+        await this.client.initCrypto();
+      } catch (err) {
+        console.warn('[matrix-lite] initCrypto on initialize failed', err);
+      }
+    }
     this.rooms = await this.client.listRooms();
     this.startSyncListener();
     const items = this.rooms.map((r) =>

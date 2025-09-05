@@ -6,10 +6,9 @@ export interface HttpOptions {
 
 export async function httpRequest(baseUrl: string, path: string, opts: HttpOptions = {}): Promise<any> {
   const url = baseUrl.replace(/\/$/, '') + path;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (opts.accessToken) {
-    headers['Authorization'] = `Bearer ${opts.accessToken}`;
-  }
+  const headers: Record<string, string> = {};
+  if (opts.accessToken) headers['Authorization'] = `Bearer ${opts.accessToken}`;
+  if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   const res = await fetch(url, {
     method: opts.method ?? 'GET',
     headers,

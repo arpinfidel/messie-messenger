@@ -36,8 +36,10 @@ export interface MatrixLiteClient {
  * Every call prints a `[compat-mock]` warning to highlight
  * that fake data is being used.
  */
-export function createMockClient(): MatrixLiteClient {
-  console.warn('[compat-mock] Using mock Matrix Lite client');
+export function createMockClient(suppressLog = false): MatrixLiteClient {
+  if (!suppressLog) {
+    console.warn('[compat-mock] Using mock Matrix Lite client');
+  }
 
   const userId = '@alice:example.org';
   const rooms: Array<{
@@ -148,7 +150,8 @@ export function createMockClient(): MatrixLiteClient {
  * implementations for member lookups.
  */
 export function createClient(homeserverUrl: string): MatrixLiteClient {
-  const mock = createMockClient();
+  // Reuse mock implementations internally without logging to avoid confusion
+  const mock = createMockClient(true);
   const toDeviceListeners = new Set<(ev: any) => void>();
   let stopSync: (() => void) | null = null;
 
@@ -186,7 +189,13 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
     async login(username: string, password: string): Promise<void> {
       const session = await httpLogin(homeserverUrl, username, password);
       saveSession(session);
-       startSync();
+      // Initialize crypto right after login so device keys can upload
+      try {
+        await initOlmCrypto(session.userId, session.deviceId);
+      } catch (err) {
+        console.warn('[matrix-lite] initCrypto after login failed', err);
+      }
+      startSync();
     },
     async logout(): Promise<void> {
       const session: LiteSession | null = loadSession();
