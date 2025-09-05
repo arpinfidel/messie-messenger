@@ -27,8 +27,10 @@
   },
   "dependencies": {
     "@matrix-org/matrix-sdk-crypto-wasm": "^15.1.0",
+    "bs58": "^6.0.0",
     "date-fns": "^4.1.0",
     "matrix-js-sdk": "^37.13.0",
+    "tweetnacl": "^1.0.3",
     "quick-lru": "^7.1.0"
   }
 }

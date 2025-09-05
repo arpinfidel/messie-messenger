@@ -111,12 +111,12 @@ async function drainOutgoingRequests(): Promise<void> {
 
       // Best-effort coercion
       if (id && typeof id !== 'string' && typeof (id as any).toString === 'function') id = String(id);
-      const typeRaw: any =
-        typeof typeVal === 'number' || typeof typeVal === 'string'
-          ? typeVal
-          : typeVal && typeof (typeVal as any).toString === 'function'
-          ? String(typeVal)
-          : undefined;
+        let typeRaw: any =
+          typeof typeVal === 'number' || typeof typeVal === 'string'
+            ? typeVal
+            : typeVal && typeof (typeVal as any).toString === 'function'
+            ? String(typeVal)
+            : undefined;
       let body: any = {};
       if (typeof bodyRawAny === 'string' && bodyRawAny.length > 0) {
         try {
@@ -218,5 +218,27 @@ async function drainOutgoingRequests(): Promise<void> {
   }
   } finally {
     draining = false;
+  }
+}
+
+export async function importRoomKeys(keys: any[]): Promise<void> {
+  if (!machine) return;
+  try {
+    const json = JSON.stringify(keys);
+    const progress = (p: any) => {
+      try {
+        console.log('[matrix-lite] import progress', p?.progress ?? p);
+      } catch {}
+    };
+    const m: any = machine as any;
+    if (typeof m.importExportedRoomKeys === 'function') {
+      await m.importExportedRoomKeys(json, progress);
+    } else if (typeof m.importRoomKeys === 'function') {
+      await m.importRoomKeys(json, progress);
+    } else {
+      console.warn('[matrix-lite] no import*RoomKeys function on OlmMachine');
+    }
+  } catch (err) {
+    console.warn('[matrix-lite] importRoomKeys failed', err);
   }
 }

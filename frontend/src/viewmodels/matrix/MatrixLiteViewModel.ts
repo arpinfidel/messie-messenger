@@ -4,6 +4,7 @@ import { createClient, createMockClient, type MatrixLiteClient } from '@/matrix-
 import type { LiteMessage, LiteRoom, LiteMember } from '@/matrix-lite/types';
 import { loadSession, type LiteSession, clearSession } from '@/matrix-lite/runtime/session';
 import { MatrixTimelineItem, type IMatrixTimelineItem } from './MatrixTimelineItem';
+import { matrixSettings } from './MatrixSettings';
 import type { MatrixMessage } from './MatrixTimelineService';
 
 /**
@@ -215,6 +216,16 @@ export class MatrixLiteViewModel implements IModuleViewModel {
   }
 
   async restoreFromRecoveryKey(): Promise<void> {
-    console.warn('[compat-mock] restoreFromRecoveryKey() called');
+    try {
+      const key = matrixSettings.recoveryKey?.trim();
+      if (!key) {
+        console.warn('[matrix-lite] No recovery key set in settings');
+        return;
+      }
+      const imported = await this.client.restoreBackupWithRecoveryKey(key);
+      console.log(`[backup-restore] Imported ${imported} sessions`);
+    } catch (err) {
+      console.warn('[matrix-lite] restoreFromRecoveryKey failed', err);
+    }
   }
 }

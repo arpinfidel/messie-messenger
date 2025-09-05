@@ -15,7 +15,7 @@
     },
 
     // Svelte + TS niceties
-    "types": ["svelte"],
+    "types": ["svelte", "node"],
     "allowJs": true,
     "checkJs": true,
     "isolatedModules": true,

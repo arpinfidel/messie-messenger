@@ -37,6 +37,17 @@
   <button
     on:click={() =>
       matrixViewModel
+        .restoreFromRecoveryKey()
+        .then(() => console.log('Key backup restore invoked.'))
+        .catch((error) => console.error('Error restoring from recovery key:', error))}
+    class="mt-4 inline-flex justify-center rounded-md border border-transparent bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+  >
+    Restore Backup Now
+  </button>
+
+  <button
+    on:click={() =>
+      matrixViewModel
         .verifyCurrentDevice()
         .then(() => console.log('Device verification initiated successfully.'))
         .catch((error) => console.error('Error initiating device verification:', error))}

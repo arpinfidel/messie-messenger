@@ -3,12 +3,24 @@ import { login as httpLogin, logout as httpLogout } from './api/auth';
 import { joinedRooms, getRoomName, getRoomMembers as fetchRoomMembers } from './api/rooms';
 import { roomMessages, sendRoomMessage } from './api/messages';
 import { getRoomPrevBatchToken } from './api/sync';
+import { getBackupVersion, getBackupKeys } from './api/backup';
 import { saveSession, loadSession, clearSession, type LiteSession } from './runtime/session';
 import { startMiniSync } from './runtime/sync';
 import {
   initCrypto as initOlmCrypto,
   handleSync as handleCryptoSync,
+  importRoomKeys,
 } from './crypto/engine';
+import { decodeRecoveryKey, deriveBackupKey, decryptBackupEntry } from './crypto/backup';
+import {
+  getDefaultSecretStorageKey,
+  getSecret,
+  getDefaultSecretStorageKeyFromAccountData,
+  getSecretFromAccountData,
+  fetchSSSSViaSync,
+} from './api/secret_storage';
+import { initAsync as initCryptoWasm, BackupDecryptionKey } from '@matrix-org/matrix-sdk-crypto-wasm';
+import { decryptSSSSSecretAESHMAC } from './crypto/ssss';
 
 /**
  * Public interface for the lightweight Matrix client.
@@ -29,6 +41,7 @@ export interface MatrixLiteClient {
   onToDevice(cb: (ev: any) => void): () => void;
   isSyncing(): boolean;
   initCrypto(): Promise<void>;
+  restoreBackupWithRecoveryKey(recoveryKey: string): Promise<number>;
 }
 
 /**
@@ -141,6 +154,10 @@ export function createMockClient(suppressLog = false): MatrixLiteClient {
     async initCrypto(): Promise<void> {
       console.warn('[compat-mock] initCrypto() called');
     },
+    async restoreBackupWithRecoveryKey(_recoveryKey: string): Promise<number> {
+      console.warn('[compat-mock] restoreBackupWithRecoveryKey() called');
+      return 0;
+    },
   };
 }
 
@@ -246,7 +263,7 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
       if (!session) return { messages: [], nextToken: null };
       // If no token provided, try to obtain a real prev_batch via /sync to support servers
       // that don't implement from=END properly (commonly seen with some bridged rooms).
-      let startToken = fromToken;
+      let startToken: string | null | undefined = fromToken;
       if (!startToken) {
         try {
           startToken = await getRoomPrevBatchToken(
@@ -349,6 +366,166 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
       if (!session) return;
       await initOlmCrypto(session.userId, session.deviceId);
       startSync();
+    },
+    async restoreBackupWithRecoveryKey(recoveryKey: string): Promise<number> {
+      const session = loadSession();
+      if (!session) return 0;
+      const raw = decodeRecoveryKey(recoveryKey);
+      const aesKey = await deriveBackupKey(raw);
+      const version = await getBackupVersion(session.homeserverUrl, session.accessToken);
+      console.log('[backup-restore] backup version info:', version);
+      const data = await getBackupKeys(
+        session.homeserverUrl,
+        session.accessToken,
+        version.version
+      );
+      const algo = String(version.algorithm || '');
+      console.log('[backup-restore] algorithm:', algo);
+      const toImport: any[] = [];
+      let count = 0;
+      if (/curve25519/i.test(algo)) {
+        // Per spec/SDK: the Base58 recovery key is the 4S key, not the backup private key.
+        // Always fetch the backup private key from SSSS using the recovery key.
+        console.log('[backup-restore] using recovery key to fetch backup private key from SSSS');
+        const viaSync = await fetchSSSSViaSync(session.homeserverUrl, session.accessToken);
+        console.log('[ssss] via /sync present:', !!viaSync, 'has encrypted map:', !!viaSync?.encryptedByKeyId);
+        let defaultKeyId = viaSync?.defaultKeyId;
+        if (!defaultKeyId) {
+          let def = await getDefaultSecretStorageKeyFromAccountData(
+            session.homeserverUrl,
+            session.accessToken,
+            session.userId
+          );
+          defaultKeyId = def?.key;
+        }
+        console.log('[ssss] default key id:', defaultKeyId);
+        let encByKey: Record<string, any> | undefined = viaSync?.encryptedByKeyId;
+        if (!encByKey) {
+          const secret = await getSecretFromAccountData(
+            session.homeserverUrl,
+            session.accessToken,
+            session.userId,
+            'm.megolm_backup.v1'
+          );
+          encByKey = (secret?.encrypted as Record<string, any>) || undefined;
+        }
+        console.log('[ssss] available secret key ids:', Object.keys(encByKey || {}));
+        const encEntry = (defaultKeyId && encByKey ? encByKey[defaultKeyId] : undefined) || (encByKey ? Object.values(encByKey)[0] : undefined);
+        if (!encEntry) {
+          console.warn('[backup-restore] m.megolm_backup.v1 not found in SSSS; cannot proceed');
+          return 0;
+        }
+        const ssssKey = raw; // The Base58 recovery key bytes
+        const privBytes = await decryptSSSSSecretAESHMAC(encEntry, ssssKey, 'm.megolm_backup.v1');
+        if (!privBytes) {
+          console.warn('[backup-restore] Failed to decrypt backup private key from SSSS');
+          return 0;
+        }
+        console.log('[ssss] decrypted backup key; bytes=', privBytes.length);
+
+        // Build a BackupDecryptionKey and verify it matches the server backup public key
+        await initCryptoWasm();
+        const authPub = String((version?.auth_data as any)?.public_key || '');
+        // privBytes may be base64 text or raw bytes; normalize to base64
+        let keyB64: string;
+        try {
+          const asText = new TextDecoder().decode(privBytes).trim();
+          keyB64 = asText;
+        } catch {
+          keyB64 = '';
+        }
+        if (!/^[-A-Za-z0-9+/=]+$/.test(keyB64) || keyB64.length < 40) {
+          // encode raw 32 bytes to base64
+          let s = '';
+          for (let i = 0; i < privBytes.length; i++) s += String.fromCharCode(privBytes[i]);
+          keyB64 = btoa(s);
+        }
+        // @ts-ignore wasm type
+        const decKey = (BackupDecryptionKey as any).fromBase64(keyB64);
+        let derivedPub = '';
+        try {
+          // @ts-ignore wasm prop
+          derivedPub = decKey.megolmV1PublicKey?.publicKeyBase64 || '';
+        } catch {}
+        console.log('[backup-restore] server pubKey:', authPub, 'derived pubKey:', derivedPub);
+        if (!authPub || !derivedPub || authPub !== derivedPub) {
+          console.warn('[backup-restore] backup private key does not match server backup public key');
+          try { decKey.free?.(); } catch {}
+          return 0;
+        }
+        const rooms = data?.rooms ?? {};
+        console.log('[backup-restore] rooms in backup:', Object.keys(rooms).length);
+        const padB64 = (s: string) => {
+          const t = s.replace(/\s+/g, '');
+          const rem = t.length % 4;
+          return rem === 0 ? t : t + '='.repeat(4 - rem);
+        };
+        for (const [roomId, roomVal] of Object.entries(rooms as any)) {
+          const sessions = (roomVal as any)?.sessions ?? {};
+          const sessionIds = Object.keys(sessions || {});
+          if (sessionIds.length === 0) continue;
+          console.log('[backup-restore] sessions in room:', sessionIds.length);
+          for (const [sessionId, sess] of Object.entries(sessions as any)) {
+            const sd: any = (sess as any)?.session_data || {};
+            const e: string | undefined = sd.ephemeral;
+            const m: string | undefined = sd.mac;
+            const c: string | undefined = sd.ciphertext;
+            if (!e || !m || !c) {
+              console.warn('[backup-restore] missing fields for session', sessionId, {
+                hasE: !!e,
+                hasM: !!m,
+                hasC: !!c,
+              });
+              continue;
+            }
+            try {
+              // @ts-ignore
+              const json = decKey.decryptV1(padB64(e), padB64(m), padB64(c));
+              const dec = JSON.parse(json);
+              (dec as any).session_id = sessionId;
+              (dec as any).room_id = roomId;
+              toImport.push(dec);
+              count++;
+            } catch (err) {
+              const msg = (err as any)?.message || String(err);
+              console.warn('[backup-restore] decryptV1 failed for session', sessionId, msg);
+            }
+          }
+        }
+        try { decKey.free?.(); } catch {}
+      } else {
+        const rooms = data?.rooms ?? {};
+        console.log('[backup-restore] rooms in backup:', Object.keys(rooms).length);
+        for (const [roomId, roomVal] of Object.entries(rooms as any)) {
+          const sessions = (roomVal as any)?.sessions ?? {};
+          const sessionIds = Object.keys(sessions || {});
+          if (sessionIds.length === 0) continue;
+          console.log('[backup-restore] sessions in room:', sessionIds.length);
+          // Log the shape of the first session entry for debugging (no secrets)
+          try {
+            const first = (sessions as any)[sessionIds[0]];
+            if (first && typeof first === 'object') {
+              const keys = Object.keys(first || {}).slice(0, 10);
+              const payloadKeys = first?.session_data ? Object.keys(first.session_data).slice(0, 10) : [];
+              console.log('[backup-restore] sample session keys:', keys, 'session_data keys:', payloadKeys);
+            }
+          } catch {}
+          for (const [sessionId, sess] of Object.entries(sessions as any)) {
+            const dec = await decryptBackupEntry(sess, aesKey, algo);
+            if (dec) {
+              (dec as any).session_id = sessionId;
+              (dec as any).room_id = roomId;
+              toImport.push(dec);
+              count++;
+            }
+          }
+        }
+      }
+      if (toImport.length > 0) {
+        await importRoomKeys(toImport);
+      }
+      console.log(`[backup-restore] Imported ${count} sessions`);
+      return count;
     },
   };
 }
