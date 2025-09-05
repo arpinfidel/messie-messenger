@@ -16,6 +16,7 @@
   let showSettingsPopup: boolean = false;
   let loggedIn = false;
   let loginStateChecked = false; // avoid showing overlay until init completes
+  let syncActive = false;
 
   // Matrix login handled via MatrixLogin component now
 
@@ -24,6 +25,7 @@
     await matrixViewModel.initialize();
     loggedIn = matrixViewModel.isLoggedIn();
     loginStateChecked = true;
+    syncActive = matrixViewModel.isSyncing ? matrixViewModel.isSyncing() : false;
   });
 
   $: if (timelineContainer) {
@@ -32,6 +34,8 @@
   function handleTimelineItemSelected(event: CustomEvent) {
     selectedTimelineItem = event.detail;
   }
+
+  $: syncActive = matrixViewModel?.isSyncing ? matrixViewModel.isSyncing() : false;
 </script>
 
 <main class="grid h-screen grid-cols-[1fr_2fr] bg-gray-900">
@@ -83,6 +87,12 @@
         }
       }}
     />
+  </div>
+{/if}
+
+{#if syncActive}
+  <div class="fixed bottom-2 right-2 rounded bg-gray-800 px-2 py-1 text-xs text-white">
+    Sync active
   </div>
 {/if}
 

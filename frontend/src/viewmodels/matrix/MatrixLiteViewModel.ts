@@ -22,6 +22,8 @@ export class MatrixLiteViewModel implements IModuleViewModel {
   private rooms: LiteRoom[] = [];
   private currentUser = this.session?.userId || '@alice:example.org';
   private repoListeners = new Set<(ev: any, room: any) => void>();
+  private syncActive = false;
+  private stopToDevice: (() => void) | null = null;
 
   private constructor() {}
 
@@ -37,6 +39,7 @@ export class MatrixLiteViewModel implements IModuleViewModel {
       console.warn('[compat-mock] MatrixLiteViewModel.initialize()');
     }
     this.rooms = await this.client.listRooms();
+    this.startSyncListener();
     const items = this.rooms.map((r) =>
       new MatrixTimelineItem({
         id: r.id,
@@ -90,6 +93,9 @@ export class MatrixLiteViewModel implements IModuleViewModel {
     this.timeline.set([]);
     this.rooms = [];
     this.client = createMockClient();
+    this.stopToDevice?.();
+    this.stopToDevice = null;
+    this.syncActive = false;
   }
 
   async getRoomMessages(
@@ -139,6 +145,18 @@ export class MatrixLiteViewModel implements IModuleViewModel {
 
   async getRoomMembers(roomId: string): Promise<LiteMember[]> {
     return this.client.getRoomMembers(roomId);
+  }
+
+  private startSyncListener(): void {
+    if (this.stopToDevice) return;
+    this.stopToDevice = this.client.onToDevice((ev) => {
+      console.log('[matrix-lite] to-device event (VM)', ev);
+    });
+    this.syncActive = this.client.isSyncing();
+  }
+
+  isSyncing(): boolean {
+    return this.syncActive;
   }
 
   private mxcToHttp(mxcUrl: string, w = 32, h = 32): string | undefined {

@@ -4,6 +4,7 @@ import { joinedRooms, getRoomName, getRoomMembers as fetchRoomMembers } from './
 import { roomMessages, sendRoomMessage } from './api/messages';
 import { getRoomPrevBatchToken } from './api/sync';
 import { saveSession, loadSession, clearSession, type LiteSession } from './runtime/session';
+import { startMiniSync } from './runtime/sync';
 
 /**
  * Public interface for the lightweight Matrix client.
@@ -21,6 +22,8 @@ export interface MatrixLiteClient {
   ): Promise<{ messages: LiteMessage[]; nextToken: string | null }>;
   sendMessage(roomId: string, content: string): Promise<LiteMessage>;
   getRoomMembers(roomId: string): Promise<LiteMember[]>;
+  onToDevice(cb: (ev: any) => void): () => void;
+  isSyncing(): boolean;
 }
 
 /**
@@ -117,6 +120,17 @@ export function createMockClient(): MatrixLiteClient {
       console.warn('[compat-mock] getRoomMembers() called');
       return rooms.find((r) => r.room.id === roomId)?.members ?? [];
     },
+    onToDevice(cb: (ev: any) => void): () => void {
+      console.warn('[compat-mock] onToDevice() called');
+      // Immediately invoke with a mock event so consumers can test wiring
+      try {
+        cb({ type: 'm.mock', content: {} });
+      } catch {}
+      return () => {};
+    },
+    isSyncing(): boolean {
+      return false;
+    },
   };
 }
 
@@ -127,11 +141,39 @@ export function createMockClient(): MatrixLiteClient {
  */
 export function createClient(homeserverUrl: string): MatrixLiteClient {
   const mock = createMockClient();
+  const toDeviceListeners = new Set<(ev: any) => void>();
+  let stopSync: (() => void) | null = null;
+
+  function emit(ev: any): void {
+    console.log('[matrix-lite] to-device event', ev);
+    for (const l of toDeviceListeners) {
+      try {
+        l(ev);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+  }
+
+  function startSync(): void {
+    if (stopSync) return;
+    const session = loadSession();
+    if (!session) return;
+    stopSync = startMiniSync(session.homeserverUrl, session.accessToken, emit);
+  }
+
+  function stopSyncLoop(): void {
+    if (stopSync) {
+      stopSync();
+      stopSync = null;
+    }
+  }
   return {
     ...mock,
     async login(username: string, password: string): Promise<void> {
       const session = await httpLogin(homeserverUrl, username, password);
       saveSession(session);
+       startSync();
     },
     async logout(): Promise<void> {
       const session: LiteSession | null = loadSession();
@@ -142,6 +184,7 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
           clearSession();
         }
       }
+      stopSyncLoop();
     },
     async listRooms(): Promise<LiteRoom[]> {
       const session = loadSession();
@@ -270,6 +313,14 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
         console.warn('[matrix-lite] getRoomMembers failed', e);
         return [];
       }
+    },
+    onToDevice(cb: (ev: any) => void): () => void {
+      toDeviceListeners.add(cb);
+      startSync();
+      return () => toDeviceListeners.delete(cb);
+    },
+    isSyncing(): boolean {
+      return !!stopSync;
     },
   };
 }
