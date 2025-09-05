@@ -1,6 +1,6 @@
 import type { LiteRoom, LiteMessage, LiteMember } from './types';
 import { login as httpLogin, logout as httpLogout } from './api/auth';
-import { joinedRooms, getRoomName } from './api/rooms';
+import { joinedRooms, getRoomName, getRoomMembers as fetchRoomMembers } from './api/rooms';
 import { roomMessages, sendRoomMessage } from './api/messages';
 import { getRoomPrevBatchToken } from './api/sync';
 import { saveSession, loadSession, clearSession, type LiteSession } from './runtime/session';
@@ -250,6 +250,26 @@ export function createClient(homeserverUrl: string): MatrixLiteClient {
         timestamp: Date.now(),
       };
       return msg;
+    },
+    async getRoomMembers(roomId: string): Promise<LiteMember[]> {
+      const session = loadSession();
+      if (!session) return [];
+      try {
+        const members = await fetchRoomMembers(
+          session.homeserverUrl,
+          session.accessToken,
+          roomId
+        );
+        // The API already maps to LiteMember shape; return as-is.
+        return members.map((m) => ({
+          userId: m.userId,
+          displayName: m.displayName,
+          avatarUrl: m.avatarUrl,
+        }));
+      } catch (e) {
+        console.warn('[matrix-lite] getRoomMembers failed', e);
+        return [];
+      }
     },
   };
 }

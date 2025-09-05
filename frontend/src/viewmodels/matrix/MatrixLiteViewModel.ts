@@ -98,22 +98,34 @@ export class MatrixLiteViewModel implements IModuleViewModel {
     limit = 20
   ): Promise<{ messages: MatrixMessage[]; nextBatch: string | null }> {
     const token = typeof beforeToken === 'string' ? beforeToken : undefined;
+    // Fetch members once to resolve display names and avatars
+    let members: LiteMember[] = [];
+    try {
+      members = await this.client.getRoomMembers(roomId);
+    } catch {}
+    const byUser = new Map<string, LiteMember>();
+    for (const m of members) byUser.set(m.userId, m);
+
     const { messages: page, nextToken } = await this.client.getRoomMessages(
       roomId,
       token,
       limit
     );
-    return {
-      messages: page.map((m) => ({
+    const msgs: MatrixMessage[] = page.map((m) => {
+      const member = byUser.get(m.sender);
+      const senderDisplayName = member?.displayName || m.sender;
+      const senderAvatarUrl = member?.avatarUrl ? this.mxcToHttp(member.avatarUrl, 32, 32) : undefined;
+      return {
         id: m.id,
         sender: m.sender,
-        senderDisplayName: m.sender,
+        senderDisplayName,
+        senderAvatarUrl,
         description: m.content,
         timestamp: m.timestamp,
         isSelf: m.sender === this.currentUser,
-      })),
-      nextBatch: nextToken ?? null,
-    };
+      } as MatrixMessage;
+    });
+    return { messages: msgs, nextBatch: nextToken ?? null };
   }
 
   onRepoEvent(listener: (ev: any, room: any) => void): () => void {
@@ -127,6 +139,24 @@ export class MatrixLiteViewModel implements IModuleViewModel {
 
   async getRoomMembers(roomId: string): Promise<LiteMember[]> {
     return this.client.getRoomMembers(roomId);
+  }
+
+  private mxcToHttp(mxcUrl: string, w = 32, h = 32): string | undefined {
+    try {
+      if (!mxcUrl || typeof mxcUrl !== 'string') return undefined;
+      if (!mxcUrl.startsWith('mxc://')) return mxcUrl;
+      const hs = this.session?.homeserverUrl || '';
+      const base = hs.replace(/\/$/, '');
+      const rest = mxcUrl.slice('mxc://'.length);
+      const slash = rest.indexOf('/');
+      if (slash <= 0) return undefined;
+      const server = encodeURIComponent(rest.slice(0, slash));
+      const mediaId = encodeURIComponent(rest.slice(slash + 1));
+      const qs = new URLSearchParams({ width: String(w), height: String(h), method: 'crop' });
+      return `${base}/_matrix/media/v3/thumbnail/${server}/${mediaId}?${qs.toString()}`;
+    } catch {
+      return undefined;
+    }
   }
 
   clearMediaCache(): void {
