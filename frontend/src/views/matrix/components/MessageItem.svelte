@@ -1,16 +1,28 @@
 <script lang="ts">
   import type { MatrixMessage } from '@/viewmodels/matrix/MatrixTimelineService';
+  import { createEventDispatcher } from 'svelte';
 
   export let message: MatrixMessage;
   export let isFirstInGroup: boolean;
   export let isLastInGroup: boolean;
+  export let mediaVersion: number = 0;
+
+  const dispatch = createEventDispatcher<{ openImage: { url: string; description?: string } }>();
+
+  function onImageClick() {
+    if (message.imageUrl) {
+      dispatch('openImage', { url: message.imageUrl, description: message.description });
+    }
+  }
 </script>
 
 <div class="message-wrapper {message.isSelf ? 'self' : 'other'}">
   {#if !message.isSelf}
     <div class="avatar-slot other">
       {#if isFirstInGroup && message.senderAvatarUrl}
-        <img src={message.senderAvatarUrl} alt={message.senderDisplayName} class="avatar-small" />
+        {#key mediaVersion}
+          <img src={message.senderAvatarUrl} alt={message.senderDisplayName} class="avatar-small" />
+        {/key}
       {:else}
         <div class="avatar-spacer"></div>
       {/if}
@@ -24,20 +36,23 @@
 
     {#if message.msgtype === 'm.image'}
       <div class="image-wrapper">
-        {#if message.imageUrl}
-          <img
-            src={message.imageUrl}
-            alt={message.description}
-            class="message-image"
-            referrerpolicy="no-referrer"
-            loading="lazy"
-          />
-        {:else}
-          <div class="image-placeholder">
-            <div class="loading-spinner small"></div>
-            <span>Decrypting image…</span>
-          </div>
-        {/if}
+        {#key mediaVersion}
+          {#if message.imageUrl}
+            <img
+              src={message.imageUrl}
+              alt={message.description}
+              class="message-image clickable"
+              referrerpolicy="no-referrer"
+              loading="lazy"
+              on:click|stopPropagation={onImageClick}
+            />
+          {:else}
+            <div class="image-placeholder">
+              <div class="loading-spinner small"></div>
+              <span>Decrypting image…</span>
+            </div>
+          {/if}
+        {/key}
       </div>
     {:else}
       <div class="message-content">{message.description}</div>
@@ -104,6 +119,7 @@
   .message-content { white-space: pre-wrap; display: inline; line-height: 1.4; }
 
   .message-image { max-width: 100%; max-height: 100%; object-fit: contain; display: block; border-radius: 0.5rem; }
+  .message-image.clickable { cursor: zoom-in; }
   .image-wrapper { max-width: 360px; max-height: 360px; width: 100%; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0.5rem; background: var(--color-input-bg); }
   .image-placeholder { min-width: 180px; min-height: 140px; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; color: var(--color-text-muted); }
 

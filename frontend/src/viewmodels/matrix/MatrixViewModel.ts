@@ -83,6 +83,10 @@ export class MatrixViewModel implements IModuleViewModel {
     return this.timelineSvc.getTimelineItemsStore();
   }
 
+  public getMediaVersion(): Writable<number> {
+    return this.timelineSvc.getMediaVersionStore();
+  }
+
   public getCurrentUserId(): string {
     return this.dataLayer.getCurrentUserId() || 'unknown';
   }

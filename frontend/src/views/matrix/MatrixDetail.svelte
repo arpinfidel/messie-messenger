@@ -59,6 +59,22 @@
   let scrollHandler: (() => void) | null = null;
   let onScroll: (() => void) | undefined;
 
+  // Image lightbox state
+  let lightboxUrl: string | null = null;
+  let lightboxDesc: string | undefined;
+  // Media version for async avatar/image updates
+  let mediaVersion = 0;
+
+  function openLightbox(e: CustomEvent<{ url: string; description?: string }>) {
+    lightboxUrl = e.detail.url;
+    lightboxDesc = e.detail.description;
+  }
+
+  function closeLightbox() {
+    lightboxUrl = null;
+    lightboxDesc = undefined;
+  }
+
   async function fetchMessages(roomId: string) {
     try {
       console.debug(`[MatrixDetail][fetchMessages] Fetching initial messages for room=${roomId}`);
@@ -231,6 +247,11 @@
     }
   }
 
+  // Subscribe immediately so early media bumps are not missed
+  const unsubMedia = matrixViewModel.getMediaVersion().subscribe((v) => {
+    mediaVersion = v;
+  });
+
   onMount(async () => {
     await tick();
     setupScrollHandler();
@@ -307,6 +328,17 @@
     // Initial compute
     updateJumpVisibility();
     console.debug('[MatrixDetail][onMount] Component mounted');
+
+    // Close lightbox on Escape
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape' && lightboxUrl) {
+        closeLightbox();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    onDestroy(() => window.removeEventListener('keydown', onKey));
+
+    onDestroy(() => unsubMedia());
   });
 
   onDestroy(() => {
@@ -372,7 +404,13 @@
       {@const isFirstInGroup = index === 0 || $messages[index - 1].sender !== message.sender}
       {@const isLastInGroup =
         index === $messages.length - 1 || $messages[index + 1].sender !== message.sender}
-      <MessageItem {message} {isFirstInGroup} {isLastInGroup} />
+      <MessageItem
+        {message}
+        {isFirstInGroup}
+        {isLastInGroup}
+        {mediaVersion}
+        on:openImage={openLightbox}
+      />
     {/each}
 
     {#if showJumpToBottom}
@@ -390,6 +428,15 @@
   </div>
 
   <MessageInput bind:this={messageInputRef} {isSending} on:send={(e) => sendMessage(e.detail)} />
+
+  {#if lightboxUrl}
+    <div class="lightbox" on:click={closeLightbox}>
+      <div class="lightbox-content" on:click|stopPropagation>
+        <img src={lightboxUrl} alt={lightboxDesc} />
+      </div>
+      <button class="lightbox-close" aria-label="Close" on:click={closeLightbox}>×</button>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -499,5 +546,41 @@
     background: rgba(255, 255, 255, 0.2);
     color: #fff;
     backdrop-filter: saturate(180%) blur(6px);
+  }
+
+  /* Lightbox styles */
+  .lightbox {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+  .lightbox-content {
+    max-width: 95vw;
+    max-height: 95vh;
+  }
+  .lightbox-content img {
+    max-width: 95vw;
+    max-height: 95vh;
+    object-fit: contain;
+    border-radius: 6px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+  }
+  .lightbox-close {
+    position: fixed;
+    top: 12px;
+    right: 14px;
+    width: 36px;
+    height: 36px;
+    border-radius: 9999px;
+    border: none;
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
   }
 </style>

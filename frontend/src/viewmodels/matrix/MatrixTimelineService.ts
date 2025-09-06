@@ -31,6 +31,8 @@ export class MatrixTimelineService {
   private pendingLiveEvents: Array<{ ev: MatrixEvent; room: Room }> = [];
   private mediaResolver = new MediaResolver(() => this.client);
   private readonly maxRooms = 30; // limit room list to most recent N
+  // Invalidate counter to notify UI when async media resolves
+  private mediaVersion: Writable<number> = writable(0);
 
   constructor(
     private readonly ctx: {
@@ -50,6 +52,14 @@ export class MatrixTimelineService {
 
   getTimelineItemsStore(): Writable<IMatrixTimelineItem[]> {
     return this._timelineItems;
+  }
+
+  getMediaVersionStore(): Writable<number> {
+    return this.mediaVersion;
+  }
+
+  private bumpMediaVersion() {
+    this.mediaVersion.update((n) => n + 1);
   }
 
   async initTimeline(): Promise<void> {
@@ -291,7 +301,10 @@ export class MatrixTimelineService {
         const p = this.avatars
           .resolveUserAvatar(re.sender, { w: 32, h: 32, method: 'crop' })
           .then((url) => {
-            if (url) msg.senderAvatarUrl = url;
+            if (url) {
+              msg.senderAvatarUrl = url;
+              this.bumpMediaVersion();
+            }
           })
           .catch(() => {});
         resolvers.push(p);
@@ -304,7 +317,10 @@ export class MatrixTimelineService {
         const p = this.data
           .resolveImage(content)
           .then((blobUrl) => {
-            if (blobUrl) msg.imageUrl = blobUrl;
+            if (blobUrl) {
+              msg.imageUrl = blobUrl;
+              this.bumpMediaVersion();
+            }
           })
           .catch(() => {})
           .finally(() => {
