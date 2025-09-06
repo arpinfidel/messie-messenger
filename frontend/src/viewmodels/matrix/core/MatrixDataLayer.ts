@@ -1,4 +1,6 @@
 import * as matrixSdk from 'matrix-js-sdk';
+import { MatrixEvent } from 'matrix-js-sdk';
+import { MatrixEventEvent } from 'matrix-js-sdk/lib/models/event';
 import type { RepoEvent } from './TimelineRepository';
 import { Direction } from 'matrix-js-sdk/lib/models/event-timeline';
 import { IndexedDbCache } from './IndexedDbCache';
@@ -195,6 +197,19 @@ export class MatrixDataLayer {
     };
   }
 
+  /** Build RepoEvent using wire type/content (encrypted if originally encrypted). */
+  private toWireRepoEvent(ev: matrixSdk.MatrixEvent): RepoEvent {
+    return {
+      eventId: ev.getId() ?? '',
+      roomId: ev.getRoomId() ?? '',
+      type: (ev as any).getWireType?.() ?? ev.getType(),
+      sender: ev.getSender() ?? '',
+      originServerTs: ev.getTs(),
+      content: (ev as any).getWireContent?.() ?? ev.getContent(),
+      unsigned: ev.getUnsigned(),
+    };
+  }
+
   /**
    * Fetch a paginated set of events for a room. Uses cached events first and
    * falls back to the Matrix SDK when more events are needed. Always paginate
@@ -209,7 +224,17 @@ export class MatrixDataLayer {
   ): Promise<{ events: RepoEvent[]; firstTS: number | null }> {
     // Try to satisfy from cache first
     let events = await this.db.getEventsByRoom(roomId, limit, beforeTs ?? undefined);
+    // decrypt on read (in-memory only) for any encrypted-at-rest entries
+    events = await this.tryDecryptRepoEvents(roomId, events);
     if (events.length >= limit) {
+      // If caller allows network/SDK, and we still have encrypted entries,
+      // wait for client to be prepared and attempt decryption again before returning.
+      if (!dbOnly && events.some((e) => e.type === 'm.room.encrypted')) {
+        try {
+          await this.opts.waitForPrepared();
+        } catch {}
+        events = await this.tryDecryptRepoEvents(roomId, events);
+      }
       console.log(
         `[MatrixDataLayer] getRoomMessages(${roomId}) → ${events.length} events from cache`
       );
@@ -256,6 +281,8 @@ export class MatrixDataLayer {
     await this.db.setBackwardToken(roomId, remoteToken);
 
     events = await this.db.getEventsByRoom(roomId, limit, beforeTs ?? undefined);
+    // decrypt on read (in-memory only)
+    events = await this.tryDecryptRepoEvents(roomId, events);
     const firstTS = events.length ? events[events.length - 1].originServerTs : (beforeTs ?? null);
     events.reverse();
 
@@ -272,27 +299,84 @@ export class MatrixDataLayer {
         return;
       }
 
-      // Emit immediately
+      // Emit immediately (may be clear if we can decrypt, else encrypted)
       this.repoEventEmitter.emit(re, room);
 
       if (!this.isMessageLike(re)) {
         console.debug('[MatrixDataLayer] ignoring non-message timeline event', re);
         return;
       }
+
+      // Try to decrypt to improve live display, but regardless of outcome we persist wire (cipher)
+      await client.decryptEventIfNeeded(ev);
+
       await this.db.rooms.put({
         id: room.roomId,
         name: room.name || room.roomId,
         latestTimestamp: ev.getTs(),
         avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
       });
-      this.db.putEvents(room.roomId, [re]).catch(() => {
-        console.warn('[MatrixDataLayer] failed to persist timeline event', re);
+      // Persist encrypted-at-rest: always store the wire form
+      const wireRe = this.toWireRepoEvent(ev);
+      this.db.putEvents(room.roomId, [wireRe]).catch(() => {
+        console.warn('[MatrixDataLayer] failed to persist timeline event', wireRe);
       });
+
+      // If the event decrypts later, re-emit a fresh event for UI (do not rewrite DB)
+      const onDecrypted = async () => {
+        if (ev.isDecryptionFailure()) return;
+        try {
+          const updated = await this.toRepoEvent(ev);
+          if (updated) this.repoEventEmitter.emit(updated, room);
+        } finally {
+          try {
+            (ev as any).removeListener?.(MatrixEventEvent.Decrypted, onDecrypted);
+          } catch {}
+        }
+      };
+      try {
+        ev.on(MatrixEventEvent.Decrypted, onDecrypted);
+      } catch {}
     });
   }
 
+  /** Attempt to decrypt RepoEvents in-memory using the SDK (no DB writes). */
+  private async tryDecryptRepoEvents(roomId: string, events: RepoEvent[]): Promise<RepoEvent[]> {
+    if (!events.length) return events;
+    const client = this.client;
+    if (!client) return events;
+    const room = client.getRoom(roomId);
+    if (!room) return events;
+    for (let i = 0; i < events.length; i++) {
+      const re = events[i];
+      if (re.type !== matrixSdk.EventType.RoomMessageEncrypted) continue;
+      const raw: any = {
+        event_id: re.eventId,
+        type: re.type,
+        content: re.content,
+        sender: re.sender,
+        room_id: re.roomId,
+        origin_server_ts: re.originServerTs,
+        unsigned: re.unsigned || {},
+      };
+      const mev = new MatrixEvent(raw);
+      await client.decryptEventIfNeeded(mev);
+      if (!mev.isDecryptionFailure()) {
+        events[i] = {
+          eventId: re.eventId,
+          roomId: re.roomId,
+          type: mev.getType(),
+          sender: re.sender,
+          originServerTs: re.originServerTs,
+          content: mev.getContent(),
+          unsigned: mev.getUnsigned(),
+        };
+      }
+    }
+    return events;
+  }
+
   async backgroundSync() {
-    console.log('[MatrixDataLayer] background sync');
     await this.opts.waitForPrepared();
     const client = this.client;
     if (!client) return;
@@ -426,9 +510,11 @@ export class MatrixDataLayer {
       const cached = await this.db.getMedia(key);
       if (cached) {
         const url = URL.createObjectURL(cached.blob);
+        console.log('[MatrixDataLayer] resolveImage cache hit', key, url);
         return url;
       }
     }
+    console.log('[MatrixDataLayer] resolveImage cache miss', key);
 
     // try resolver
     const url = await this.mediaResolver.resolveImage(img, dims);

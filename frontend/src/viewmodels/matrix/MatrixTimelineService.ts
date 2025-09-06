@@ -241,7 +241,7 @@ export class MatrixTimelineService {
       //   }
       // } catch {}
 
-      console.time(`[MatrixTimelineService] repoEventToPreview(${re.eventId})`);
+      // console.time(`[MatrixTimelineService] repoEventToPreview(${re.eventId})`);
       const { description } = this.repoEventToPreview({
         ...re,
         type: effectiveType,
@@ -252,7 +252,7 @@ export class MatrixTimelineService {
       let senderDisplayName = (await this.data.getUserDisplayName(re.sender)) || re.sender;
       if (!senderDisplayName) senderDisplayName = re.sender;
       const msgtype = effectiveContent?.msgtype;
-      console.timeEnd(`[MatrixTimelineService] repoEventToPreview(${re.eventId})`);
+      // console.timeEnd(`[MatrixTimelineService] repoEventToPreview(${re.eventId})`);
 
       const msg: MatrixMessage = {
         id: re.eventId,
@@ -284,9 +284,11 @@ export class MatrixTimelineService {
           .resolveImage(content)
           .then((blobUrl) => {
             if (blobUrl) msg.imageUrl = blobUrl;
-            console.timeEnd(`[MatrixTimelineService] resolveImage(${re.eventId})`);
           })
-          .catch(() => {});
+          .catch(() => {})
+          .finally(() => {
+            console.timeEnd(`[MatrixTimelineService] resolveImage(${re.eventId})`);
+          });
         resolvers.push(p);
       }
 

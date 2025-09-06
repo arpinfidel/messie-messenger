@@ -179,7 +179,7 @@ export class MatrixViewModel implements IModuleViewModel {
 
       await this.clientMgr.start({
         filter: filter,
-        pollTimeout: 0,
+        pollTimeout: 30000,
         lazyLoadMembers: true,
         initialSyncLimit: 5,
       });
