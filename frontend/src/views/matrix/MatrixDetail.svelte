@@ -54,6 +54,7 @@
   }
 
   let messagesContainer: HTMLDivElement;
+  let messageInputRef: any;
   let unsubscribeRepoEvent: (() => void) | null = null;
   let scrollHandler: (() => void) | null = null;
   let onScroll: (() => void) | undefined;
@@ -79,6 +80,10 @@
       await ensureScrollable();
       updateJumpVisibility();
       matrixViewModel.markRoomAsRead(roomId);
+
+      // After messages load and DOM settles, focus the message input
+      await tick();
+      messageInputRef?.focus();
     } catch (e) {
       console.debug(`[MatrixDetail][fetchMessages] ERROR:`, e);
     }
@@ -230,6 +235,10 @@
     await tick();
     setupScrollHandler();
 
+    // Ensure input is focused on mount
+    await tick();
+    messageInputRef?.focus();
+
     // Replace the current unsubscribeRepoEvent assignment with this enhanced handler:
     unsubscribeRepoEvent = matrixViewModel.onRepoEvent(async (ev, _room) => {
       if (ev.roomId !== item.id) return;
@@ -380,7 +389,7 @@
     {/if}
   </div>
 
-  <MessageInput {isSending} on:send={(e) => sendMessage(e.detail)} />
+  <MessageInput bind:this={messageInputRef} {isSending} on:send={(e) => sendMessage(e.detail)} />
 </div>
 
 <style>

@@ -7,6 +7,7 @@
   const dispatch = createEventDispatcher<{ send: string }>();
 
   let text = '';
+  let textareaEl: HTMLTextAreaElement;
   const canSend = text.trim().length > 0 && !isSending;
 
   function trySend() {
@@ -22,11 +23,24 @@
       trySend();
     }
   }
+
+  // Expose focus method to parent components
+  export function focus() {
+    if (textareaEl) {
+      textareaEl.focus();
+      // place cursor at end
+      const len = textareaEl.value.length;
+      try {
+        textareaEl.setSelectionRange(len, len);
+      } catch {}
+    }
+  }
 </script>
 
 <div class="message-input-container {className}">
   <div class="input-wrapper">
     <textarea
+      bind:this={textareaEl}
       bind:value={text}
       on:keydown={handleKeydown}
       placeholder="Type your message... (Shift+Enter for new line)"
@@ -50,21 +64,16 @@
       {/if}
     </button>
   </div>
-
-  <div class="input-helper">
-    <span class="text-xs text-gray-500 dark:text-gray-400">
-      Press Enter to send • Shift+Enter for new line
-    </span>
-  </div>
 </div>
 
 <style>
   .message-input-container {
-    padding: 1rem 1.5rem;
-    background: var(--color-panel);
-    border-top: 1px solid var(--color-panel-border);
+    padding: 0.5rem 1rem;
+    /* background: var(--color-panel); */
+    /* background: rgba(0,0,0,0); */
+    /* border-top: 1px solid var(--color-panel-border); */
   }
-  .input-wrapper { display: flex; align-items: flex-end; gap: 0.75rem; margin-bottom: 0.5rem; }
+  .input-wrapper { display: flex; align-items: flex-end; gap: 0.75rem; }
   .message-input { flex: 1; min-height: 2.5rem; max-height: 6rem; padding: 0.75rem 1rem; border: 1px solid var(--color-input-border); border-radius: 1.25rem; background: var(--color-input-bg); color: var(--color-text); font-size: 0.875rem; line-height: 1.4; resize: none; transition: all 0.2s ease; field-sizing: content; }
   .message-input:focus { outline: none; border-color: var(--color-bubble-self); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
   .message-input:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -75,11 +84,7 @@
   .send-button.enabled:active { transform: scale(0.95); }
   .send-button.disabled { background: #4a5568; color: #9ca3af; cursor: not-allowed; }
 
-  .input-helper { display: flex; justify-content: center; }
-  .input-helper span { color: var(--color-text-muted); }
-
   .loading-spinner { width: 16px; height: 16px; border: 2px solid #4a5568; border-top: 2px solid var(--color-bubble-self); border-radius: 50%; animation: spin 1s linear infinite; }
   .loading-spinner.small { width: 12px; height: 12px; border-width: 1.5px; }
   @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 </style>
-
