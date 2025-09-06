@@ -108,9 +108,6 @@ export class MatrixViewModel implements IModuleViewModel {
   }
 
   public async getRoomMembers(roomId: string) {
-    try {
-      // await this.dataLayer.refreshRoomMembers(roomId);
-    } catch {}
     return this.dataLayer.getRoomMembers(roomId);
   }
 
@@ -135,9 +132,7 @@ export class MatrixViewModel implements IModuleViewModel {
   /* ---------- Orchestration ---------- */
   async initialize(): Promise<void> {
     // Set global log level via loglevel directly (avoids unsafe casts)
-    try {
-      loglevel.setLevel('warn');
-    } catch {}
+    loglevel.setLevel('warn');
     console.time('[MatrixVM] initialize total');
 
     const restored = this.sessionStore.restore();
@@ -208,6 +203,9 @@ export class MatrixViewModel implements IModuleViewModel {
     await this.clientMgr.waitForPrepared();
     console.timeEnd('[MatrixVM] waitForPrepared');
 
+    // Reconcile unread counts once from SDK after initial sync to avoid drift
+    await this.dataLayer.reconcileUnreadFromSdk();
+
     this.hydrationState = 'decrypting';
     console.time('[MatrixVM] crypto.ensureVerificationAndKeys');
     await this.cryptoMgr.ensureVerificationAndKeys();
@@ -224,31 +222,10 @@ export class MatrixViewModel implements IModuleViewModel {
     this.hydrationState = 'ready';
     console.timeEnd('[MatrixVM] initialize total');
 
-    // Wire up unread notification listeners to update UI + persist in DB.
-    try {
-      const c = this.clientMgr.getClient();
-      if (c) {
-        const attach = (room: matrixSdk.Room) => {
-          try {
-            const writeUnread = async () => {
-              const total = room.getUnreadNotificationCount(
-                (matrixSdk as any).NotificationCountType?.Total ?? undefined
-              ) as number;
-              this.timelineSvc.setRoomUnread(room.roomId, total ?? 0);
-              try {
-                await this.dataLayer.setRoomUnreadCount(room.roomId, total ?? 0);
-              } catch {}
-            };
-            // Listen for future changes
-            room.on(matrixSdk.RoomEvent.UnreadNotifications, writeUnread);
-            // Seed initial UI state immediately on attach
-            void writeUnread();
-          } catch {}
-        };
-        for (const r of c.getRooms() || []) attach(r);
-        c.on((matrixSdk as any).ClientEvent?.Room || 'Room', (room: matrixSdk.Room) => attach(room));
-      }
-    } catch {}
+    // Reflect unread updates from the data layer into the UI.
+    this.dataLayer.onUnreadChange((roomId, unread) => {
+      this.timelineSvc.setRoomUnread(roomId, unread);
+    });
   }
 
   async login(homeserverUrl: string, username: string, password: string): Promise<void> {

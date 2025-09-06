@@ -107,9 +107,7 @@
 
   onDestroy(() => {
     // Release any blob URLs held by the media cache to avoid memory leaks
-    try {
-      matrixViewModel.clearMediaCache();
-    } catch {}
+    matrixViewModel.clearMediaCache();
   });
 
   async function ensureScrollable() {

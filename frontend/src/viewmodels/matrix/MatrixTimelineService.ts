@@ -189,6 +189,11 @@ export class MatrixTimelineService {
       this.bufferTimelineUpdate(updated);
       this.scheduleFlush();
     });
+
+    // Reflect unread updates from the data layer into the UI.
+    this.data.onUnreadChange((roomId, unread) => {
+      this.setRoomUnread(roomId, unread);
+    });
   }
 
   bufferTimelineUpdate(ev: MatrixTimelineItem) {
@@ -297,18 +302,18 @@ export class MatrixTimelineService {
       };
 
       // Resolve sender avatar via AvatarService and assign onto msg
-      try {
-        const p = this.avatars
-          .resolveUserAvatar(re.sender, { w: 32, h: 32, method: 'crop' })
-          .then((url) => {
-            if (url) {
-              msg.senderAvatarUrl = url;
-              this.bumpMediaVersion();
-            }
-          })
-          .catch(() => {});
-        resolvers.push(p);
-      } catch {}
+      const pAvatar = this.avatars
+        .resolveUserAvatar(re.sender, { w: 32, h: 32, method: 'crop' })
+        .then((url) => {
+          if (url) {
+            msg.senderAvatarUrl = url;
+            this.bumpMediaVersion();
+          }
+        })
+        .catch((err) => {
+          console.warn('[MatrixTimelineService] resolveUserAvatar failed', err);
+        });
+      resolvers.push(pAvatar);
 
       console.time(`[MatrixTimelineService] resolveImage(${re.eventId})`);
       if (msgtype === matrixSdk.MsgType.Image) {
@@ -322,7 +327,9 @@ export class MatrixTimelineService {
               this.bumpMediaVersion();
             }
           })
-          .catch(() => {})
+          .catch((err) => {
+            console.warn('[MatrixTimelineService] resolveImage failed', err);
+          })
           .finally(() => {
             console.timeEnd(`[MatrixTimelineService] resolveImage(${re.eventId})`);
           });

@@ -30,6 +30,25 @@ class RepoEventEmitter {
   }
 }
 
+type UnreadChangeListener = (roomId: string, unread: number) => void;
+
+class UnreadEventEmitter {
+  private listeners = new Set<UnreadChangeListener>();
+  on(listener: UnreadChangeListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  emit(roomId: string, unread: number) {
+    for (const l of this.listeners) {
+      try {
+        l(roomId, unread);
+      } catch (err) {
+        console.error('[MatrixDataLayer] UnreadEvent listener failed', err);
+      }
+    }
+  }
+}
+
 export interface MatrixDataLayerOptions {
   getClient: () => matrixSdk.MatrixClient | null;
   shouldIncludeEvent?: (ev: matrixSdk.MatrixEvent) => boolean;
@@ -52,6 +71,7 @@ export class MatrixDataLayer {
   private avatarResolver: AvatarResolver;
   private mediaResolver: MediaResolver;
   private repoEventEmitter = new RepoEventEmitter();
+  private unreadEventEmitter = new UnreadEventEmitter();
 
   constructor(private readonly opts: MatrixDataLayerOptions) {
     this.pageSize = opts.pageSize ?? 20;
@@ -78,6 +98,10 @@ export class MatrixDataLayer {
     return this.repoEventEmitter.on(listener);
   }
 
+  onUnreadChange(listener: UnreadChangeListener): () => void {
+    return this.unreadEventEmitter.on(listener);
+  }
+
   bind(): void {
     const c = this.client;
     if (!c) return;
@@ -96,10 +120,14 @@ export class MatrixDataLayer {
 
   setCurrentUser(userId: string, displayName?: string | null) {
     this.currentUserId = userId;
-    this.db.setMeta('currentUserId', userId).catch(() => {});
+    this.db.setMeta('currentUserId', userId).catch((err) => {
+      console.warn('[MatrixDataLayer] Failed to persist currentUserId', err);
+    });
     if (displayName) {
       this.currentUserDisplayName = displayName || null;
-      this.db.setMeta('currentUserDisplayName', displayName).catch(() => {});
+      this.db.setMeta('currentUserDisplayName', displayName).catch((err) => {
+        console.warn('[MatrixDataLayer] Failed to persist currentUserDisplayName', err);
+      });
     }
   }
 
@@ -129,6 +157,7 @@ export class MatrixDataLayer {
 
     // Optimistically zero unread locally
     await this.db.rooms.put({ ...roomRec, unreadCount: 0 });
+    this.unreadEventEmitter.emit(roomId, 0);
 
     // Try to sync read markers to the server
     try {
@@ -137,17 +166,19 @@ export class MatrixDataLayer {
       const live = room?.getLiveTimeline();
       const events = live?.getEvents() || [];
       // Prefer the most recent message-like event with an ID
-      const lastEvent = [...events]
-        .reverse()
-        .find((e) => !!e.getId() && this.isMessageLike({
-          eventId: e.getId() || '',
-          roomId: roomId,
-          type: e.getType(),
-          sender: e.getSender() || '',
-          originServerTs: e.getTs(),
-          content: e.getContent(),
-          unsigned: e.getUnsigned(),
-        } as any));
+      const lastEvent = [...events].reverse().find(
+        (e) =>
+          !!e.getId() &&
+          this.isMessageLike({
+            eventId: e.getId() || '',
+            roomId: roomId,
+            type: e.getType(),
+            sender: e.getSender() || '',
+            originServerTs: e.getTs(),
+            content: e.getContent(),
+            unsigned: e.getUnsigned(),
+          } as any)
+      );
 
       if (client && room && lastEvent && lastEvent.getId()) {
         // Update both fully-read marker and read receipt to the same event
@@ -215,11 +246,7 @@ export class MatrixDataLayer {
   private async toRepoEvent(ev: matrixSdk.MatrixEvent): Promise<RepoEvent | null> {
     if (this.opts.shouldIncludeEvent && !this.opts.shouldIncludeEvent(ev)) return null;
     if (this.opts.tryDecryptEvent) {
-      try {
-        await this.opts.tryDecryptEvent(ev);
-      } catch {
-        /* ignore */
-      }
+      await this.opts.tryDecryptEvent(ev);
     }
     return {
       eventId: ev.getId() ?? '',
@@ -265,9 +292,7 @@ export class MatrixDataLayer {
       // If caller allows network/SDK, and we still have encrypted entries,
       // wait for client to be prepared and attempt decryption again before returning.
       if (!dbOnly && events.some((e) => e.type === 'm.room.encrypted')) {
-        try {
-          await this.opts.waitForPrepared();
-        } catch {}
+        await this.opts.waitForPrepared();
         events = await this.tryDecryptRepoEvents(roomId, events);
       }
       console.log(
@@ -328,66 +353,70 @@ export class MatrixDataLayer {
     client.on(
       matrixSdk.RoomEvent.Timeline,
       async (ev, room, toStartOfTimeline, removed, data: { liveEvent?: boolean } = {}) => {
-      const re = await this.toRepoEvent(ev);
-      if (!re) return;
-      if (!room) {
-        console.warn('[MatrixDataLayer] timeline event without room?');
-        return;
-      }
-
-      if (!this.isMessageLike(re)) {
-        console.debug('[MatrixDataLayer] ignoring non-message timeline event', re);
-        return;
-      }
-
-      await client.decryptEventIfNeeded(ev);
-
-      // Only increment unread for true live events; avoid double-counting
-      // during initial sync or backfill where SDK replays timeline history.
-      if (data?.liveEvent) {
-        const existing = await this.db.rooms.get(room.roomId);
-        const unread = existing?.unreadCount ?? 0;
-        const increment = ev.getSender() === this.currentUserId ? 0 : 1;
-        await this.db.rooms.put({
-          id: room.roomId,
-          name: room.name || room.roomId,
-          latestTimestamp: ev.getTs(),
-          avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
-          unreadCount: unread + increment,
-        });
-      } else {
-        // Still update latestTimestamp & metadata without touching unread
-        const existing = await this.db.rooms.get(room.roomId);
-        await this.db.rooms.put({
-          id: room.roomId,
-          name: room.name || room.roomId,
-          latestTimestamp: ev.getTs(),
-          avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
-          unreadCount: existing?.unreadCount ?? 0,
-        });
-      }
-      // Persist encrypted-at-rest: always store the wire form
-      const wireRe = this.toWireRepoEvent(ev);
-      await this.db.putEvents(room.roomId, [wireRe]).catch(() => {
-        console.warn('[MatrixDataLayer] failed to persist timeline event', wireRe);
-      });
-
-      this.repoEventEmitter.emit(re, room);
-
-      const onDecrypted = async () => {
-        if (ev.isDecryptionFailure()) return;
-        try {
-          const updated = await this.toRepoEvent(ev);
-          if (updated) this.repoEventEmitter.emit(updated, room);
-        } finally {
-          try {
-            ev.off(MatrixEventEvent.Decrypted, onDecrypted);
-          } catch {}
+        const re = await this.toRepoEvent(ev);
+        if (!re) return;
+        if (!room) {
+          console.warn('[MatrixDataLayer] timeline event without room?');
+          return;
         }
-      };
-      try {
+
+        if (!this.isMessageLike(re)) {
+          console.debug('[MatrixDataLayer] ignoring non-message timeline event', re);
+          return;
+        }
+
+        await client.decryptEventIfNeeded(ev);
+
+        // Only increment unread for true live events; avoid double-counting
+        // during initial sync or backfill where SDK replays timeline history.
+        const syncState = (client as any)?.getSyncState?.();
+        const isTrueLive = data?.liveEvent === true && syncState === 'SYNCING';
+        if (isTrueLive) {
+          const existing = await this.db.rooms.get(room.roomId);
+          const unread = existing?.unreadCount ?? 0;
+          const increment = ev.getSender() === this.currentUserId ? 0 : 1;
+          const newUnread = unread + increment;
+          await this.db.rooms.put({
+            id: room.roomId,
+            name: room.name || room.roomId,
+            latestTimestamp: ev.getTs(),
+            avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
+            unreadCount: newUnread,
+          });
+          this.unreadEventEmitter.emit(room.roomId, newUnread);
+        } else {
+          // Still update latestTimestamp & metadata without touching unread
+          const existing = await this.db.rooms.get(room.roomId);
+          await this.db.rooms.put({
+            id: room.roomId,
+            name: room.name || room.roomId,
+            latestTimestamp: ev.getTs(),
+            avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
+            unreadCount: existing?.unreadCount ?? 0,
+          });
+        }
+        // Persist encrypted-at-rest: always store the wire form
+        const wireRe = this.toWireRepoEvent(ev);
+        await this.db.putEvents(room.roomId, [wireRe]).catch(() => {
+          console.warn('[MatrixDataLayer] failed to persist timeline event', wireRe);
+        });
+
+        this.repoEventEmitter.emit(re, room);
+
+        const onDecrypted = async () => {
+          if (ev.isDecryptionFailure()) return;
+          try {
+            const updated = await this.toRepoEvent(ev);
+            if (updated) this.repoEventEmitter.emit(updated, room);
+          } finally {
+            try {
+              ev.off(MatrixEventEvent.Decrypted, onDecrypted);
+            } catch (err) {
+              console.warn('[MatrixDataLayer] Failed to detach decrypted listener', err);
+            }
+          }
+        };
         ev.on(MatrixEventEvent.Decrypted, onDecrypted);
-      } catch {}
       }
     );
   }
@@ -413,6 +442,7 @@ export class MatrixDataLayer {
               avatarMxcUrl: room.getMxcAvatarUrl() || existing?.avatarMxcUrl,
               unreadCount: total ?? 0,
             });
+            this.unreadEventEmitter.emit(room.roomId, total ?? 0);
           } catch (err) {
             console.warn('[MatrixDataLayer] Failed to update unread from SDK', err);
           }
@@ -422,18 +452,18 @@ export class MatrixDataLayer {
         room.on(matrixSdk.RoomEvent.UnreadNotifications, writeUnread);
         // Seed initial value so first login reflects server state
         void writeUnread();
-      } catch {}
+      } catch (err) {
+        console.error('[MatrixDataLayer] Failed to attach unread listener', err);
+      }
     };
 
     // Attach to existing rooms
-    try {
-      for (const r of client.getRooms() || []) attach(r);
-    } catch {}
+    for (const r of client.getRooms() || []) attach(r);
 
     // Attach to new rooms as they are discovered
-    try {
-      client.on((matrixSdk as any).ClientEvent?.Room || 'Room', (room: matrixSdk.Room) => attach(room));
-    } catch {}
+    client.on((matrixSdk as any).ClientEvent?.Room || 'Room', (room: matrixSdk.Room) =>
+      attach(room)
+    );
   }
 
   /** Update a room's unread count in the local DB. */
@@ -447,6 +477,7 @@ export class MatrixDataLayer {
       avatarMxcUrl: existing.avatarMxcUrl,
       unreadCount: count,
     });
+    this.unreadEventEmitter.emit(roomId, count);
   }
 
   /** Attempt to decrypt RepoEvents in-memory using the SDK (no DB writes). */
@@ -482,26 +513,41 @@ export class MatrixDataLayer {
         };
       } else {
         // If the SDK knows about this event, subscribe for future decryption and re-emit
-        try {
-          const sdkEv = room.findEventById(re.eventId);
-          if (sdkEv) {
-            const onDecrypted = async () => {
-              if (sdkEv.isDecryptionFailure()) return;
-              try {
-                const updated = await this.toRepoEvent(sdkEv);
-                if (updated) this.repoEventEmitter.emit(updated, room);
-              } finally {
-                try {
-                  sdkEv.off(MatrixEventEvent.Decrypted, onDecrypted);
-                } catch {}
-              }
-            };
-            sdkEv.on(MatrixEventEvent.Decrypted, onDecrypted);
-          }
-        } catch {}
+        const sdkEv = room.findEventById(re.eventId);
+        if (sdkEv) {
+          const onDecrypted = async () => {
+            if (sdkEv.isDecryptionFailure()) return;
+            const updated = await this.toRepoEvent(sdkEv);
+            if (updated) this.repoEventEmitter.emit(updated, room);
+            sdkEv.off(MatrixEventEvent.Decrypted, onDecrypted);
+          };
+          sdkEv.on(MatrixEventEvent.Decrypted, onDecrypted);
+        }
       }
     }
     return events;
+  }
+
+  /** Force-reconcile unread counts from SDK into DB and emit changes. */
+  async reconcileUnreadFromSdk(): Promise<void> {
+    await this.opts.waitForPrepared();
+    const c = this.client;
+    if (!c) return;
+    const rooms = c.getRooms() || [];
+    for (const room of rooms) {
+      const total = room.getUnreadNotificationCount(
+        (matrixSdk as any).NotificationCountType?.Total ?? undefined
+      ) as number;
+      const existing = await this.db.rooms.get(room.roomId);
+      await this.db.rooms.put({
+        id: room.roomId,
+        name: room.name || room.roomId,
+        latestTimestamp: existing?.latestTimestamp ?? room.getLastActiveTimestamp(),
+        avatarMxcUrl: room.getMxcAvatarUrl() || existing?.avatarMxcUrl,
+        unreadCount: total ?? 0,
+      });
+      this.unreadEventEmitter.emit(room.roomId, total ?? 0);
+    }
   }
 
   async backgroundSync() {
@@ -622,8 +668,8 @@ export class MatrixDataLayer {
             blob,
           });
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        console.warn('[MatrixDataLayer] Failed to cache avatar in IDB', err);
       }
     }
 
@@ -666,8 +712,8 @@ export class MatrixDataLayer {
           });
         }
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      console.warn('[MatrixDataLayer] Failed to cache image in IDB', err);
     }
 
     return url;

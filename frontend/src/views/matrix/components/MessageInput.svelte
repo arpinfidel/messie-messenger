@@ -32,7 +32,9 @@
       const len = textareaEl.value.length;
       try {
         textareaEl.setSelectionRange(len, len);
-      } catch {}
+      } catch (err) {
+        console.warn('[MessageInput] setSelectionRange failed', err);
+      }
     }
   }
 </script>
