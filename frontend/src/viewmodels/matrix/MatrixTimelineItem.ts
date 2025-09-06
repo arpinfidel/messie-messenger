@@ -13,6 +13,7 @@ export interface IMatrixTimelineItem extends TimelineItem {
   timestamp: number; // Changed to number
   rawData?: object;
   sender?: string; // Add sender property
+  unreadCount?: number;
 }
 
 /**
@@ -28,6 +29,7 @@ export class MatrixTimelineItem implements IMatrixTimelineItem {
   timestamp: number; // Changed to number
   rawData: object;
   sender: string; // Add sender property
+  unreadCount?: number;
 
   constructor({
     id,
@@ -38,6 +40,7 @@ export class MatrixTimelineItem implements IMatrixTimelineItem {
     timestamp,
     rawData = {},
     sender = '',
+    unreadCount,
   }: IMatrixTimelineItem) {
     if (!id || !title) throw new Error('MatrixTimelineItem requires id and title.');
     if (
@@ -57,5 +60,6 @@ export class MatrixTimelineItem implements IMatrixTimelineItem {
     this.timestamp = timestamp;
     this.rawData = rawData;
     this.sender = sender; // Initialize sender
+    this.unreadCount = unreadCount;
   }
 }

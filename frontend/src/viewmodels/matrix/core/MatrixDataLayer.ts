@@ -122,6 +122,42 @@ export class MatrixDataLayer {
     return this.db.rooms.get(roomId);
   }
 
+  async markRoomAsRead(roomId: string) {
+    const roomRec = await this.db.rooms.get(roomId);
+    if (!roomRec) return;
+
+    // Optimistically zero unread locally
+    await this.db.rooms.put({ ...roomRec, unreadCount: 0 });
+
+    // Try to sync read markers to the server
+    try {
+      const client = this.client;
+      const room = client?.getRoom(roomId);
+      const live = room?.getLiveTimeline();
+      const events = live?.getEvents() || [];
+      // Prefer the most recent message-like event with an ID
+      const lastEvent = [...events]
+        .reverse()
+        .find((e) => !!e.getId() && this.isMessageLike({
+          eventId: e.getId() || '',
+          roomId: roomId,
+          type: e.getType(),
+          sender: e.getSender() || '',
+          originServerTs: e.getTs(),
+          content: e.getContent(),
+          unsigned: e.getUnsigned(),
+        } as any));
+
+      if (client && room && lastEvent && lastEvent.getId()) {
+        // Update both fully-read marker and read receipt to the same event
+        await client.setRoomReadMarkers(roomId, lastEvent.getId()!, lastEvent);
+      }
+    } catch (err) {
+      // Non-fatal: keep local unread at 0 and let future syncs reconcile
+      console.warn('[MatrixDataLayer] Failed to sync read markers', err);
+    }
+  }
+
   async getRoomMembers(roomId: string) {
     const members = await this.db.getRoomMembers(roomId);
     if (members.length) return members;
@@ -288,8 +324,9 @@ export class MatrixDataLayer {
   }
 
   private handleEvents(client: matrixSdk.MatrixClient) {
-    client.on(matrixSdk.RoomEvent.Timeline, async (ev, room, toStartOfTimeline, removed) => {
-      // console.log('[MatrixDataLayer] timeline event', { ev, room, toStartOfTimeline, removed });
+    client.on(
+      matrixSdk.RoomEvent.Timeline,
+      async (ev, room, toStartOfTimeline, removed, data: { liveEvent?: boolean } = {}) => {
       const re = await this.toRepoEvent(ev);
       if (!re) return;
       if (!room) {
@@ -297,30 +334,45 @@ export class MatrixDataLayer {
         return;
       }
 
-      // Emit immediately (may be clear if we can decrypt, else encrypted)
-      this.repoEventEmitter.emit(re, room);
-
       if (!this.isMessageLike(re)) {
         console.debug('[MatrixDataLayer] ignoring non-message timeline event', re);
         return;
       }
 
-      // Try to decrypt to improve live display, but regardless of outcome we persist wire (cipher)
       await client.decryptEventIfNeeded(ev);
 
-      await this.db.rooms.put({
-        id: room.roomId,
-        name: room.name || room.roomId,
-        latestTimestamp: ev.getTs(),
-        avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
-      });
+      // Only increment unread for true live events; avoid double-counting
+      // during initial sync or backfill where SDK replays timeline history.
+      if (data?.liveEvent) {
+        const existing = await this.db.rooms.get(room.roomId);
+        const unread = existing?.unreadCount ?? 0;
+        const increment = ev.getSender() === this.currentUserId ? 0 : 1;
+        await this.db.rooms.put({
+          id: room.roomId,
+          name: room.name || room.roomId,
+          latestTimestamp: ev.getTs(),
+          avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
+          unreadCount: unread + increment,
+        });
+      } else {
+        // Still update latestTimestamp & metadata without touching unread
+        const existing = await this.db.rooms.get(room.roomId);
+        await this.db.rooms.put({
+          id: room.roomId,
+          name: room.name || room.roomId,
+          latestTimestamp: ev.getTs(),
+          avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
+          unreadCount: existing?.unreadCount ?? 0,
+        });
+      }
       // Persist encrypted-at-rest: always store the wire form
       const wireRe = this.toWireRepoEvent(ev);
-      this.db.putEvents(room.roomId, [wireRe]).catch(() => {
+      await this.db.putEvents(room.roomId, [wireRe]).catch(() => {
         console.warn('[MatrixDataLayer] failed to persist timeline event', wireRe);
       });
 
-      // If the event decrypts later, re-emit a fresh event for UI (do not rewrite DB)
+      this.repoEventEmitter.emit(re, room);
+
       const onDecrypted = async () => {
         if (ev.isDecryptionFailure()) return;
         try {
@@ -335,7 +387,8 @@ export class MatrixDataLayer {
       try {
         ev.on(MatrixEventEvent.Decrypted, onDecrypted);
       } catch {}
-    });
+      }
+    );
   }
 
   /** Attempt to decrypt RepoEvents in-memory using the SDK (no DB writes). */
@@ -419,11 +472,13 @@ export class MatrixDataLayer {
         membership?: string;
       }[] = [];
 
+      const existing = await this.db.rooms.get(room.roomId);
       this.db.rooms.put({
         id: room.roomId,
         name: room.name || room.roomId,
         latestTimestamp: room.getLastActiveTimestamp(),
         avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
+        unreadCount: existing?.unreadCount ?? 0,
       });
 
       for (const m of members) {

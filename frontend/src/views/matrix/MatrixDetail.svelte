@@ -33,7 +33,12 @@
     if (!messagesContainer) return;
     const near = isNearBottom(messagesContainer);
     showJumpToBottom = !near;
-    if (near) unreadCount = 0;
+    if (near) {
+      unreadCount = 0;
+      if (item?.id) {
+        matrixViewModel.markRoomAsRead(item.id);
+      }
+    }
   }
 
   async function scrollToBottom() {
@@ -69,6 +74,8 @@
         messagesContainer.style.scrollBehavior = 'smooth';
       }
       await ensureScrollable();
+      updateJumpVisibility();
+      matrixViewModel.markRoomAsRead(roomId);
     } catch (e) {
       console.debug(`[MatrixDetail][fetchMessages] ERROR:`, e);
     }

@@ -110,6 +110,11 @@ export class MatrixViewModel implements IModuleViewModel {
     return this.dataLayer.getRoomMembers(roomId);
   }
 
+  public async markRoomAsRead(roomId: string): Promise<void> {
+    await this.dataLayer.markRoomAsRead(roomId);
+    this.timelineSvc.setRoomUnread(roomId, 0);
+  }
+
   // Media cache management
   public clearMediaCache(): void {
     this.timelineSvc.clearMediaCache();

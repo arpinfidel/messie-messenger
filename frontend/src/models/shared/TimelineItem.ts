@@ -6,6 +6,7 @@ export interface TimelineItem {
   avatarUrl?: string; // optional HTTP avatar for the item
   content?: string;
   timestamp: number;
+  unreadCount?: number;
   completed?: boolean;
   dueDate?: number;
   position?: string;

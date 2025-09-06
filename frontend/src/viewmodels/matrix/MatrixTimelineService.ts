@@ -84,6 +84,7 @@ export class MatrixTimelineService {
           description,
           avatarUrl,
           timestamp,
+          unreadCount: room.unreadCount || 0,
         })
       );
     }
@@ -147,6 +148,7 @@ export class MatrixTimelineService {
     this.data.onRepoEvent(async (ev, room) => {
       const rooms = await this.data.getRoom(room.roomId);
       const fallbackTs = rooms?.latestTimestamp || 0;
+      const unreadCount = rooms?.unreadCount || 0;
       const timestamp = ev?.originServerTs ?? fallbackTs;
       const id = room.roomId;
       const title = room.name || room.roomId;
@@ -171,6 +173,7 @@ export class MatrixTimelineService {
           (get(this._timelineItems).find((it) => it.id === id) as IMatrixTimelineItem | undefined)
             ?.avatarUrl,
         timestamp,
+        unreadCount,
       });
 
       this.bufferTimelineUpdate(updated);
@@ -185,6 +188,24 @@ export class MatrixTimelineService {
     } else if ((this.nextTimeline[idx]?.timestamp ?? 0) <= ev.timestamp) {
       this.nextTimeline[idx] = ev;
     }
+  }
+
+  setRoomUnread(roomId: string, unreadCount: number) {
+    const existing = this.nextTimeline.find((it) => it.id === roomId);
+    if (!existing) return;
+    const updated = new MatrixTimelineItem({
+      id: existing.id,
+      type: existing.type,
+      title: existing.title,
+      description: existing.description,
+      avatarUrl: existing.avatarUrl,
+      timestamp: existing.timestamp,
+      rawData: (existing as any).rawData,
+      sender: (existing as any).sender,
+      unreadCount,
+    });
+    this.bufferTimelineUpdate(updated);
+    this.scheduleFlush();
   }
 
   async flushTimeline() {

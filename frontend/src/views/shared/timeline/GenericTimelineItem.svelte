@@ -106,12 +106,19 @@
     <div class="flex-grow">
       <!-- First row: room name, then date and item type capsule stacked vertically -->
       <div class="mb-1 flex items-start justify-between">
-        <!-- Title (Room Name) -->
-        <h3
-          class="max-w-[calc(100%-100px)] truncate text-base font-semibold text-gray-900 transition-colors group-hover:text-gray-700 dark:text-gray-100 dark:group-hover:text-gray-200"
-        >
-          {item.title}
-        </h3>
+        <div class="flex max-w-[calc(100%-100px)] items-center">
+          <h3
+            class="truncate text-base font-semibold text-gray-900 transition-colors group-hover:text-gray-700 dark:text-gray-100 dark:group-hover:text-gray-200"
+          >
+            {item.title}
+          </h3>
+          {#if item.unreadCount && item.unreadCount > 0}
+            <span
+              class="ml-2 rounded-full bg-blue-600 px-2 text-xs text-white"
+              >{item.unreadCount > 99 ? '99+' : item.unreadCount}</span
+            >
+          {/if}
+        </div>
 
         <!-- Date and Item Type Capsule -->
         <div class="flex-shrink-0 text-right">

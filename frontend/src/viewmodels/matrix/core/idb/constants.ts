@@ -24,6 +24,7 @@ export interface DbRoom {
   name: string;
   latestTimestamp?: number;
   avatarMxcUrl?: string;
+  unreadCount?: number;
 }
 
 export type TokenRecord = { roomId: string; backward: string | null };
