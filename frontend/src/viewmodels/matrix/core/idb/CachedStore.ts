@@ -16,7 +16,7 @@ export class CachedStore<K, V> {
   async put(value: V): Promise<void> {
     await this.conn.init();
     await this.conn.tx<void>(this.store, 'readwrite', (s) => {
-      s.put(value as any);
+      s.put(value);
     });
     this.cache.set(this.keyFn(value), value);
   }
@@ -26,7 +26,7 @@ export class CachedStore<K, V> {
     await this.conn.init();
     await this.conn.tx<void>(this.store, 'readwrite', (s) => {
       for (const v of values) {
-        s.put(v as any);
+        s.put(v);
       }
     });
     for (const v of values) this.cache.set(this.keyFn(v), v);
@@ -36,7 +36,7 @@ export class CachedStore<K, V> {
     if (this.cache.has(key)) return this.cache.get(key);
     await this.conn.init();
     return this.conn.tx<V | undefined>(this.store, 'readonly', (s) => {
-      const req = s.get(key as any);
+      const req = s.get(key as unknown as IDBValidKey);
       return new Promise<V | undefined>((resolve, reject) => {
         req.onsuccess = () => {
           const result = req.result as V | undefined;
@@ -44,7 +44,7 @@ export class CachedStore<K, V> {
           resolve(result);
         };
         req.onerror = () => reject(req.error);
-      }) as any;
+      }) as unknown as V | undefined;
     });
   }
 
@@ -59,7 +59,7 @@ export class CachedStore<K, V> {
           resolve(res);
         };
         req.onerror = () => reject(req.error);
-      }) as any;
+      }) as unknown as V[];
     });
   }
 }

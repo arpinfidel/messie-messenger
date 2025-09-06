@@ -1,6 +1,5 @@
 import * as matrixSdk from 'matrix-js-sdk';
-import { MatrixEvent } from 'matrix-js-sdk';
-import { MatrixEventEvent } from 'matrix-js-sdk/lib/models/event';
+import { MatrixEvent, MatrixEventEvent, type IEvent } from 'matrix-js-sdk/lib/models/event';
 import type { RepoEvent } from './TimelineRepository';
 import { Direction } from 'matrix-js-sdk/lib/models/event-timeline';
 import { IndexedDbCache } from './IndexedDbCache';
@@ -52,7 +51,6 @@ export class MatrixDataLayer {
 
   private avatarResolver: AvatarResolver;
   private mediaResolver: MediaResolver;
-  private: matrixSdk.MatrixClient | null = null;
   private repoEventEmitter = new RepoEventEmitter();
 
   constructor(private readonly opts: MatrixDataLayerOptions) {
@@ -202,10 +200,10 @@ export class MatrixDataLayer {
     return {
       eventId: ev.getId() ?? '',
       roomId: ev.getRoomId() ?? '',
-      type: (ev as any).getWireType?.() ?? ev.getType(),
+      type: (ev as MatrixEvent).getWireType?.() ?? ev.getType(),
       sender: ev.getSender() ?? '',
       originServerTs: ev.getTs(),
-      content: (ev as any).getWireContent?.() ?? ev.getContent(),
+      content: (ev as MatrixEvent).getWireContent?.() ?? ev.getContent(),
       unsigned: ev.getUnsigned(),
     };
   }
@@ -330,7 +328,7 @@ export class MatrixDataLayer {
           if (updated) this.repoEventEmitter.emit(updated, room);
         } finally {
           try {
-            (ev as any).removeListener?.(MatrixEventEvent.Decrypted, onDecrypted);
+            ev.off(MatrixEventEvent.Decrypted, onDecrypted);
           } catch {}
         }
       };
@@ -350,7 +348,7 @@ export class MatrixDataLayer {
     for (let i = 0; i < events.length; i++) {
       const re = events[i];
       if (re.type !== matrixSdk.EventType.RoomMessageEncrypted) continue;
-      const raw: any = {
+      const raw: Partial<IEvent> = {
         event_id: re.eventId,
         type: re.type,
         content: re.content,
@@ -412,7 +410,7 @@ export class MatrixDataLayer {
     for (const r of rooms.slice(0, limit)) {
       const room = this.client.getRoom(r.id);
       if (!room) continue;
-      const members = room.getMembers()?.filter((m) => (m as any).membership === 'join') || [];
+      const members = room.getMembers()?.filter((m) => m.membership === 'join') || [];
 
       const updatedMembers: {
         userId: string;

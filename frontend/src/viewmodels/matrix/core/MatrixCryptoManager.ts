@@ -147,7 +147,11 @@ export class MatrixCryptoManager {
 
   async debugSecrets(): Promise<void> {
     try {
-      const ss: any = (this.client as any).secretStorage;
+      interface SecretStorage {
+        getDefaultKeyId?: () => Promise<string | null>;
+        has?: (name: string) => Promise<boolean>;
+      }
+      const ss = (this.client as unknown as { secretStorage?: SecretStorage }).secretStorage;
       if (!ss) {
         console.log('[SSSS] secretStorage undefined');
         return;
@@ -165,7 +169,11 @@ export class MatrixCryptoManager {
     hasSSSS: boolean;
     hasBackupSecret: boolean;
   }> {
-    const ss: any = (this.client as any)?.secretStorage;
+    interface SecretStorage {
+      getDefaultKeyId?: () => Promise<string | null>;
+      has?: (name: string) => Promise<boolean>;
+    }
+    const ss = (this.client as unknown as { secretStorage?: SecretStorage })?.secretStorage;
     if (!ss) return { hasSSSS: false, hasBackupSecret: false };
     const defaultKey = await ss.getDefaultKeyId?.();
     const hasSSSS = !!defaultKey;
@@ -282,7 +290,7 @@ export class MatrixCryptoManager {
           return;
         }
         if (phase === VerificationPhase.Cancelled) {
-          const reason = (vreq as any).cancellationCode || 'unknown';
+          const reason = vreq.cancellationCode || 'unknown';
           console.error('[Verification] Cancelled:', reason);
           vreq.off(VerificationRequestEvent.Change, onChange);
           reject(new Error(`Verification cancelled: ${reason}`));
@@ -292,7 +300,9 @@ export class MatrixCryptoManager {
       vreq.on(VerificationRequestEvent.Change, onChange);
     });
 
-    (vreq as any).emit?.(VerificationRequestEvent.Change);
+    try {
+      vreq.emit(VerificationRequestEvent.Change);
+    } catch {}
 
     const TIMEOUT_MS = 2 * 60 * 1000;
     const withTimeout = new Promise<void>((resolve, reject) => {
@@ -316,7 +326,7 @@ export class MatrixCryptoManager {
     } catch (err) {
       console.error('[Verification] Failed:', err);
       try {
-        await (vreq as any).cancel?.();
+        await vreq.cancel();
       } catch {}
     }
   }

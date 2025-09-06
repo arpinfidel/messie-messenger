@@ -2,6 +2,7 @@ import { type CryptoCallbacks } from 'matrix-js-sdk/lib/crypto-api';
 import * as matrixSdk from 'matrix-js-sdk';
 import { decodeRecoveryKey } from 'matrix-js-sdk/lib/crypto-api/recovery-key';
 import { logger } from 'matrix-js-sdk/lib/logger.js';
+import loglevel from 'loglevel';
 import { type Writable } from 'svelte/store';
 import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
 import { type IMatrixTimelineItem } from '@/viewmodels/matrix/MatrixTimelineItem';
@@ -124,7 +125,10 @@ export class MatrixViewModel implements IModuleViewModel {
   }
   /* ---------- Orchestration ---------- */
   async initialize(): Promise<void> {
-    (logger as any).setLevel('warn');
+    // Set global log level via loglevel directly (avoids unsafe casts)
+    try {
+      loglevel.setLevel('warn');
+    } catch {}
     console.time('[MatrixVM] initialize total');
 
     const restored = this.sessionStore.restore();

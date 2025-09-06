@@ -15,12 +15,11 @@ export class MetaStore {
   async getMeta<T = any>(key: string): Promise<T | undefined> {
     await this.conn.init();
     return this.conn.tx<T | undefined>(STORES.META, 'readonly', (s) => {
-      const req = s.get(key);
+      const req = s.get(key) as IDBRequest<MetaRecord | undefined>;
       return new Promise<T | undefined>((resolve, reject) => {
-        req.onsuccess = () => resolve((req.result as any)?.value as T);
+        req.onsuccess = () => resolve((req.result?.value as T) ?? undefined);
         req.onerror = () => reject(req.error);
-      }) as any;
+      }) as unknown as T | undefined;
     });
   }
 }
-

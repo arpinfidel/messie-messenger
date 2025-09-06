@@ -146,7 +146,7 @@ export class TodoViewModel implements IModuleViewModel {
       dueDate: patch.dueDate ?? cur.dueDate,
       completed: patch.completed ?? !!cur.completed,
       // CRITICAL: always include position so PUT doesn't wipe it
-      position: (patch as any).position ?? (cur as any).position,
+      position: patch.position ?? cur.position,
     };
 
     return payload;
@@ -219,10 +219,10 @@ export class TodoViewModel implements IModuleViewModel {
       let nextPosition: string | null = null;
 
       if (prevItemId) {
-        prevPosition = (todoItems.find((i) => i.id === prevItemId) as any)?.position || null;
+        prevPosition = todoItems.find((i) => i.id === prevItemId)?.position || null;
       }
       if (nextItemId) {
-        nextPosition = (todoItems.find((i) => i.id === nextItemId) as any)?.position || null;
+        nextPosition = todoItems.find((i) => i.id === nextItemId)?.position || null;
       }
 
       const position = generatePosition(prevPosition, nextPosition);

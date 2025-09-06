@@ -15,11 +15,11 @@ export class TokensStore {
   async getBackwardToken(roomId: string): Promise<string | null | undefined> {
     await this.conn.init();
     return this.conn.tx<string | null | undefined>(STORES.TOKENS, 'readonly', (s) => {
-      const req = s.get(roomId);
+      const req = s.get(roomId) as IDBRequest<TokenRecord | undefined>;
       return new Promise<string | null | undefined>((resolve, reject) => {
-        req.onsuccess = () => resolve((req.result as any)?.backward ?? null);
+        req.onsuccess = () => resolve(req.result?.backward ?? null);
         req.onerror = () => reject(req.error);
-      }) as any;
+      }) as unknown as string | null | undefined;
     });
   }
 
@@ -30,4 +30,3 @@ export class TokensStore {
     });
   }
 }
-

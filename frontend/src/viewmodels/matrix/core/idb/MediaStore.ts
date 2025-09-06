@@ -14,7 +14,7 @@ export class MediaStore {
   }): Promise<void> {
     await this.conn.init();
     await this.conn.tx<void>(STORES.MEDIA, 'readwrite', (s) => {
-      s.put(rec as any);
+      s.put(rec);
     });
   }
 
@@ -25,23 +25,28 @@ export class MediaStore {
   > {
     await this.conn.init();
     return this.conn.tx(STORES.MEDIA, 'readonly', (s) => {
-      const req = s.get(key);
-      return new Promise((resolve, reject) => {
-        req.onsuccess = () => resolve((req.result as any) || undefined);
+      const req = s.get(key) as IDBRequest<
+        | { status: number; key: string; ts: number; bytes: number; mime: string; blob: Blob }
+        | undefined
+      >;
+      return new Promise<
+        { status: number; key: string; ts: number; bytes: number; mime: string; blob: Blob } | undefined
+      >((resolve, reject) => {
+        req.onsuccess = () => resolve(req.result ?? undefined);
         req.onerror = () => reject(req.error);
-      }) as any;
+      }) as unknown as { status: number; key: string; ts: number; bytes: number; mime: string; blob: Blob } | undefined;
     });
   }
 
   async pruneMedia(maxEntries: number): Promise<void> {
     await this.conn.init();
     const total = await this.conn.tx<number>(STORES.MEDIA, 'readonly', (s) => {
-      const req = (s as any).getAllKeys?.();
+      const req = (s as IDBObjectStore & { getAllKeys?: () => IDBRequest<IDBValidKey[]> }).getAllKeys?.();
       if (req) {
         return new Promise<number>((resolve, reject) => {
-          req.onsuccess = () => resolve(((req.result as any[]) || []).length);
+          req.onsuccess = () => resolve(((req.result as IDBValidKey[]) || []).length);
           req.onerror = () => reject(req.error);
-        }) as any;
+        }) as unknown as number;
       }
       return new Promise<number>((resolve, reject) => {
         let count = 0;
@@ -57,7 +62,7 @@ export class MediaStore {
         (s.transaction as IDBTransaction).oncomplete = () => resolve(count);
         (s.transaction as IDBTransaction).onerror = () =>
           reject((s.transaction as IDBTransaction).error);
-      }) as any;
+      }) as unknown as number;
     });
 
     const over = Math.max(0, (total || 0) - maxEntries);

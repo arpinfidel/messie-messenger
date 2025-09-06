@@ -44,7 +44,7 @@ export class MembersStore {
           avatarUrl: m.avatarUrl,
           membership: m.membership,
         };
-        s.put(rec as any);
+        s.put(rec);
       }
     });
   }
