@@ -61,7 +61,10 @@
   async function fetchMessages(roomId: string) {
     try {
       console.debug(`[MatrixDetail][fetchMessages] Fetching initial messages for room=${roomId}`);
-      const { messages: fetched, nextBatch: newNextBatch } = await matrixViewModel.getRoomMessages(roomId, null);
+      const { messages: fetched, nextBatch: newNextBatch } = await matrixViewModel.getRoomMessages(
+        roomId,
+        null
+      );
       messages.set(fetched);
       nextBatch = newNextBatch;
       console.debug(`[MatrixDetail][fetchMessages] got ${fetched.length}, next=${newNextBatch}`);
@@ -83,7 +86,9 @@
 
   onDestroy(() => {
     // Release any blob URLs held by the media cache to avoid memory leaks
-    try { matrixViewModel.clearMediaCache(); } catch {}
+    try {
+      matrixViewModel.clearMediaCache();
+    } catch {}
   });
 
   async function ensureScrollable() {
@@ -123,7 +128,8 @@
     const prevScrollTop = messagesContainer?.scrollTop ?? 0;
 
     try {
-      const { messages: olderMessages, nextBatch: newNextBatch } = await matrixViewModel.getRoomMessages(item.id, nextBatch);
+      const { messages: olderMessages, nextBatch: newNextBatch } =
+        await matrixViewModel.getRoomMessages(item.id, nextBatch);
 
       console.debug(
         `[MatrixDetail][loadMoreMessages] got ${olderMessages?.length || 0} older messages, new nextBatch=${newNextBatch}`
@@ -140,34 +146,40 @@
 
         // Wait for DOM to update
         await tick();
-        
+
         // Only adjust scroll if we actually got NEW messages (not duplicates)
         if (actualNewMessages > 0 && messagesContainer) {
-          console.debug(`[MatrixDetail][loadMoreMessages] Got ${actualNewMessages} new messages, adjusting scroll`);
-          
+          console.debug(
+            `[MatrixDetail][loadMoreMessages] Got ${actualNewMessages} new messages, adjusting scroll`
+          );
+
           // Disable smooth scrolling temporarily
           const originalScrollBehavior = messagesContainer.style.scrollBehavior;
           messagesContainer.style.scrollBehavior = 'auto';
-          
+
           // Use height delta approach for more precise positioning
           const newScrollHeight = messagesContainer.scrollHeight;
           const heightDelta = newScrollHeight - prevScrollHeight;
           const newScrollTop = prevScrollTop + heightDelta;
-          
+
           console.debug(
             `[MatrixDetail][loadMoreMessages] Height delta adjustment: prevHeight=${prevScrollHeight}, newHeight=${newScrollHeight}, heightDelta=${heightDelta}, newScrollTop=${newScrollTop}`
           );
-          
+
           // Set the new scroll position
           messagesContainer.scrollTop = Math.max(0, newScrollTop);
-          
+
           // Restore original scroll behavior
           messagesContainer.style.scrollBehavior = originalScrollBehavior;
         } else if (actualNewMessages === 0) {
-          console.debug(`[MatrixDetail][loadMoreMessages] No new messages added (duplicates filtered), keeping scroll position unchanged`);
+          console.debug(
+            `[MatrixDetail][loadMoreMessages] No new messages added (duplicates filtered), keeping scroll position unchanged`
+          );
         }
       } else {
-        console.debug(`[MatrixDetail][loadMoreMessages] No messages returned from API, keeping scroll position unchanged`);
+        console.debug(
+          `[MatrixDetail][loadMoreMessages] No messages returned from API, keeping scroll position unchanged`
+        );
       }
 
       nextBatch = newNextBatch;
@@ -193,13 +205,13 @@
     scrollHandler = () => {
       // Update jump-to-bottom visibility
       updateJumpVisibility();
-      
+
       // Don't trigger loading if already loading or no more messages
       if (isLoadingOlderMessages || !nextBatch || !messagesContainer) return;
-      
+
       const { scrollTop, scrollHeight, clientHeight } = messagesContainer;
       const scrollPercentage = scrollTop / Math.max(1, scrollHeight - clientHeight);
-      
+
       if (scrollPercentage < scrollThreshold) {
         console.debug(
           `[MatrixDetail][ScrollHandler] Near top (${(scrollPercentage * 100).toFixed(1)}%) → loadMoreMessages()`
@@ -226,15 +238,15 @@
 
       const wasNear = isNearBottom(messagesContainer);
       let newMessagesAtEnd = 0;
-      
+
       messages.update((curr) => {
         // Create a working copy
         let result = [...curr];
-        
-        newMsgs.forEach(newMsg => {
+
+        newMsgs.forEach((newMsg) => {
           // Check if message already exists (for updates)
-          const existingIndex = result.findIndex(m => m.id === newMsg.id);
-          
+          const existingIndex = result.findIndex((m) => m.id === newMsg.id);
+
           if (existingIndex !== -1) {
             // Update existing message in place
             result[existingIndex] = newMsg;
@@ -254,17 +266,17 @@
                 low = mid + 1;
               }
             }
-            
+
             // Insert at the correct position
             result.splice(insertIndex, 0, newMsg);
-            
+
             // Track if this is a new message at the end (for unread count)
             if (insertIndex === result.length - 1) {
               newMessagesAtEnd++;
             }
           }
         });
-        
+
         return result;
       });
 
@@ -308,22 +320,6 @@
 
     try {
       await matrixViewModel.sendMessage(roomId, content);
-      messages.update((curr) => [
-        ...curr,
-        {
-          id: `temp-${Date.now()}`,
-          sender: matrixViewModel.getCurrentUserId(),
-          senderDisplayName: matrixViewModel.getCurrentUserDisplayName(),
-          description: content,
-          timestamp: Date.now(),
-          isSelf: true,
-          msgtype: 'm.text',
-        },
-      ]);
-      await tick();
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
-      unreadCount = 0;
-      showJumpToBottom = false;
     } catch (e) {
       console.error('[MatrixDetail][sendMessage] Failed to send message:', e);
     } finally {
@@ -353,7 +349,9 @@
     {#if !nextBatch && $messages.length > 0}
       <div class="no-more-messages">
         <div class="flex items-center justify-center">
-          <div class="rounded-full bg-gray-200 px-4 py-2 text-sm text-gray-600 dark:bg-gray-700 dark:text-gray-400">
+          <div
+            class="rounded-full bg-gray-200 px-4 py-2 text-sm text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+          >
             Beginning of conversation
           </div>
         </div>
@@ -363,7 +361,8 @@
     <!-- Messages -->
     {#each $messages as message, index (message.id)}
       {@const isFirstInGroup = index === 0 || $messages[index - 1].sender !== message.sender}
-      {@const isLastInGroup = index === $messages.length - 1 || $messages[index + 1].sender !== message.sender}
+      {@const isLastInGroup =
+        index === $messages.length - 1 || $messages[index + 1].sender !== message.sender}
       <MessageItem {message} {isFirstInGroup} {isLastInGroup} />
     {/each}
 
@@ -423,7 +422,7 @@
     border-radius: 50%;
     animation: spin 1s linear infinite;
   }
-  
+
   .loading-spinner.small {
     width: 12px;
     height: 12px;
@@ -431,16 +430,20 @@
   }
 
   @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
   }
   /* Sticky wrapper: sticks the button to the bottom edge of the scroll area */
   .jump-to-bottom-wrap {
     position: sticky;
-    bottom: 0;               /* stick to bottom of the messages container */
+    bottom: 0; /* stick to bottom of the messages container */
     display: flex;
     justify-content: flex-end;
-    pointer-events: none;    /* let clicks pass through except on the button */
+    pointer-events: none; /* let clicks pass through except on the button */
   }
 
   /* The actual button is clickable */
@@ -454,17 +457,25 @@
     padding: 0.5rem 0.75rem;
     background: linear-gradient(135deg, var(--color-bubble-self), var(--color-accent, #4f46e5));
     color: #fff;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.25);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.25);
     cursor: pointer;
     opacity: 0.95;
-    transition: transform 120ms ease, opacity 120ms ease;
+    transition:
+      transform 120ms ease,
+      opacity 120ms ease;
   }
 
-  .jump-to-bottom:hover { transform: translateY(-1px); opacity: 1; }
-  .jump-to-bottom:active { transform: translateY(0); }
+  .jump-to-bottom:hover {
+    transform: translateY(-1px);
+    opacity: 1;
+  }
+  .jump-to-bottom:active {
+    transform: translateY(0);
+  }
 
   .jump-to-bottom .icon {
-    width: 20px; height: 20px;
+    width: 20px;
+    height: 20px;
     fill: currentColor;
   }
 
@@ -476,7 +487,7 @@
     font-size: 0.75rem;
     line-height: 1.25rem;
     text-align: center;
-    background: rgba(255,255,255,0.2);
+    background: rgba(255, 255, 255, 0.2);
     color: #fff;
     backdrop-filter: saturate(180%) blur(6px);
   }
