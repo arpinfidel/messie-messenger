@@ -2,14 +2,9 @@ import { type CryptoCallbacks } from 'matrix-js-sdk/lib/crypto-api';
 import * as matrixSdk from 'matrix-js-sdk';
 import { decodeRecoveryKey } from 'matrix-js-sdk/lib/crypto-api/recovery-key';
 import { logger } from 'matrix-js-sdk/lib/logger.js';
-
-import { writable, type Writable } from 'svelte/store';
-
+import { type Writable } from 'svelte/store';
 import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
-import {
-  MatrixTimelineItem,
-  type IMatrixTimelineItem,
-} from '@/viewmodels/matrix/MatrixTimelineItem';
+import { type IMatrixTimelineItem } from '@/viewmodels/matrix/MatrixTimelineItem';
 import { matrixSettings } from '@/viewmodels/matrix/MatrixSettings';
 import {
   MatrixTimelineService,
@@ -17,7 +12,6 @@ import {
 } from '@/viewmodels/matrix/MatrixTimelineService';
 import { AvatarService } from './core/AvatarService';
 import type { RepoEvent } from './core/TimelineRepository';
-
 import { MatrixSessionStore, type MatrixSessionData } from './core/MatrixSessionStore';
 import { MatrixClientManager } from './core/MatrixClientManager';
 import { OutgoingMessageQueue } from './core/OutgoingMessageQueue';
@@ -110,7 +104,7 @@ export class MatrixViewModel implements IModuleViewModel {
 
   public async getRoomMembers(roomId: string) {
     try {
-      await this.dataLayer.refreshRoomMembers(roomId);
+      // await this.dataLayer.refreshRoomMembers(roomId);
     } catch {}
     return this.dataLayer.getRoomMembers(roomId);
   }
@@ -119,12 +113,6 @@ export class MatrixViewModel implements IModuleViewModel {
   public clearMediaCache(): void {
     this.timelineSvc.clearMediaCache();
   }
-
-  // Query cached events by room directly from IndexedDB cache (new)
-  public async queryCachedRoomEvents(roomId: string, limit = 50, beforeTs?: number) {
-    return this.dataLayer.queryEventsByRoom(roomId, limit, beforeTs);
-  }
-
   public async verifyCurrentDevice(): Promise<void> {
     await this.cryptoMgr.verifyCurrentDevice();
   }
@@ -145,39 +133,19 @@ export class MatrixViewModel implements IModuleViewModel {
       return;
     }
 
-    // Load persistent cache via data layer (rooms, events, tokens)
-    const hadCache = this.dataLayer.loadFromCache(5, () => {
-      try {
-        console.log('[MatrixVM] onHydrated → immediate cache-only render');
-        // Render without waiting for any timers or client readiness
-        this.timelineSvc.fetchAndSetTimelineItems();
-        this.hydrationState = 'ready';
-        console.log('[MatrixVM] onHydrated → scheduleTimelineRefresh(0)');
-      } catch (err) {
-        console.error('onHydrated error:', err);
-      }
+    await this.dataLayer.init();
+    await this.timelineSvc.initTimeline().catch((err) => {
+      console.warn('Failed to initialize timeline:', err);
     });
 
-    console.time('[MatrixVM] cryptoCallbacks setup');
-    const cryptoCallbacks: CryptoCallbacks = {};
-    if (matrixSettings.recoveryKey?.trim()) {
-      cryptoCallbacks.getSecretStorageKey = async ({ keys }: { keys: Record<string, any> }) => {
-        const keyId = Object.keys(keys)[0];
-        if (!keyId) return null;
-        const decoded = await decodeRecoveryKey(matrixSettings.recoveryKey!.trim());
-        return [keyId, decoded];
-      };
-    }
-    console.timeEnd('[MatrixVM] cryptoCallbacks setup');
-
     console.time('[MatrixVM] create client');
-    await this.clientMgr.createFromSession(restored, cryptoCallbacks);
+    const getRecoveryKey = () => matrixSettings.recoveryKey?.trim();
+    await this.clientMgr.createFromSession(restored, getRecoveryKey);
     console.timeEnd('[MatrixVM] create client');
 
     // Initialize current user info in our store (display name may be filled later if desired)
     if (restored.userId) {
       this.dataLayer.setCurrentUser(restored.userId);
-      this.dataLayer.saveToCache();
     }
 
     console.time('[MatrixVM] initRustCrypto');
@@ -226,9 +194,6 @@ export class MatrixViewModel implements IModuleViewModel {
     await this.clientMgr.waitForPrepared();
     console.timeEnd('[MatrixVM] waitForPrepared');
 
-    // Populate rooms into the store once the client is prepared
-    this.dataLayer.ingestInitialRooms();
-
     this.hydrationState = 'decrypting';
     console.time('[MatrixVM] crypto.ensureVerificationAndKeys');
     await this.cryptoMgr.ensureVerificationAndKeys();
@@ -241,10 +206,6 @@ export class MatrixViewModel implements IModuleViewModel {
     console.time('[MatrixVM] crypto.restoreFromRecoveryKey');
     await this.cryptoMgr.restoreFromRecoveryKey();
     console.timeEnd('[MatrixVM] crypto.restoreFromRecoveryKey');
-
-    console.time('[MatrixVM] fetch timeline items');
-    await this.timelineSvc.fetchAndSetTimelineItems();
-    console.timeEnd('[MatrixVM] fetch timeline items');
 
     this.hydrationState = 'ready';
     console.timeEnd('[MatrixVM] initialize total');

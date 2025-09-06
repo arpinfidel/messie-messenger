@@ -1,5 +1,5 @@
 import * as matrixSdk from 'matrix-js-sdk';
-import type { CryptoCallbacks } from 'matrix-js-sdk/lib/crypto-api';
+import { decodeRecoveryKey, type CryptoCallbacks } from 'matrix-js-sdk/lib/crypto-api';
 import type { MatrixSessionData } from './MatrixSessionStore';
 import { ClientEvent } from 'matrix-js-sdk';
 
@@ -17,10 +17,7 @@ export class MatrixClientManager {
     return this.started;
   }
 
-  async createFromSession(
-    session: MatrixSessionData,
-    cryptoCallbacks?: CryptoCallbacks | Record<string, unknown>
-  ) {
+  async createFromSession(session: MatrixSessionData, getRecoveryKey?: () => string | null) {
     const store = new matrixSdk.IndexedDBStore({
       indexedDB: window.indexedDB,
       dbName: 'matrix-js-sdk',
@@ -31,7 +28,15 @@ export class MatrixClientManager {
       accessToken: session.accessToken,
       userId: session.userId,
       deviceId: session.deviceId,
-      cryptoCallbacks: cryptoCallbacks as CryptoCallbacks | undefined,
+      cryptoCallbacks: {
+        getSecretStorageKey: async ({ keys }: { keys: Record<string, any> }) => {
+          if (!getRecoveryKey || !getRecoveryKey()) return null;
+          const keyId = Object.keys(keys)[0];
+          if (!keyId) return null;
+          const decoded = await decodeRecoveryKey(getRecoveryKey()!.trim());
+          return [keyId, decoded];
+        },
+      },
       store,
     };
 

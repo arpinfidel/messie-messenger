@@ -52,34 +52,29 @@ export class MatrixTimelineService {
     return this._timelineItems;
   }
 
-  /** Unified room list with their latest message preview.
-   * Compute strictly from data provided by MatrixDataLayer instead of querying the SDK.
-   */
-  async fetchAndSetTimelineItems(): Promise<void> {
+  async initTimeline(): Promise<void> {
     const rooms = await this.data.getRooms();
     // Sort rooms by latest activity and keep only top N
     const sortedRooms = rooms
       .slice()
       .sort((a, b) => (b.latestTimestamp ?? 0) - (a.latestTimestamp ?? 0));
-    console.log('[MatrixVM] Rooms from data layer:', sortedRooms);
     const limitedRooms = sortedRooms.slice(0, this.maxRooms);
 
-    console.log('[MatrixVM] fetchAndSetTimelineItems', limitedRooms);
-
     const items: IMatrixTimelineItem[] = [];
-    const currentItems = get(this._timelineItems) as IMatrixTimelineItem[];
+    const currentItems = this.nextTimeline;
+    const currentItemsByID = new Map(currentItems.map((it) => [it.id, it]));
+
     for (const room of limitedRooms) {
-      const last = (await this.data.queryEventsByRoom(room.id, 1))[0];
+      const lastEvent = (await this.data.getRoomEvents(room.id, null, 1, true)).events[0];
       let description = 'No recent messages';
       let timestamp = room.latestTimestamp || 0;
-      if (last) {
-        const preview = this.repoEventToPreview(last);
+      if (lastEvent) {
+        const preview = this.repoEventToPreview(lastEvent);
         description = preview.description;
-        timestamp = last.originServerTs || timestamp || 0;
+        timestamp = lastEvent.originServerTs || timestamp || 0;
       }
-      // Reuse previous avatar if any; resolve lazily in background
-      const prev = currentItems?.find((it) => it.id === room.id);
-      const avatarUrl = prev?.avatarUrl;
+      // get previous avatar if available
+      let avatarUrl: string | undefined = currentItemsByID.get(room.id)?.avatarUrl;
 
       items.push(
         new MatrixTimelineItem({
@@ -93,19 +88,26 @@ export class MatrixTimelineService {
       );
     }
 
-    // Sort and set immediately so UI renders fast
-    items.sort((a, b) => b.timestamp - a.timestamp);
-    this.nextTimeline = items.slice();
-    this.flushTimeline();
+    // for all timeline items, if new timestamp is older than existing, keep existing
+    // else replace
+    // if new item not in existing, add
+    for (const newItem of items) {
+      const existingIdx = this.nextTimeline.findIndex((it) => it.id === newItem.id);
+      if (existingIdx === -1) {
+        this.nextTimeline.push(newItem);
+      } else if ((this.nextTimeline[existingIdx]?.timestamp ?? 0) <= newItem.timestamp) {
+        this.nextTimeline[existingIdx] = newItem;
+      }
+    }
 
     // Resolve avatars in background with limited concurrency and patch items as they arrive
     const maxConcurrent = 6;
     let i = 0;
     const work = async () => {
-      while (i < limitedRooms.length) {
-        const idx = i++;
-        const room = limitedRooms[idx];
-        try {
+      try {
+        while (i < limitedRooms.length) {
+          const idx = i++;
+          const room = limitedRooms[idx];
           const url = await this.avatars.resolveRoomAvatar(room.id, room.avatarMxcUrl, {
             w: 64,
             h: 64,
@@ -128,7 +130,9 @@ export class MatrixTimelineService {
 
           this.bufferTimelineUpdate(updated);
           this.scheduleFlush();
-        } catch {}
+        }
+      } catch (e) {
+        console.warn('Error resolving room avatar:', e);
       }
     };
     // Kick off workers without awaiting completion
@@ -141,8 +145,8 @@ export class MatrixTimelineService {
   async handleEvent() {
     // await this.data.ingestLiveEvent(ev, room);
     this.data.onRepoEvent(async (ev, room) => {
-      const rooms = await this.data.getRooms();
-      const fallbackTs = rooms.find((r) => r.id === room.roomId)?.latestTimestamp || 0;
+      const rooms = await this.data.getRoom(room.roomId);
+      const fallbackTs = rooms?.latestTimestamp || 0;
       const timestamp = ev?.originServerTs ?? fallbackTs;
       const id = room.roomId;
       const title = room.name || room.roomId;
@@ -203,7 +207,7 @@ export class MatrixTimelineService {
     beforeTS: number | null,
     limit = 20
   ): Promise<{ messages: MatrixMessage[]; nextBatch: number | null }> {
-    const { events, firstTS } = await this.data.getRoomMessages(roomId, beforeTS, limit);
+    const { events, firstTS } = await this.data.getRoomEvents(roomId, beforeTS, limit);
     console.time(`[MatrixTimelineService] mapRepoEventsToMessages(${roomId})`);
     const messages = await this.mapRepoEventsToMessages(events);
     // Ensure chronological order (oldest first) for consumers

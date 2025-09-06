@@ -4,7 +4,7 @@ import { STORES, type DbMember } from './constants';
 export class MembersStore {
   constructor(private readonly conn: DbConnection) {}
 
-  async replaceRoomMembers(
+  async setRoomMembers(
     roomId: string,
     members: { userId: string; displayName?: string; avatarUrl?: string; membership?: string }[]
   ): Promise<void> {

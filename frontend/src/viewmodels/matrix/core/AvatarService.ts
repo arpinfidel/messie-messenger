@@ -58,10 +58,6 @@ export class AvatarService {
       if (mxc && !mxcs.includes(mxc)) mxcs.push(mxc);
       if (mxcs.length >= 3) break;
     }
-    if (mxcs.length === 0) {
-      return undefined;
-    }
-    if (mxcs.length === 1) return (await this.data.resolveAvatarMxc(mxcs[0], dims)) || undefined;
 
     // Compose N (2..3) avatars with stable layout seeded by room+mxcs
     const key = `${roomId}|${mxcs.sort().join('|')}`;
@@ -71,6 +67,13 @@ export class AvatarService {
     const urls = await Promise.all(mxcs.map((m) => this.data.resolveAvatarMxc(m, dims)));
     const resolved = urls.filter((u): u is string => !!u);
     if (resolved.length === 0) {
+      // console.debug(
+      //   '[AvatarService] no avatars resolved for room',
+      //   roomId,
+      //   'members',
+      //   members,
+      //   mxcs
+      // );
       return undefined;
     }
     if (resolved.length === 1) return resolved[0];

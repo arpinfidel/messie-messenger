@@ -51,11 +51,11 @@ export class IndexedDbCache {
   }
 
   // Members
-  replaceRoomMembers(
+  setRoomMembers(
     roomId: string,
-    members: { userId: string; displayName?: string; avatarUrl?: string; membership?: string }[]
+    members: { userId: string; displayName?: string; avatarMxcUrl?: string; membership?: string }[]
   ): Promise<void> {
-    return this.members.replaceRoomMembers(roomId, members);
+    return this.members.setRoomMembers(roomId, members);
   }
   getRoomMembers(roomId: string): Promise<DbMember[]> {
     return this.members.getRoomMembers(roomId);
