@@ -400,7 +400,7 @@ export class MatrixDataLayer {
   private handleUnreadNotifications(client: matrixSdk.MatrixClient) {
     const attach = (room: matrixSdk.Room) => {
       try {
-        room.on(matrixSdk.RoomEvent.UnreadNotifications, async () => {
+        const writeUnread = async () => {
           try {
             const total = room.getUnreadNotificationCount(
               (matrixSdk as any).NotificationCountType?.Total ?? undefined
@@ -416,7 +416,12 @@ export class MatrixDataLayer {
           } catch (err) {
             console.warn('[MatrixDataLayer] Failed to update unread from SDK', err);
           }
-        });
+        };
+
+        // Listen for future changes
+        room.on(matrixSdk.RoomEvent.UnreadNotifications, writeUnread);
+        // Seed initial value so first login reflects server state
+        void writeUnread();
       } catch {}
     };
 
@@ -475,6 +480,25 @@ export class MatrixDataLayer {
           content: mev.getContent(),
           unsigned: mev.getUnsigned(),
         };
+      } else {
+        // If the SDK knows about this event, subscribe for future decryption and re-emit
+        try {
+          const sdkEv = room.findEventById(re.eventId);
+          if (sdkEv) {
+            const onDecrypted = async () => {
+              if (sdkEv.isDecryptionFailure()) return;
+              try {
+                const updated = await this.toRepoEvent(sdkEv);
+                if (updated) this.repoEventEmitter.emit(updated, room);
+              } finally {
+                try {
+                  sdkEv.off(MatrixEventEvent.Decrypted, onDecrypted);
+                } catch {}
+              }
+            };
+            sdkEv.on(MatrixEventEvent.Decrypted, onDecrypted);
+          }
+        } catch {}
       }
     }
     return events;

@@ -230,7 +230,7 @@ export class MatrixViewModel implements IModuleViewModel {
       if (c) {
         const attach = (room: matrixSdk.Room) => {
           try {
-            room.on(matrixSdk.RoomEvent.UnreadNotifications, async () => {
+            const writeUnread = async () => {
               const total = room.getUnreadNotificationCount(
                 (matrixSdk as any).NotificationCountType?.Total ?? undefined
               ) as number;
@@ -238,7 +238,11 @@ export class MatrixViewModel implements IModuleViewModel {
               try {
                 await this.dataLayer.setRoomUnreadCount(room.roomId, total ?? 0);
               } catch {}
-            });
+            };
+            // Listen for future changes
+            room.on(matrixSdk.RoomEvent.UnreadNotifications, writeUnread);
+            // Seed initial UI state immediately on attach
+            void writeUnread();
           } catch {}
         };
         for (const r of c.getRooms() || []) attach(r);
