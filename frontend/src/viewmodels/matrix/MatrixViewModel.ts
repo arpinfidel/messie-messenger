@@ -175,7 +175,8 @@ export class MatrixViewModel implements IModuleViewModel {
             types: ['m.room.message', 'm.room.encrypted'],
           },
           state: { lazy_load_members: true },
-          ephemeral: { types: [] },
+          // Include receipts so cross-device read state propagates promptly
+          ephemeral: { types: ['m.receipt'] },
         },
         presence: { types: [] },
         event_format: 'client',
@@ -218,6 +219,28 @@ export class MatrixViewModel implements IModuleViewModel {
 
     this.hydrationState = 'ready';
     console.timeEnd('[MatrixVM] initialize total');
+
+    // Wire up unread notification listeners to update UI + persist in DB.
+    try {
+      const c = this.clientMgr.getClient();
+      if (c) {
+        const attach = (room: matrixSdk.Room) => {
+          try {
+            room.on(matrixSdk.RoomEvent.UnreadNotifications, async () => {
+              const total = room.getUnreadNotificationCount(
+                (matrixSdk as any).NotificationCountType?.Total ?? undefined
+              ) as number;
+              this.timelineSvc.setRoomUnread(room.roomId, total ?? 0);
+              try {
+                await this.dataLayer.setRoomUnreadCount(room.roomId, total ?? 0);
+              } catch {}
+            });
+          } catch {}
+        };
+        for (const r of c.getRooms() || []) attach(r);
+        c.on((matrixSdk as any).ClientEvent?.Room || 'Room', (room: matrixSdk.Room) => attach(room));
+      }
+    } catch {}
   }
 
   async login(homeserverUrl: string, username: string, password: string): Promise<void> {

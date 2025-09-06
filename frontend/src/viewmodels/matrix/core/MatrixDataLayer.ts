@@ -82,6 +82,7 @@ export class MatrixDataLayer {
     const c = this.client;
     if (!c) return;
     this.handleEvents(c);
+    this.handleUnreadNotifications(c);
     this.backgroundSync();
   }
 
@@ -389,6 +390,58 @@ export class MatrixDataLayer {
       } catch {}
       }
     );
+  }
+
+  /**
+   * Listen for unread notification changes from the SDK and keep our DB in sync.
+   * This ensures cross-device read state updates (e.g., when another device
+   * reads a room) are reflected locally.
+   */
+  private handleUnreadNotifications(client: matrixSdk.MatrixClient) {
+    const attach = (room: matrixSdk.Room) => {
+      try {
+        room.on(matrixSdk.RoomEvent.UnreadNotifications, async () => {
+          try {
+            const total = room.getUnreadNotificationCount(
+              (matrixSdk as any).NotificationCountType?.Total ?? undefined
+            ) as number;
+            const existing = await this.db.rooms.get(room.roomId);
+            await this.db.rooms.put({
+              id: room.roomId,
+              name: room.name || room.roomId,
+              latestTimestamp: existing?.latestTimestamp ?? room.getLastActiveTimestamp(),
+              avatarMxcUrl: room.getMxcAvatarUrl() || existing?.avatarMxcUrl,
+              unreadCount: total ?? 0,
+            });
+          } catch (err) {
+            console.warn('[MatrixDataLayer] Failed to update unread from SDK', err);
+          }
+        });
+      } catch {}
+    };
+
+    // Attach to existing rooms
+    try {
+      for (const r of client.getRooms() || []) attach(r);
+    } catch {}
+
+    // Attach to new rooms as they are discovered
+    try {
+      client.on((matrixSdk as any).ClientEvent?.Room || 'Room', (room: matrixSdk.Room) => attach(room));
+    } catch {}
+  }
+
+  /** Update a room's unread count in the local DB. */
+  async setRoomUnreadCount(roomId: string, count: number): Promise<void> {
+    const existing = await this.db.rooms.get(roomId);
+    if (!existing) return;
+    await this.db.rooms.put({
+      id: roomId,
+      name: existing.name || roomId,
+      latestTimestamp: existing.latestTimestamp ?? 0,
+      avatarMxcUrl: existing.avatarMxcUrl,
+      unreadCount: count,
+    });
   }
 
   /** Attempt to decrypt RepoEvents in-memory using the SDK (no DB writes). */
