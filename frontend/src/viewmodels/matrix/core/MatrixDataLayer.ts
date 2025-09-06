@@ -5,7 +5,7 @@ import { Direction } from 'matrix-js-sdk/lib/models/event-timeline';
 import { IndexedDbCache } from './IndexedDbCache';
 import { AvatarResolver } from './AvatarResolver';
 import { MediaResolver } from './MediaResolver';
-import type { DbUser } from './idb/constants';
+import type { DbMember, DbUser } from './idb/constants';
 import type { ImageContent } from 'matrix-js-sdk/lib/types';
 import { MatrixViewModel } from '../MatrixViewModel';
 
@@ -49,6 +49,27 @@ class UnreadEventEmitter {
   }
 }
 
+type ReadReceiptListener = (roomId: string, eventId: string, userId: string) => void;
+
+class ReadReceiptEventEmitter {
+  private listeners = new Set<ReadReceiptListener>();
+
+  on(listener: ReadReceiptListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  emit(roomId: string, eventId: string, userId: string) {
+    for (const l of this.listeners) {
+      try {
+        l(roomId, eventId, userId);
+      } catch (err) {
+        console.error('[MatrixDataLayer] ReadReceipt listener failed', err);
+      }
+    }
+  }
+}
+
 export interface MatrixDataLayerOptions {
   getClient: () => matrixSdk.MatrixClient | null;
   shouldIncludeEvent?: (ev: matrixSdk.MatrixEvent) => boolean;
@@ -72,6 +93,7 @@ export class MatrixDataLayer {
   private mediaResolver: MediaResolver;
   private repoEventEmitter = new RepoEventEmitter();
   private unreadEventEmitter = new UnreadEventEmitter();
+  private readReceiptEmitter = new ReadReceiptEventEmitter();
 
   constructor(private readonly opts: MatrixDataLayerOptions) {
     this.pageSize = opts.pageSize ?? 20;
@@ -102,11 +124,40 @@ export class MatrixDataLayer {
     return this.unreadEventEmitter.on(listener);
   }
 
+  onReadReceipt(listener: ReadReceiptListener): () => void {
+    return this.readReceiptEmitter.on(listener);
+  }
+
+  /**
+   * Compute the minimum read timestamp among other joined members in a room.
+   * Returns 0 if the client/room is not available yet.
+   */
+  async getMinOtherReadTs(roomId: string): Promise<number> {
+    try {
+      const self = this.currentUserId;
+      const members = await this.db.getRoomMembers(roomId);
+      console.log('[MatrixDataLayer] getMinOtherReadTs', roomId, members, self);
+      let min = Infinity;
+      for (const m of members) {
+        if (!m || m.userId === self) continue;
+        if (m.membership && m.membership !== 'join') continue;
+        const ts = m.lastReadTs || 0;
+        if (ts < min) min = ts;
+      }
+      if (min === Infinity) return 0;
+      return min;
+    } catch (e) {
+      console.warn('[MatrixDataLayer] getMinOtherReadTs failed', e);
+      return 0;
+    }
+  }
+
   bind(): void {
     const c = this.client;
     if (!c) return;
     this.handleEvents(c);
     this.handleUnreadNotifications(c);
+    this.handleReceipts(c);
     this.backgroundSync();
   }
 
@@ -205,11 +256,25 @@ export class MatrixDataLayer {
       console.warn(`[MatrixDataLayer] getRoomMembers(${roomId}) → room not found`);
       return [];
     }
-    const m = room.getMembers();
-    if (!m) {
+    const m = room.getMembers() || [];
+    if (!m || m.length === 0) {
       console.warn(`[MatrixDataLayer] getRoomMembers(${roomId}) → no members`);
+      // Do not overwrite cached members with empty set; return what we have
+      return members;
     }
-    const newMembers = Array.from(m);
+    const oldMembersById = members.reduce(
+      (acc, m) => {
+        acc[m.userId] = m;
+        return acc;
+      },
+      {} as Record<string, DbMember>
+    );
+    const newMembers = Array.from(m).map((m) => ({
+      ...m,
+      lastReadTs: oldMembersById[m.userId]?.lastReadTs || 0,
+    }));
+    console.log('[MatrixDataLayer] getRoomMembers', roomId, newMembers);
+
     await this.db.setRoomMembers(roomId, newMembers);
     return newMembers;
   }
@@ -466,6 +531,58 @@ export class MatrixDataLayer {
     );
   }
 
+  private async handleReceipts(client: matrixSdk.MatrixClient) {
+    client.on(matrixSdk.RoomEvent.Receipt, async (ev, room) => {
+      const content = ev.getContent() as any;
+      if (!room || !content) return;
+
+      const updates: Record<string, number> = {};
+
+      for (const [eventId, receiptTypes] of Object.entries<any>(content)) {
+        const reads = receiptTypes?.['m.read'];
+        if (!reads) continue;
+        for (const [userId, meta] of Object.entries<any>(reads)) {
+          updates[userId] = meta.ts;
+        }
+      }
+
+      // If there are no receipts in this payload, skip to avoid accidental wipes.
+      if (Object.keys(updates).length === 0) {
+        console.warn('[MatrixDataLayer] handleReceipts: empty receipt payload');
+        return;
+      }
+
+      // Single batch write to IDB for all user updates in this payload
+      const members = await this.db.getRoomMembers(room.roomId);
+      const updated = members.map((m) => ({
+        userId: m.userId,
+        displayName: m.displayName,
+        avatarUrl: m.avatarUrl,
+        membership: m.membership,
+        lastReadTs: Math.max(m.lastReadTs || 0, updates[m.userId] || 0),
+      }));
+      console.log('[MatrixDataLayer] handleReceipts', room.roomId, updated);
+      // Do not write if we have no members yet to merge into; seeding will happen via syncRoom.
+      if (!members.length || !updated.length) {
+        console.warn('[MatrixDataLayer] handleReceipts: no members to update', members);
+        // Proactively seed members to avoid staying empty
+        try {
+          void this.syncRoom(room.roomId);
+        } catch {}
+      } else {
+        await this.db.setRoomMembers(room.roomId, updated);
+      }
+
+      for (const [eventId, receiptTypes] of Object.entries<any>(content)) {
+        const reads = receiptTypes?.['m.read'];
+        if (!reads) continue;
+        for (const [userId, meta] of Object.entries<any>(reads)) {
+          this.readReceiptEmitter.emit(room.roomId, eventId, userId);
+        }
+      }
+    });
+  }
+
   /** Update a room's unread count in the local DB. */
   async setRoomUnreadCount(roomId: string, count: number): Promise<void> {
     const existing = await this.db.rooms.get(roomId);
@@ -528,28 +645,6 @@ export class MatrixDataLayer {
     return events;
   }
 
-  /** Force-reconcile unread counts from SDK into DB and emit changes. */
-  async reconcileUnreadFromSdk(): Promise<void> {
-    await this.opts.waitForPrepared();
-    const c = this.client;
-    if (!c) return;
-    const rooms = c.getRooms() || [];
-    for (const room of rooms) {
-      const total = room.getUnreadNotificationCount(
-        (matrixSdk as any).NotificationCountType?.Total ?? undefined
-      ) as number;
-      const existing = await this.db.rooms.get(room.roomId);
-      await this.db.rooms.put({
-        id: room.roomId,
-        name: room.name || room.roomId,
-        latestTimestamp: existing?.latestTimestamp ?? room.getLastActiveTimestamp(),
-        avatarMxcUrl: room.getMxcAvatarUrl() || existing?.avatarMxcUrl,
-        unreadCount: total ?? 0,
-      });
-      this.unreadEventEmitter.emit(room.roomId, total ?? 0);
-    }
-  }
-
   async backgroundSync() {
     await this.opts.waitForPrepared();
     const client = this.client;
@@ -582,49 +677,81 @@ export class MatrixDataLayer {
     if (!this.client) return;
 
     if (limit === 0) limit = rooms.length;
-
     for (const r of rooms.slice(0, limit)) {
-      const room = this.client.getRoom(r.id);
-      if (!room) continue;
-      const members = room.getMembers()?.filter((m) => m.membership === 'join') || [];
+      await this.syncRoom(r.id);
+    }
+  }
 
-      const updatedMembers: {
-        userId: string;
-        displayName?: string;
-        avatarMxcUrl?: string;
-        membership?: string;
-      }[] = [];
+  /**
+   * Sync a single room's metadata, members and persist last-read timestamps for members.
+   * Safe to call opportunistically; runs client lookups and writes snapshots into IDB.
+   */
+  async syncRoom(roomId: string): Promise<void> {
+    try {
+      await this.opts.waitForPrepared();
+      const client = this.client;
+      if (!client) return;
+      const room = client.getRoom(roomId);
+      if (!room) return;
 
+      // Update room record
       const existing = await this.db.rooms.get(room.roomId);
-      this.db.rooms.put({
+      await this.db.rooms.put({
         id: room.roomId,
         name: room.name || room.roomId,
         latestTimestamp: room.getLastActiveTimestamp(),
-        avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
+        avatarMxcUrl: room.getMxcAvatarUrl() || existing?.avatarMxcUrl,
         unreadCount: existing?.unreadCount ?? 0,
       });
 
-      for (const m of members) {
-        const userId = m.userId;
-        const display = m.rawDisplayName || m.name;
-        const mxc = m.getMxcAvatarUrl();
-        updatedMembers.push({
-          userId,
-          displayName: display,
-          avatarMxcUrl: mxc,
-          membership: m.membership,
-        });
-      }
-
-      this.db.setRoomMembers(room.roomId, updatedMembers);
-      if (updatedMembers.length)
+      // Persist current members
+      const members = room.getMembers()?.filter((m) => m.membership === 'join') || [];
+      if (members.length)
         await this.db.users.putMany(
-          updatedMembers.map((x) => ({
+          members.map((x) => ({
             userId: x.userId,
-            displayName: x.displayName,
-            avatarMxcUrl: x.avatarMxcUrl,
+            displayName: x.rawDisplayName || x.name,
+            avatarMxcUrl: x.getMxcAvatarUrl(),
           }))
         );
+
+      // Persist last-read timestamps for other members (exclude self)
+      const self = this.currentUserId;
+      const readUpdates: Record<string, number> = {};
+      for (const m of members) {
+        if (!m?.userId || m.userId === self) continue;
+        const upToId = room.getEventReadUpTo?.(m.userId) as string | undefined;
+        if (!upToId) continue;
+        const cached = await this.db.getEventById(upToId);
+        let ts = cached?.originServerTs || 0;
+        if (!ts) {
+          const sdkEv = room.findEventById(upToId);
+          ts = sdkEv?.getTs?.() ?? 0;
+        }
+        if (ts) readUpdates[m.userId] = Math.max(readUpdates[m.userId] || 0, ts);
+      }
+      if (Object.keys(readUpdates).length) {
+        const curr = await this.db.getRoomMembers(room.roomId);
+        const currById = curr.reduce(
+          (acc, m) => ({
+            ...acc,
+            [m.userId]: m,
+          }),
+          {} as Record<string, DbMember>
+        );
+
+        const merged = members.map((m) => ({
+          userId: m.userId,
+          displayName: m.rawDisplayName || m.name,
+          avatarUrl: m.getMxcAvatarUrl(),
+          membership: m.membership,
+          lastReadTs: Math.max(currById[m.userId]?.lastReadTs || 0, readUpdates[m.userId] || 0),
+        }));
+        console.log('[MatrixDataLayer] syncRoom', room.roomId, merged);
+        await this.db.setRoomMembers(room.roomId, merged);
+      }
+    } catch (err) {
+      console.warn('[MatrixDataLayer] syncRoom failed', err);
     }
   }
 

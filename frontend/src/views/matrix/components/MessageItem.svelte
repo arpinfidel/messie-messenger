@@ -6,6 +6,10 @@
   export let isFirstInGroup: boolean;
   export let isLastInGroup: boolean;
   export let mediaVersion: number = 0;
+  // Max read timestamp by other members (passed from parent)
+  export let minOtherReadTs: number = 0;
+  export let nextIsUnread: boolean = false;
+
 
   const dispatch = createEventDispatcher<{ openImage: { url: string; description?: string } }>();
 
@@ -29,7 +33,7 @@
     </div>
   {/if}
 
-  <div class="message-bubble {message.isSelf ? 'self' : 'other'} {isFirstInGroup ? 'first-in-group' : ''} {isLastInGroup ? 'last-in-group' : ''}">
+  <div class="message-bubble {message.isSelf ? 'self' : 'other'} {isFirstInGroup ? 'first-in-group' : ''} {isLastInGroup ? 'last-in-group' : ''} {isLastInGroup || nextIsUnread ? 'has-timestamp' : ''}">
     {#if !message.isSelf && isFirstInGroup}
       <div class="sender-name">{message.senderDisplayName}</div>
     {/if}
@@ -58,13 +62,34 @@
       <div class="message-content">{message.description}</div>
     {/if}
 
-    {#if isLastInGroup}
+    {#if isLastInGroup || nextIsUnread}
       <div class="message-timestamp">
-        {new Date(message.timestamp).toLocaleTimeString('en-US', { 
-          hour: '2-digit', 
+        {new Date(message.timestamp).toLocaleTimeString('en-US', {
+          hour: '2-digit',
           minute: '2-digit',
-          hour12: false 
+          hour12: false
         })}
+        {#if message.isSelf}
+          <!-- <br>{minOtherReadTs}<br>{message.timestamp} -->
+          {#if minOtherReadTs > 0 && message.timestamp <= minOtherReadTs}
+          <!-- Considered read: render double colored -->
+          <span class="tick-icon double colored" aria-label="Read by others">
+            <svg viewBox="0 0 32 24" aria-hidden="true">
+              <path d="M5 13l4 4L19 7" vector-effect="non-scaling-stroke" />
+              <g transform="translate(7,0)">
+                <path d="M5 13l4 4L19 7" vector-effect="non-scaling-stroke" />
+              </g>
+            </svg>
+          </span>
+          {:else}
+            <!-- Sent: single check -->
+            <span class="tick-icon single" aria-label="Sent">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 13l4 4L19 7" />
+              </svg>
+            </span>
+          {/if}
+        {/if}
       </div>
     {/if}
   </div>
@@ -120,9 +145,22 @@
 
   .message-image { max-width: 100%; max-height: 100%; object-fit: contain; display: block; border-radius: 0.5rem; }
   .message-image.clickable { cursor: zoom-in; }
-  .image-wrapper { max-width: 360px; max-height: 360px; width: 100%; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0.5rem; background: var(--color-input-bg); }
+  .image-wrapper { max-width: 360px; max-height: 360px; width: 100%; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0.5rem; background: var(--color-input-bg); margin-bottom: 1rem; }
   .image-placeholder { min-width: 180px; min-height: 140px; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; color: var(--color-text-muted); }
 
   .message-timestamp { font-size: 0.65rem; line-height: 1; opacity: 0.7; position: absolute; right: 0.5rem; bottom: 0.35rem; margin: 0; text-align: right; pointer-events: none; }
-  .message-bubble.last-in-group .message-content::after { content: ''; display: inline-block; width: 3ch; }
+  .message-bubble.has-timestamp.other .message-content::after { content: ''; display: inline-block; width: 4ch; }
+  .message-bubble.has-timestamp.self .message-content::after { content: ''; display: inline-block; width: 6.5ch; }
+
+  /* Ticks: overlapping SVG checks with subtle shadow for contrast */
+  .tick-icon { margin-left: 0.35rem; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; filter: drop-shadow(0 0 1px rgba(0,0,0,0.6)); }
+  .tick-icon svg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .tick-icon.single svg { width: 18px; height: 18px; }
+  .tick-icon.double svg { width: 18px; height: 18px; }
+  /* Default ticks inherit bubble text color; make them slightly brighter for legibility */
+  .message-bubble.self .tick-icon { color: rgba(255,255,255,0.95); }
+  /* Ensure colored state overrides the self-bubble default */
+  .message-bubble.self .tick-icon.colored { color: var(--wa-tick-blue, #34b7f1); }
+  /* WhatsApp-like blue for full-read state, tuned for higher contrast */
+  .tick-icon.colored { color: var(--wa-tick-blue, #34b7f1); }
 </style>

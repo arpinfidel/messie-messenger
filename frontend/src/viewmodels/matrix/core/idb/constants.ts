@@ -38,4 +38,6 @@ export interface DbMember {
   displayName?: string;
   avatarUrl?: string; // MXC URL
   membership?: string; // 'join', 'leave', etc.
+  // Last known read receipt timestamp for this user in this room
+  lastReadTs: number;
 }

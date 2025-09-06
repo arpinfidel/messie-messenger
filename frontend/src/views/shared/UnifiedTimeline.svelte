@@ -15,9 +15,6 @@
 
   const dispatch = createEventDispatcher();
 
-  export let timelineWidth: number;
-  export let timelineLeft: number;
-
   let items: TimelineItem[] = [];
   let isLoading = true;
   let error: string | null = null;

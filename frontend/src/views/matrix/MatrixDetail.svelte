@@ -56,8 +56,16 @@
   let messagesContainer: HTMLDivElement;
   let messageInputRef: any;
   let unsubscribeRepoEvent: (() => void) | null = null;
+  let unsubscribeReceipt: (() => void) | null = null;
   let scrollHandler: (() => void) | null = null;
   let onScroll: (() => void) | undefined;
+  // Max read timestamp among other members; used to render status
+  let minOtherReadTs = 0;
+
+  async function refreshMinReadTs() {
+    if (!item?.id) return;
+    minOtherReadTs = await matrixViewModel.getMinOtherReadTs(item.id);
+  }
 
   // Image lightbox state
   let lightboxUrl: string | null = null;
@@ -323,8 +331,17 @@
       // If messages were inserted in the middle (older messages), don't change scroll or unread count
     });
 
+    // On receipt, recompute the max read timestamp once for this room
+    unsubscribeReceipt = matrixViewModel.onReadReceipt((roomId) => {
+      if (roomId !== item.id) return;
+      refreshMinReadTs();
+    });
+
     // Initial compute
     updateJumpVisibility();
+    matrixViewModel.syncRoom(item.id).then(() => {
+      refreshMinReadTs();
+    });
     console.debug('[MatrixDetail][onMount] Component mounted');
 
     // Close lightbox on Escape
@@ -344,6 +361,7 @@
       messagesContainer.removeEventListener('scroll', scrollHandler);
     }
     unsubscribeRepoEvent?.();
+    unsubscribeReceipt?.();
     console.debug('[MatrixDetail][onDestroy] Scroll handler removed');
   });
 
@@ -402,11 +420,14 @@
       {@const isFirstInGroup = index === 0 || $messages[index - 1].sender !== message.sender}
       {@const isLastInGroup =
         index === $messages.length - 1 || $messages[index + 1].sender !== message.sender}
+      {@const nextIsUnread = index < $messages.length - 1 && $messages[index + 1].timestamp > minOtherReadTs}
       <MessageItem
         {message}
         {isFirstInGroup}
         {isLastInGroup}
         {mediaVersion}
+        {minOtherReadTs}
+        {nextIsUnread}
         on:openImage={openLightbox}
       />
     {/each}

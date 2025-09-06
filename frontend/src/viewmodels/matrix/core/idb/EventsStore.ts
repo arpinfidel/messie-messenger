@@ -40,4 +40,20 @@ export class EventsStore {
       }
     });
   }
+
+  async getEventById(eventId: string): Promise<RepoEvent | undefined> {
+    await this.conn.init();
+    return new Promise<RepoEvent | undefined>((resolve, reject) => {
+      try {
+        const db = this.conn.ensure();
+        const tx = db.transaction(STORES.EVENTS, 'readonly');
+        const s = tx.objectStore(STORES.EVENTS);
+        const req = s.get(eventId);
+        req.onsuccess = () => resolve(req.result as RepoEvent | undefined);
+        req.onerror = () => reject(req.error);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
 }

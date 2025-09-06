@@ -33,6 +33,9 @@ export class IndexedDbCache {
   getEventsByRoom(roomId: string, limit = 50, beforeTs?: number): Promise<RepoEvent[]> {
     return this.events.getEventsByRoom(roomId, limit, beforeTs);
   }
+  getEventById(eventId: string): Promise<RepoEvent | undefined> {
+    return this.events.getEventById(eventId);
+  }
 
   // Tokens
   setBackwardToken(roomId: string, backward: string | null): Promise<void> {
@@ -53,9 +56,23 @@ export class IndexedDbCache {
   // Members
   setRoomMembers(
     roomId: string,
-    members: { userId: string; displayName?: string; avatarMxcUrl?: string; membership?: string }[]
+    members: {
+      userId: string;
+      displayName?: string;
+      avatarUrl?: string;
+      avatarMxcUrl?: string;
+      membership?: string;
+      lastReadTs: number;
+    }[]
   ): Promise<void> {
-    return this.members.setRoomMembers(roomId, members);
+    const normalized = members.map((m) => ({
+      userId: m.userId,
+      displayName: m.displayName,
+      avatarUrl: m.avatarUrl ?? m.avatarMxcUrl,
+      membership: m.membership,
+      lastReadTs: m.lastReadTs,
+    }));
+    return this.members.setRoomMembers(roomId, normalized as any);
   }
   getRoomMembers(roomId: string): Promise<DbMember[]> {
     return this.members.getRoomMembers(roomId);

@@ -6,9 +6,19 @@ export class MembersStore {
 
   async setRoomMembers(
     roomId: string,
-    members: { userId: string; displayName?: string; avatarUrl?: string; membership?: string }[]
+    members: {
+      userId: string;
+      displayName?: string;
+      avatarUrl?: string;
+      membership?: string;
+      lastReadTs: number;
+    }[]
   ): Promise<void> {
     await this.conn.init();
+
+    // Read existing members to preserve fields like lastReadTs when not provided
+    const existingMembers = await this.getRoomMembers(roomId).catch(() => [] as DbMember[]);
+    const prevByUser = new Map(existingMembers.map((m) => [m.userId, m]));
 
     // Delete existing members by room
     await new Promise<void>((resolve, reject) => {
@@ -43,6 +53,7 @@ export class MembersStore {
           displayName: m.displayName,
           avatarUrl: m.avatarUrl,
           membership: m.membership,
+          lastReadTs: m.lastReadTs ?? prevByUser.get(m.userId)?.lastReadTs ?? 0,
         };
         s.put(rec);
       }

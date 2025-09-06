@@ -80,7 +80,7 @@
   .message-input:focus { outline: none; border-color: var(--color-bubble-self); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
   .message-input:disabled { opacity: 0.6; cursor: not-allowed; }
 
-  .send-button { flex-shrink: 0; width: 2.5rem; height: 2.5rem; border: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; cursor: pointer; transition: all 0.2s ease; position: relative; }
+  .send-button { flex-shrink: 0; width: 2.5rem; height: 2.5rem; border: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; cursor: pointer; transition: all 0.2s ease; position: relative; rotate: 90deg;}
   .send-button.enabled { background: var(--color-bubble-self); color: white; }
   .send-button.enabled:hover { background: var(--color-bubble-self-hover); }
   .send-button.enabled:active { transform: scale(0.95); }

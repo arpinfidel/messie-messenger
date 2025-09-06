@@ -344,6 +344,8 @@ export class MatrixTimelineService {
     return msgs;
   }
 
+  // removed batch read count computation; read status is derived at render time
+
   // Media cache management
   clearMediaCache(): void {
     // this.avatars.clear();

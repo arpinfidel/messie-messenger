@@ -103,12 +103,42 @@ export class MatrixViewModel implements IModuleViewModel {
     return this.dataLayer.onRepoEvent(listener);
   }
 
+  public onReadReceipt(
+    listener: (roomId: string, eventId: string, userId: string) => void
+  ): () => void {
+    return this.dataLayer.onReadReceipt(listener);
+  }
+
   public async mapRepoEventsToMessages(events: RepoEvent[]): Promise<MatrixMessage[]> {
     return this.timelineSvc.mapRepoEventsToMessages(events);
   }
 
   public async getRoomMembers(roomId: string) {
     return this.dataLayer.getRoomMembers(roomId);
+  }
+
+  /** Number of other joined members in the room (excluding self). */
+  public async getRecipientCount(roomId: string): Promise<number> {
+    try {
+      const members = await this.dataLayer.getRoomMembers(roomId);
+      const selfId = this.getCurrentUserId();
+      return (members || [])
+        .filter((m: any) => (m.membership ? m.membership === 'join' : true))
+        .filter((m: any) => m.userId !== selfId).length;
+    } catch (e) {
+      console.error('[MatrixDataLayer] getRecipientCount failed', e);
+      return 0;
+    }
+  }
+
+  /** Min read timestamp among other members for status rendering. */
+  public async getMinOtherReadTs(roomId: string): Promise<number> {
+    return this.dataLayer.getMinOtherReadTs(roomId);
+  }
+
+  // Trigger a background sync of a single room (members, read snapshots, metadata)
+  public syncRoom(roomId: string): Promise<void> {
+    return this.dataLayer.syncRoom(roomId);
   }
 
   public async markRoomAsRead(roomId: string): Promise<void> {
@@ -202,9 +232,6 @@ export class MatrixViewModel implements IModuleViewModel {
     console.time('[MatrixVM] waitForPrepared');
     await this.clientMgr.waitForPrepared();
     console.timeEnd('[MatrixVM] waitForPrepared');
-
-    // Reconcile unread counts once from SDK after initial sync to avoid drift
-    await this.dataLayer.reconcileUnreadFromSdk();
 
     this.hydrationState = 'decrypting';
     console.time('[MatrixVM] crypto.ensureVerificationAndKeys');
