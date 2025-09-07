@@ -8,6 +8,7 @@ import { MatrixDataLayer } from './core/MatrixDataLayer';
 import type { ImageContent } from 'matrix-js-sdk/lib/@types/media';
 import { MediaResolver } from './core/MediaResolver';
 import { AvatarService } from './core/AvatarService';
+import type { INotificationService } from '@/notifications/NotificationService';
 
 export interface MatrixMessage {
   id: string;
@@ -33,6 +34,7 @@ export class MatrixTimelineService {
   private readonly maxRooms = 30; // limit room list to most recent N
   // Invalidate counter to notify UI when async media resolves
   private mediaVersion: Writable<number> = writable(0);
+  private notifications?: INotificationService;
 
   constructor(
     private readonly ctx: {
@@ -41,9 +43,11 @@ export class MatrixTimelineService {
       getHydrationState: () => 'idle' | 'syncing' | 'decrypting' | 'ready';
     },
     private readonly data: MatrixDataLayer,
-    private readonly avatars: AvatarService
+    private readonly avatars: AvatarService,
+    notifications?: INotificationService
   ) {
     this.handleEvent();
+    this.notifications = notifications;
   }
 
   private get client() {
@@ -155,7 +159,7 @@ export class MatrixTimelineService {
   /** Live pipeline: ingest event into store via data layer, then update preview. */
   async handleEvent() {
     // await this.data.ingestLiveEvent(ev, room);
-    this.data.onRepoEvent(async (ev, room) => {
+    this.data.onRepoEvent(async (ev, room, meta) => {
       const rooms = await this.data.getRoom(room.roomId);
       const fallbackTs = rooms?.latestTimestamp || 0;
       const unreadCount = rooms?.unreadCount || 0;
@@ -186,7 +190,34 @@ export class MatrixTimelineService {
         unreadCount,
       });
 
+      // Apply buffered update before scheduling a flush
       this.bufferTimelineUpdate(updated);
+
+      // Only show notifications when:
+      // - a notification service is configured
+      // - the event is a user message and not sent by self
+      // - Matrix push rules say this event should notify
+      if (
+        this.notifications &&
+        meta?.isLive &&
+        ev?.type === 'm.room.message' &&
+        ev.sender !== this.client?.getUserId()
+      ) {
+        try {
+          const client = this.client;
+          const mxEv = room.findEventById(ev.eventId);
+          const actions = mxEv && client?.getPushActionsForEvent(mxEv);
+          if (actions?.notify) {
+            void this.notifications.notify({
+              title,
+              body: description,
+              icon: avatarUrl,
+            });
+          }
+        } catch (err) {
+          console.warn('[MatrixTimelineService] notify failed', err);
+        }
+      }
       this.scheduleFlush();
     });
 
@@ -347,10 +378,7 @@ export class MatrixTimelineService {
   // removed batch read count computation; read status is derived at render time
 
   // Media cache management
-  clearMediaCache(): void {
-    // this.avatars.clear();
-    this.mediaResolver.clear();
-  }
+  clearMediaCache(): void {}
 
   /** Create a human preview from RepoEvent content (works for decrypted encrypted). */
   private repoEventToPreview(re: RepoEvent): { description: string } {

@@ -18,6 +18,7 @@ import { MatrixClientManager } from './core/MatrixClientManager';
 import { OutgoingMessageQueue } from './core/OutgoingMessageQueue';
 import { MatrixCryptoManager } from './core/MatrixCryptoManager';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
+import { BrowserNotificationService } from '@/notifications/NotificationService';
 
 export class MatrixViewModel implements IModuleViewModel {
   private static instance: MatrixViewModel;
@@ -45,6 +46,7 @@ export class MatrixViewModel implements IModuleViewModel {
     this.dataLayer,
     { maxMemEntries: 200, maxDbEntries: 5000 }
   );
+  private notificationSvc = new BrowserNotificationService();
   private timelineSvc = new MatrixTimelineService(
     {
       getClient: () => this.clientMgr.getClient(),
@@ -52,7 +54,8 @@ export class MatrixViewModel implements IModuleViewModel {
       getHydrationState: () => this.hydrationState,
     },
     this.dataLayer,
-    this.avatarSvc
+    this.avatarSvc,
+    this.notificationSvc
   );
   private queue = new OutgoingMessageQueue(() => this.clientMgr.getClient());
 
@@ -99,7 +102,9 @@ export class MatrixViewModel implements IModuleViewModel {
     return this.timelineSvc.getRoomMessages(roomId, beforeTS, limit);
   }
 
-  public onRepoEvent(listener: (ev: RepoEvent, room: matrixSdk.Room) => void): () => void {
+  public onRepoEvent(
+    listener: (ev: RepoEvent, room: matrixSdk.Room, meta?: { isLive?: boolean }) => void
+  ): () => void {
     return this.dataLayer.onRepoEvent(listener);
   }
 
@@ -175,6 +180,7 @@ export class MatrixViewModel implements IModuleViewModel {
     await this.timelineSvc.initTimeline().catch((err) => {
       console.warn('Failed to initialize timeline:', err);
     });
+    void this.notificationSvc.requestPermission();
 
     console.time('[MatrixVM] create client');
     const getRecoveryKey = () => matrixSettings.recoveryKey?.trim();

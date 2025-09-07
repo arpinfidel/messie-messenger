@@ -1,38 +1,41 @@
-```rust
-- fetching new events from sdk is read as a "new event" and added to bottom of chat
-- still 404
-	resolveInternal
-	AvatarResolver.ts:65:25
-	resolve
-	AvatarResolver.ts:32:20
-	resolveAvatarMxc
-	MatrixDataLayer.ts:479:43
-	resolveRoomAvatar/urls<
-	AvatarService.ts:71:62
-	resolveRoomAvatar
-	AvatarService.ts:71:41
-	handleEvent/<
-	MatrixTimelineService.ts:153:38
-	emit
-	MatrixDataLayer.ts:24:9
-	handleMatrixMessages/<
-	MatrixDataLayer.ts:392:29
-	emit
-	events.js:153:5
-	emit
-	typed-event-emitter.ts:89:22
-	forSource2
-	ReEmitter.ts:55:29
-	emit
-	events.js:158:7
-	emit
-	typed-event-emitter.ts:89:22
-	forSource2
-	ReEmitter.ts:55:29
-	emit
-	events.js:153:5
-	emit
-	typed-event-emitter.ts:89:22
-	a
-- avatar not reused?
-```
+{
+  "eventId": "$hqNb62yEEbzuOuEv9m5i4O1vXLa1PWDswQGB_8ZnkxE:whatsapp.com",
+  "roomId": "!eFsJm9axBElWipcYeobI:beeper.local",
+  "type": "m.sticker",
+  "sender": "@whatsapp_lid-125645023645951:beeper.local",
+  "originServerTs": 1757133269000,
+  "content": {
+    "body": "sticker.webp",
+    "com.beeper.disappearing_timer": {},
+    "file": {
+      "hashes": {
+        "sha256": "SKWMWo/4nB/AZBLkHgJci340YLGVOG05XFyJ1GYTG3Q"
+      },
+      "iv": "Yv3r8eZzAEUAAAAAAAAAAA",
+      "key": {
+        "alg": "A256CTR",
+        "ext": true,
+        "k": "HeP_IT2ZPFu0OzfHiczFSCjw9AzGhKSc-aLZq6ch7yA",
+        "key_ops": [
+          "encrypt",
+          "decrypt"
+        ],
+        "kty": "oct"
+      },
+      "url": "mxc://local.beeper.com/arpinfidel_2Re5QAWlOUay3Xes7MtJB4V3yt5GiELNRuhKsN5eeCUNnStys6aYpMaJwJkUozvj",
+      "v": "v2"
+    },
+    "filename": "sticker.webp",
+    "info": {
+      "h": 64,
+      "mimetype": "image/webp",
+      "size": 16100,
+      "w": 64
+    },
+    "m.mentions": {}
+  },
+  "unsigned": {
+    "transaction_id": "batch/1757137026376/50",
+    "com.beeper.hs.order": 1769
+  }
+}

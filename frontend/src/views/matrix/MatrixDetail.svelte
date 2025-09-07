@@ -267,7 +267,7 @@
     messageInputRef?.focus();
 
     // Replace the current unsubscribeRepoEvent assignment with this enhanced handler:
-    unsubscribeRepoEvent = matrixViewModel.onRepoEvent(async (ev, _room) => {
+    unsubscribeRepoEvent = matrixViewModel.onRepoEvent(async (ev, _room, _meta) => {
       if (ev.roomId !== item.id) return;
       const newMsgs = await matrixViewModel.mapRepoEventsToMessages([ev]);
       if (!newMsgs.length) return;

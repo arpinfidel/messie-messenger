@@ -9,7 +9,11 @@ import type { DbMember, DbUser } from './idb/constants';
 import type { ImageContent } from 'matrix-js-sdk/lib/types';
 import { MatrixViewModel } from '../MatrixViewModel';
 
-type RepoEventListener = (ev: RepoEvent, room: matrixSdk.Room) => void;
+type RepoEventListener = (
+  ev: RepoEvent,
+  room: matrixSdk.Room,
+  meta?: { isLive?: boolean }
+) => void;
 
 class RepoEventEmitter {
   private listeners = new Set<RepoEventListener>();
@@ -19,10 +23,10 @@ class RepoEventEmitter {
     return () => this.listeners.delete(listener);
   }
 
-  emit(ev: RepoEvent, room: matrixSdk.Room) {
+  emit(ev: RepoEvent, room: matrixSdk.Room, meta?: { isLive?: boolean }) {
     for (const l of this.listeners) {
       try {
-        l(ev, room);
+        l(ev, room, meta);
       } catch (err) {
         console.error('[MatrixDataLayer] RepoEvent listener failed', err);
       }
@@ -116,7 +120,9 @@ export class MatrixDataLayer {
     return this;
   }
 
-  onRepoEvent(listener: (ev: RepoEvent, room: matrixSdk.Room) => void): () => void {
+  onRepoEvent(
+    listener: (ev: RepoEvent, room: matrixSdk.Room, meta?: { isLive?: boolean }) => void
+  ): () => void {
     return this.repoEventEmitter.on(listener);
   }
 
@@ -463,13 +469,15 @@ export class MatrixDataLayer {
           console.warn('[MatrixDataLayer] failed to persist timeline event', wireRe);
         });
 
-        this.repoEventEmitter.emit(re, room);
+        // Emit repo event; include whether this was a true live event
+        this.repoEventEmitter.emit(re, room, { isLive: isTrueLive });
 
         const onDecrypted = async () => {
           if (ev.isDecryptionFailure()) return;
           try {
             const updated = await this.toRepoEvent(ev);
-            if (updated) this.repoEventEmitter.emit(updated, room);
+            if (updated)
+              this.repoEventEmitter.emit(updated, room, { isLive: false });
           } finally {
             try {
               ev.off(MatrixEventEvent.Decrypted, onDecrypted);
@@ -558,14 +566,12 @@ export class MatrixDataLayer {
         membership: m.membership,
         lastReadTs: Math.max(m.lastReadTs || 0, updates[m.userId] || 0),
       }));
-      console.log('[MatrixDataLayer] handleReceipts', room.roomId, updated);
+      // console.log('[MatrixDataLayer] handleReceipts', room.roomId, updated);
       // Do not write if we have no members yet to merge into; seeding will happen via syncRoom.
       if (!members.length || !updated.length) {
         console.warn('[MatrixDataLayer] handleReceipts: no members to update', members);
         // Proactively seed members to avoid staying empty
-        try {
-          void this.syncRoom(room.roomId);
-        } catch {}
+        void this.syncRoom(room.roomId);
       } else {
         await this.db.setRoomMembers(room.roomId, updated);
       }
@@ -643,7 +649,6 @@ export class MatrixDataLayer {
   }
 
   async backgroundSync() {
-    await this.opts.waitForPrepared();
     const client = this.client;
     if (!client) return;
 
@@ -744,7 +749,6 @@ export class MatrixDataLayer {
           membership: m.membership,
           lastReadTs: Math.max(currById[m.userId]?.lastReadTs || 0, readUpdates[m.userId] || 0),
         }));
-        console.log('[MatrixDataLayer] syncRoom', room.roomId, merged);
         await this.db.setRoomMembers(room.roomId, merged);
       }
     } catch (err) {
