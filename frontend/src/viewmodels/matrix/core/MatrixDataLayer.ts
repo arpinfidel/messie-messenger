@@ -437,18 +437,15 @@ export class MatrixDataLayer {
         const syncState = (client as any)?.getSyncState?.();
         const isTrueLive = data?.liveEvent === true && syncState === 'SYNCING';
         if (isTrueLive) {
+          // Do not touch unread here; rely on SDK UnreadNotifications
           const existing = await this.db.rooms.get(room.roomId);
-          const unread = existing?.unreadCount ?? 0;
-          const increment = ev.getSender() === this.currentUserId ? 0 : 1;
-          const newUnread = unread + increment;
           await this.db.rooms.put({
             id: room.roomId,
             name: room.name || room.roomId,
             latestTimestamp: ev.getTs(),
             avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
-            unreadCount: newUnread,
+            unreadCount: existing?.unreadCount ?? 0,
           });
-          this.unreadEventEmitter.emit(room.roomId, newUnread);
         } else {
           // Still update latestTimestamp & metadata without touching unread
           const existing = await this.db.rooms.get(room.roomId);
