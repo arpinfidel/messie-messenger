@@ -64,14 +64,13 @@
           {#if message.fileUrl}
             <a
               href={message.fileUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+              download={message.fileName}
               class="file-link"
             >
-              📎 Download file
+              📎 Download {message.fileName}
             </a>
           {:else}
-            <span class="file-link">📎 File attachment</span>
+            <span class="file-link">📎 {message.fileName}</span>
           {/if}
         {/key}
       </div>
