@@ -1,16 +1,17 @@
 export interface IMediaService {
-  pickImage(): Promise<File | undefined>;
+  pickMedia(): Promise<File | undefined>;
+  pickFile(): Promise<File | undefined>;
 }
 
 export class BrowserMediaService implements IMediaService {
-  async pickImage(): Promise<File | undefined> {
+  private pick(accept: string | undefined): Promise<File | undefined> {
     if (typeof window === 'undefined') {
-      return undefined;
+      return Promise.resolve(undefined);
     }
     return new Promise<File | undefined>((resolve) => {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = 'image/*';
+      if (accept) input.accept = accept;
       input.style.display = 'none';
       input.onchange = () => {
         const file = input.files?.[0];
@@ -20,11 +21,18 @@ export class BrowserMediaService implements IMediaService {
         }
       };
       input.onclick = (e) => {
-        // Prevent the event from bubbling further if inserted into DOM
         e.stopPropagation();
       };
       document.body.appendChild(input);
       input.click();
     });
+  }
+
+  async pickMedia(): Promise<File | undefined> {
+    return this.pick('image/*,video/*');
+  }
+
+  async pickFile(): Promise<File | undefined> {
+    return this.pick(undefined);
   }
 }

@@ -3,21 +3,42 @@
 
   export let isSending: boolean = false;
   export let className: string = '';
+  export let hasAttachment: boolean = false;
 
-  const dispatch = createEventDispatcher<{ send: string; sendMedia: void }>();
+  import PopupMenu from '@/views/shared/PopupMenu.svelte';
+
+  const dispatch = createEventDispatcher<{
+    send: string;
+    sendMedia: void;
+    sendFile: void;
+  }>();
 
   let text = '';
   let textareaEl: HTMLTextAreaElement;
-  const canSend = text.trim().length > 0 && !isSending;
+  let canSend: boolean;
+  $: canSend = (text.trim().length > 0 || hasAttachment) && !isSending;
 
-  function handleMediaClick() {
+  let showMenu = false;
+  let attachButton: HTMLButtonElement;
+
+  function handleAttachClick() {
     if (isSending) return;
+    showMenu = !showMenu;
+  }
+
+  function pickMedia() {
+    showMenu = false;
     dispatch('sendMedia');
+  }
+
+  function pickFile() {
+    showMenu = false;
+    dispatch('sendFile');
   }
 
   function trySend() {
     const content = text.trim();
-    if (!content || isSending) return;
+    if ((!content && !hasAttachment) || isSending) return;
     dispatch('send', content);
     text = '';
   }
@@ -47,9 +68,10 @@
   <div class="message-input-container {className}">
     <div class="input-wrapper">
     <button
-      on:click={handleMediaClick}
+      bind:this={attachButton}
+      on:click={handleAttachClick}
       class="media-button"
-      title="Send image"
+      title="Attach"
       disabled={isSending}
     >
       <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -61,6 +83,22 @@
         />
       </svg>
     </button>
+    <PopupMenu anchor={attachButton} show={showMenu} on:close={() => (showMenu = false)}>
+      <div class="flex flex-col">
+        <button
+          class="rounded px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+          on:click={pickMedia}
+        >
+          Image / Video
+        </button>
+        <button
+          class="rounded px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700"
+          on:click={pickFile}
+        >
+          File
+        </button>
+      </div>
+    </PopupMenu>
     <textarea
       bind:this={textareaEl}
       bind:value={text}

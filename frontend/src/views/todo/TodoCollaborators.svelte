@@ -7,7 +7,7 @@
   export let listId: string;
 
   const dispatch = createEventDispatcher();
-  const todoViewModel = new TodoViewModel();
+  const todoViewModel = TodoViewModel.getInstance();
 
   let collaborators: User[] = [];
   let newCollaboratorEmail: string = '';
@@ -22,8 +22,20 @@
       // TODO: Implement getCollaborators in TodoViewModel
       // For now, simulate fetching collaborators
       collaborators = [
-        { id: 'user1', email: 'user1@example.com', createdAt: new Date(), updatedAt: new Date() },
-        { id: 'user2', email: 'user2@example.com', createdAt: new Date(), updatedAt: new Date() },
+        {
+          id: 'user1',
+          email: 'user1@example.com',
+          matrixId: '@user1:example.com',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: 'user2',
+          email: 'user2@example.com',
+          matrixId: '@user2:example.com',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
       ];
     } catch (error) {
       console.error('Error fetching collaborators:', error);
@@ -40,8 +52,20 @@
       // TODO: Implement searchUsers in TodoViewModel (or a UserViewModel)
       // For now, simulate search results
       searchResults = [
-        { id: 'user3', email: 'user3@example.com', createdAt: new Date(), updatedAt: new Date() },
-        { id: 'user4', email: 'user4@example.com', createdAt: new Date(), updatedAt: new Date() },
+        {
+          id: 'user3',
+          email: 'user3@example.com',
+          matrixId: '@user3:example.com',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          id: 'user4',
+          email: 'user4@example.com',
+          matrixId: '@user4:example.com',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
       ].filter((user) => user.email.includes(input));
     } catch (error) {
       console.error('Error searching users:', error);

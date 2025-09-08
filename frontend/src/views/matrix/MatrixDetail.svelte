@@ -62,6 +62,10 @@
   // Max read timestamp among other members; used to render status
   let minOtherReadTs = 0;
 
+  // Pending attachment state
+  let pendingFile: File | null = null;
+  let previewUrl: string | null = null;
+
   async function refreshMinReadTs() {
     if (!item?.id) return;
     minOtherReadTs = await matrixViewModel.getMinOtherReadTs(item.id);
@@ -368,7 +372,7 @@
   let isSending = false;
 
   async function sendMessage(content: string) {
-    if (!content.trim() || !item?.id || isSending) {
+    if ((!content.trim() && !pendingFile) || !item?.id || isSending) {
       return;
     }
 
@@ -376,7 +380,12 @@
     isSending = true;
 
     try {
-      await matrixViewModel.sendMessage(roomId, content);
+      if (pendingFile) {
+        await matrixViewModel.sendAttachment(roomId, pendingFile, content.trim() || undefined);
+        clearAttachment();
+      } else {
+        await matrixViewModel.sendMessage(roomId, content);
+      }
     } catch (e) {
       console.error('[MatrixDetail][sendMessage] Failed to send message:', e);
     } finally {
@@ -388,18 +397,29 @@
   }
 
   async function sendMedia() {
-    if (!item?.id || isSending) return;
-    const roomId = item.id;
-    isSending = true;
-    try {
-      await matrixViewModel.sendImage(roomId);
-    } catch (e) {
-      console.error('[MatrixDetail][sendMedia] Failed to send media:', e);
-    } finally {
-      isSending = false;
-      await tick();
-      messageInputRef?.focus();
+    if (isSending) return;
+    const file = await matrixViewModel.pickMedia();
+    if (file) {
+      clearAttachment();
+      pendingFile = file;
+      previewUrl = URL.createObjectURL(file);
     }
+  }
+
+  async function sendFile() {
+    if (isSending) return;
+    const file = await matrixViewModel.pickFile();
+    if (file) {
+      clearAttachment();
+      pendingFile = file;
+      previewUrl = URL.createObjectURL(file);
+    }
+  }
+
+  function clearAttachment() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    pendingFile = null;
+    previewUrl = null;
   }
 
   $: formattedRoomName = item.title || 'Matrix Room';
@@ -464,11 +484,24 @@
     {/if}
   </div>
 
+  {#if pendingFile}
+    <div class="attachment-preview">
+      {#if pendingFile.type.startsWith('image/')}
+        <img src={previewUrl} alt={pendingFile.name} />
+      {:else}
+        <div class="file-preview">{pendingFile.name}</div>
+      {/if}
+      <button class="remove-attachment" on:click={clearAttachment} aria-label="Remove attachment">×</button>
+    </div>
+  {/if}
+
   <MessageInput
     bind:this={messageInputRef}
     {isSending}
     on:send={(e) => sendMessage(e.detail)}
     on:sendMedia={() => sendMedia()}
+    on:sendFile={() => sendFile()}
+    hasAttachment={!!pendingFile}
   />
 
   {#if lightboxUrl}
@@ -624,5 +657,33 @@
     font-size: 24px;
     line-height: 1;
     cursor: pointer;
+  }
+
+  .attachment-preview {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+  }
+
+  .attachment-preview img {
+    max-width: 4rem;
+    max-height: 4rem;
+    border-radius: 0.25rem;
+  }
+
+  .file-preview {
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.25rem;
+    background: var(--color-panel-border);
+    font-size: 0.875rem;
+  }
+
+  .remove-attachment {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: var(--color-text);
+    font-size: 1rem;
   }
 </style>

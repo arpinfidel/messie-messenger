@@ -292,30 +292,65 @@ export class MatrixViewModel implements IModuleViewModel {
 
   /* ---------- Messaging ---------- */
 
-  async sendImage(roomId: string): Promise<void> {
-    const file = await this.mediaSvc.pickImage();
-    if (!file) return;
+  async pickMedia(): Promise<File | undefined> {
+    return this.mediaSvc.pickMedia();
+  }
 
+  async pickFile(): Promise<File | undefined> {
+    return this.mediaSvc.pickFile();
+  }
+
+  async sendMedia(roomId: string): Promise<void> {
+    const file = await this.mediaSvc.pickMedia();
+    if (!file) return;
+    const caption =
+      typeof window !== 'undefined'
+        ? window.prompt('Add a caption (optional):') || undefined
+        : undefined;
+    await this.sendAttachment(roomId, file, caption);
+  }
+
+  async sendFile(roomId: string): Promise<void> {
+    const file = await this.mediaSvc.pickFile();
+    if (!file) return;
+    const caption =
+      typeof window !== 'undefined'
+        ? window.prompt('Add a caption (optional):') || undefined
+        : undefined;
+    await this.sendAttachment(roomId, file, caption);
+  }
+
+  async sendAttachment(roomId: string, file: File, caption?: string): Promise<void> {
     const client = this.clientMgr.getClient();
     if (!client) {
       console.error('Cannot send media: Matrix client not initialized.');
       return;
     }
 
+    const isEncryptedRoom = client.isRoomEncrypted(roomId);
+    const msgtype = file.type.startsWith('image/')
+      ? matrixSdk.MsgType.Image
+      : file.type.startsWith('video/')
+        ? matrixSdk.MsgType.Video
+        : matrixSdk.MsgType.File;
+
     const content: any = {
-      body: file.name || 'image',
-      msgtype: matrixSdk.MsgType.Image,
-      info: { mimetype: file.type, size: file.size },
+      body: caption || file.name || 'file',
+      filename: file.name || 'file',
+      msgtype,
+      info: { mimetype: file.type || 'application/octet-stream', size: file.size },
     };
 
-    try {
+    if (msgtype === matrixSdk.MsgType.Image) {
       const dims = await this.getImageSize(file).catch(() => undefined);
       if (dims) {
         content.info.w = dims.width;
         content.info.h = dims.height;
       }
+    }
 
-      if (client.isRoomEncrypted(roomId)) {
+    try {
+      if (isEncryptedRoom) {
         const enc = await this.encryptAttachment(file);
         const res = await client.uploadContent(new Blob([enc.data]), {
           type: 'application/octet-stream',
@@ -371,11 +406,12 @@ export class MatrixViewModel implements IModuleViewModel {
     keyJwk.key_ops = ['encrypt', 'decrypt'];
     keyJwk.ext = true;
 
-    const b64 = (buf: ArrayBuffer | Uint8Array) => {
+    // Standard base64 (alphabet +/) without padding, per EncryptedFile spec.
+    const toBase64Unpadded = (buf: ArrayBuffer | Uint8Array) => {
       const bytes = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
       let binary = '';
       for (const b of bytes) binary += String.fromCharCode(b);
-      return btoa(binary).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+      return btoa(binary).replace(/=+$/, '');
     };
 
     return {
@@ -383,8 +419,8 @@ export class MatrixViewModel implements IModuleViewModel {
       file: {
         v: 'v2',
         key: keyJwk,
-        iv: b64(iv),
-        hashes: { sha256: b64(hashBuf) },
+        iv: toBase64Unpadded(iv),
+        hashes: { sha256: toBase64Unpadded(hashBuf) },
       },
     };
   }
