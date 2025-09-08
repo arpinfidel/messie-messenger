@@ -48,6 +48,21 @@ export class MediaResolver {
     }
   }
 
+  async resolveFile(
+    content: { file?: EncryptedFile; url?: string; info?: { mimetype?: string } }
+  ): Promise<string | undefined> {
+    const enc = content.file as EncryptedFile | undefined;
+    if (enc) {
+      return this.decryptToBlobUrl(enc, content.info?.mimetype);
+    }
+    const client = this.getClient();
+    if (!client || !content.url) return undefined;
+    return (
+      client.mxcUrlToHttp(content.url, undefined, undefined, undefined, false, true, false) ||
+      undefined
+    );
+  }
+
   clear(): void {
     for (const [, entry] of this.cache) {
       try {

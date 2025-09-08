@@ -858,4 +858,39 @@ export class MatrixDataLayer {
 
     return url;
   }
+
+  async resolveFile(fileContent: any): Promise<string | undefined> {
+    const key = fileContent.file?.url || fileContent.url;
+    if (key) {
+      const cached = await this.db.getMedia(key);
+      if (cached) {
+        const url = URL.createObjectURL(cached.blob);
+        console.log('[MatrixDataLayer] resolveFile cache hit', key, url);
+        return url;
+      }
+    }
+    console.log('[MatrixDataLayer] resolveFile cache miss', key);
+
+    const url = await this.mediaResolver.resolveFile(fileContent);
+    if (!url) return undefined;
+
+    try {
+      const resp = await fetch(url);
+      if (resp.ok && key) {
+        const blob = await resp.blob();
+        await this.db.putMedia({
+          status: 200,
+          key,
+          ts: Date.now(),
+          bytes: blob.size,
+          mime: blob.type || fileContent.info?.mimetype || 'application/octet-stream',
+          blob,
+        });
+      }
+    } catch (err) {
+      console.warn('[MatrixDataLayer] Failed to cache file in IDB', err);
+    }
+
+    return url;
+  }
 }

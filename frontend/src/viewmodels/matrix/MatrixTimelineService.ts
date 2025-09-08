@@ -16,11 +16,13 @@ export interface MatrixMessage {
   sender: string;
   senderDisplayName: string; // Add this line
   senderAvatarUrl?: string;
-  description: string;
+  body: string;
   timestamp: number;
   isSelf: boolean;
   msgtype?: string;
   imageUrl?: string;
+  fileUrl?: string;
+  fileName?: string;
   // For future enhancements/debugging
   mxcUrl?: string;
 }
@@ -169,6 +171,7 @@ export class MatrixTimelineService {
       const id = room.roomId;
       const title = room.name || room.roomId;
       const { description } = ev ? this.repoEventToPreview(ev) : { description: '' };
+      const body = typeof ev?.content?.body === 'string' ? (ev!.content.body as string) : undefined;
 
       let avatarUrl: string | undefined;
       const roomMxc = room.getMxcAvatarUrl();
@@ -231,7 +234,7 @@ export class MatrixTimelineService {
             if (actions?.notify) {
               void this.notifications.notify({
                 title,
-                body: description,
+                body: body ?? description,
                 icon: avatarUrl,
               });
               this.lastNotifyByRoom.set(id, now);
@@ -318,20 +321,20 @@ export class MatrixTimelineService {
       // MatrixDataLayer ensures re.content is the effective content:
       // - clear for decrypted
       // - m.bad.encrypted body for failures
-      const { description } = this.repoEventToPreview(re);
+      const c = re.content as any;
+      const body = typeof c?.body === 'string' ? (c.body as string) : undefined;
       const isSelf = re.sender === currentUserId;
       // Prefer cached display name from store, then SDK membership, else MXID
       let senderDisplayName = (await this.data.getUserDisplayName(re.sender)) || re.sender;
       if (!senderDisplayName) senderDisplayName = re.sender;
-      const msgtype = (re.content as any)?.msgtype;
-      // console.timeEnd(`[MatrixTimelineService] repoEventToPreview(${re.eventId})`);
+      const msgtype = c?.msgtype;
 
       const msg: MatrixMessage = {
         id: re.eventId,
         sender: re.sender || 'unknown sender',
-        senderDisplayName, // Assign display name
+        senderDisplayName,
         senderAvatarUrl: undefined,
-        description,
+        body: body ?? '',
         timestamp: re.originServerTs || 0,
         isSelf,
         msgtype,
@@ -351,9 +354,9 @@ export class MatrixTimelineService {
         });
       resolvers.push(pAvatar);
 
-      console.time(`[MatrixTimelineService] resolveImage(${re.eventId})`);
+      console.time(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
       if (msgtype === matrixSdk.MsgType.Image) {
-        const content = re.content as any as ImageContent;
+        const content = c as ImageContent;
         msg.mxcUrl = content.file?.url ?? content.url;
         const p = this.data
           .resolveImage(content)
@@ -367,9 +370,30 @@ export class MatrixTimelineService {
             console.warn('[MatrixTimelineService] resolveImage failed', err);
           })
           .finally(() => {
-            console.timeEnd(`[MatrixTimelineService] resolveImage(${re.eventId})`);
+            console.timeEnd(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
           });
         resolvers.push(p);
+      } else if (msgtype === matrixSdk.MsgType.File) {
+        const content = c;
+        msg.mxcUrl = content.file?.url ?? content.url;
+        msg.fileName = content.filename || body || 'file';
+        const p = this.data
+          .resolveFile(content)
+          .then((blobUrl) => {
+            if (blobUrl) {
+              msg.fileUrl = blobUrl;
+              this.bumpMediaVersion();
+            }
+          })
+          .catch((err) => {
+            console.warn('[MatrixTimelineService] resolveFile failed', err);
+          })
+          .finally(() => {
+            console.timeEnd(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
+          });
+        resolvers.push(p);
+      } else {
+        console.timeEnd(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
       }
 
       msgs.push(msg);
@@ -393,6 +417,11 @@ export class MatrixTimelineService {
     if (c?.msgtype === matrixSdk.MsgType.Image) {
       const body = c.body;
       return { description: `Image: ${typeof body === 'string' ? body : 'Image'}` };
+    }
+    // Files: show filename or generic label
+    if (c?.msgtype === matrixSdk.MsgType.File) {
+      const name = c.filename || c.body;
+      return { description: `File: ${typeof name === 'string' ? name : 'file'}` };
     }
     // Decryption failure body (from sdk: msgtype m.bad.encrypted)
     if (c?.msgtype === 'm.bad.encrypted' && typeof c?.body === 'string') {

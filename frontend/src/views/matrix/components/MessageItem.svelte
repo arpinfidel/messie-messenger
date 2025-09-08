@@ -15,7 +15,7 @@
 
   function onImageClick() {
     if (message.imageUrl) {
-      dispatch('openImage', { url: message.imageUrl, description: message.description });
+      dispatch('openImage', { url: message.imageUrl, description: message.body });
     }
   }
 </script>
@@ -44,7 +44,7 @@
           {#if message.imageUrl}
             <img
               src={message.imageUrl}
-              alt={message.description}
+              alt={message.body}
               class="message-image clickable"
               referrerpolicy="no-referrer"
               loading="lazy"
@@ -58,8 +58,31 @@
           {/if}
         {/key}
       </div>
+      {#if message.body}
+        <div class="message-caption">{message.body}</div>
+      {/if}
+    {:else if message.msgtype === 'm.file'}
+      <div class="file-wrapper">
+        {#key mediaVersion}
+          {#if message.fileUrl}
+            <a
+              href={message.fileUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="file-link"
+            >
+              📎 Download file
+            </a>
+          {:else}
+            <span class="file-link">📎 File attachment</span>
+          {/if}
+        {/key}
+      </div>
+      {#if message.body}
+        <div class="message-caption">{message.body}</div>
+      {/if}
     {:else}
-      <div class="message-content">{message.description}</div>
+      <div class="message-content">{message.body}</div>
     {/if}
 
     {#if isLastInGroup || (nextIsUnread && message.isSelf)}
@@ -147,6 +170,10 @@
   .message-image.clickable { cursor: zoom-in; }
   .image-wrapper { max-width: 360px; max-height: 360px; width: 100%; display: inline-flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 0.5rem; background: var(--color-input-bg); margin-bottom: 1rem; }
   .image-placeholder { min-width: 180px; min-height: 140px; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; color: var(--color-text-muted); }
+  .file-wrapper { max-width: 360px; width: 100%; display: inline-flex; align-items: center; justify-content: center; background: var(--color-input-bg); border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 0.5rem; }
+  .file-link { text-decoration: none; color: inherit; }
+  .file-link:hover { text-decoration: underline; }
+  .message-caption { font-size: 0.8rem; margin-top: 0.25rem; color: var(--color-text); }
 
   .message-timestamp { font-size: 0.65rem; line-height: 1; opacity: 0.7; position: absolute; right: 0.5rem; bottom: 0.35rem; margin: 0; text-align: right; pointer-events: none; }
   .message-bubble.has-timestamp.other .message-content::after { content: ''; display: inline-block; width: 4ch; }
