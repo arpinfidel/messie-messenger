@@ -315,33 +315,15 @@ export class MatrixTimelineService {
     for (const re of events.filter(
       (re) => re.type === EventType.RoomMessage || re.type === 'm.room.encrypted'
     )) {
-      // Try to ensure we have decrypted content by consulting the SDK event if available
-      let effectiveType = re.type;
-      let effectiveContent: any = re.content;
-      // TODO: wtf is this
-      // try {
-      //   const c = this.client;
-      //   const room = c?.getRoom(re.roomId!);
-      //   const live = room?.getLiveTimeline?.();
-      //   const sdkEv = live?.getEvents?.().find((e: any) => e.getId?.() === re.eventId);
-      //   if (sdkEv) {
-      //     await c?.decryptEventIfNeeded?.(sdkEv);
-      //     effectiveType = sdkEv.getType?.() || effectiveType;
-      //     effectiveContent = sdkEv.getContent?.() || effectiveContent;
-      //   }
-      // } catch {}
-
-      // console.time(`[MatrixTimelineService] repoEventToPreview(${re.eventId})`);
-      const { description } = this.repoEventToPreview({
-        ...re,
-        type: effectiveType,
-        content: effectiveContent,
-      } as RepoEvent);
+      // MatrixDataLayer ensures re.content is the effective content:
+      // - clear for decrypted
+      // - m.bad.encrypted body for failures
+      const { description } = this.repoEventToPreview(re);
       const isSelf = re.sender === currentUserId;
       // Prefer cached display name from store, then SDK membership, else MXID
       let senderDisplayName = (await this.data.getUserDisplayName(re.sender)) || re.sender;
       if (!senderDisplayName) senderDisplayName = re.sender;
-      const msgtype = effectiveContent?.msgtype;
+      const msgtype = (re.content as any)?.msgtype;
       // console.timeEnd(`[MatrixTimelineService] repoEventToPreview(${re.eventId})`);
 
       const msg: MatrixMessage = {
@@ -371,7 +353,7 @@ export class MatrixTimelineService {
 
       console.time(`[MatrixTimelineService] resolveImage(${re.eventId})`);
       if (msgtype === matrixSdk.MsgType.Image) {
-        const content = effectiveContent as ImageContent;
+        const content = re.content as any as ImageContent;
         msg.mxcUrl = content.file?.url ?? content.url;
         const p = this.data
           .resolveImage(content)
@@ -403,34 +385,23 @@ export class MatrixTimelineService {
   // Media cache management
   clearMediaCache(): void {}
 
-  /** Create a human preview from RepoEvent content (works for decrypted encrypted). */
+  /** Create a human preview from RepoEvent content (clear or failure content). */
   private repoEventToPreview(re: RepoEvent): { description: string } {
-    let c = re.content;
-    // Fallback: try to decrypt via SDK if content doesn't look like a message
-    if (!c?.body && re.type === 'm.room.encrypted') {
-      // TODO: wtf is this
-      // try {
-      //   const cli = this.client;
-      //   const room = cli?.getRoom(re.roomId!);
-      //   const live = room?.getLiveTimeline?.();
-      //   const sdkEv = live?.getEvents?.().find((e: any) => e.getId?.() === re.eventId);
-      //   if (sdkEv) {
-      //     // Fire and forget; if it decrypts, content may already be clear
-      //     try {
-      //       cli?.decryptEventIfNeeded?.(sdkEv);
-      //     } catch {}
-      //     c = sdkEv.getContent?.() || c;
-      //   }
-      // } catch {}
-    }
-    if (c.msgtype === matrixSdk.MsgType.Image) {
+    const c = re.content as any;
+
+    // Images: show filename or generic label
+    if (c?.msgtype === matrixSdk.MsgType.Image) {
       const body = c.body;
       return { description: `Image: ${typeof body === 'string' ? body : 'Image'}` };
     }
-    const body = c.body;
-    if (typeof body === 'string') return { description: body };
+    // Decryption failure body (from sdk: msgtype m.bad.encrypted)
+    if (c?.msgtype === 'm.bad.encrypted' && typeof c?.body === 'string') {
+      return { description: c.body };
+    }
+    // Plain text
+    if (typeof c?.body === 'string') return { description: c.body };
 
-    const relates = c['m.relates_to'];
+    const relates = c?.['m.relates_to'];
     if (relates?.rel_type === 'm.annotation') {
       const key = typeof c.key === 'string' ? (c.key as string) : undefined;
       if (key) {
@@ -440,7 +411,9 @@ export class MatrixTimelineService {
     if (relates?.rel_type === 'm.reference') {
       return { description: 'Replied to a message' };
     }
-    return { description: 'This message could not be decrypted.' };
+    // Final fallback: if still encrypted, prefer a short hint
+    if (re.type === 'm.room.encrypted') return { description: 'Unable to decrypt.' };
+    return { description: 'Unsupported message' };
   }
 
   // removed avatar helpers: now handled by AvatarService

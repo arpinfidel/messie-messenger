@@ -622,6 +622,7 @@ export class MatrixDataLayer {
       const mev = new MatrixEvent(raw);
       await client.decryptEventIfNeeded(mev);
       if (!mev.isDecryptionFailure()) {
+        // Successful decrypt: replace with clear content/type so UI has message text/media
         events[i] = {
           eventId: re.eventId,
           roomId: re.roomId,
@@ -632,6 +633,17 @@ export class MatrixDataLayer {
           unsigned: mev.getUnsigned(),
         };
       } else {
+        // Decryption failed: still expose the SDK's failure clear content so UI can render reason
+        events[i] = {
+          eventId: re.eventId,
+          roomId: re.roomId,
+          // The SDK sets clear type to m.room.message with msgtype m.bad.encrypted and a human body
+          type: mev.getType(),
+          sender: re.sender,
+          originServerTs: re.originServerTs,
+          content: mev.getContent(),
+          unsigned: mev.getUnsigned(),
+        };
         // If the SDK knows about this event, subscribe for future decryption and re-emit
         const sdkEv = room.findEventById(re.eventId);
         if (sdkEv) {
