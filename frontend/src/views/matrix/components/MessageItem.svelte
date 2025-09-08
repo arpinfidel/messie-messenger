@@ -58,9 +58,6 @@
           {/if}
         {/key}
       </div>
-      {#if message.body}
-        <div class="message-caption">{message.body}</div>
-      {/if}
     {:else if message.msgtype === 'm.file'}
       <div class="file-wrapper">
         {#key mediaVersion}
@@ -78,12 +75,8 @@
           {/if}
         {/key}
       </div>
-      {#if message.body}
-        <div class="message-caption">{message.body}</div>
-      {/if}
-    {:else}
-      <div class="message-content">{message.body}</div>
     {/if}
+    <div class="message-content">{message.body}</div>
 
     {#if isLastInGroup || (nextIsUnread && message.isSelf)}
       <div class="message-timestamp">
@@ -164,7 +157,7 @@
   .message-bubble:not(.first-in-group):not(.last-in-group).self { border-top-right-radius: 0.25rem; border-bottom-right-radius: 0.25rem; }
 
   .sender-name { font-size: 0.75rem; font-weight: 600; color: #60a5fa; margin-bottom: 0.25rem; }
-  .message-content { white-space: pre-wrap; display: inline; line-height: 1.4; }
+  .message-content { white-space: pre-wrap; display: inline; line-height: 1.4; display: block;}
 
   .message-image { max-width: 100%; max-height: 100%; object-fit: contain; display: block; border-radius: 0.5rem; }
   .message-image.clickable { cursor: zoom-in; }
@@ -173,7 +166,6 @@
   .file-wrapper { max-width: 360px; width: 100%; display: inline-flex; align-items: center; justify-content: center; background: var(--color-input-bg); border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 0.5rem; }
   .file-link { text-decoration: none; color: inherit; }
   .file-link:hover { text-decoration: underline; }
-  .message-caption { font-size: 0.8rem; margin-top: 0.25rem; color: var(--color-text); }
 
   .message-timestamp { font-size: 0.65rem; line-height: 1; opacity: 0.7; position: absolute; right: 0.5rem; bottom: 0.35rem; margin: 0; text-align: right; pointer-events: none; }
   .message-bubble.has-timestamp.other .message-content::after { content: ''; display: inline-block; width: 4ch; }

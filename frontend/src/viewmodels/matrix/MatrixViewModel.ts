@@ -335,7 +335,7 @@ export class MatrixViewModel implements IModuleViewModel {
         : matrixSdk.MsgType.File;
 
     const content: any = {
-      body: caption || file.name || 'file',
+      body: caption ?? '',
       filename: file.name || 'file',
       msgtype,
       info: { mimetype: file.type || 'application/octet-stream', size: file.size },

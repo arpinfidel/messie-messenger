@@ -209,8 +209,7 @@ export class MatrixTimelineService {
         ev.sender !== this.client?.getUserId()
       ) {
         // Suppress notifications when the app tab is active/visible
-        const isVisible =
-          typeof document !== 'undefined' && document.visibilityState === 'visible';
+        const isVisible = typeof document !== 'undefined' && document.visibilityState === 'visible';
         const hasFocus =
           typeof document !== 'undefined' &&
           typeof document.hasFocus === 'function' &&
@@ -358,6 +357,7 @@ export class MatrixTimelineService {
       if (msgtype === matrixSdk.MsgType.Image) {
         const content = c as ImageContent;
         msg.mxcUrl = content.file?.url ?? content.url;
+        msg.fileName = content.filename || body || 'file';
         const p = this.data
           .resolveImage(content)
           .then((blobUrl) => {
