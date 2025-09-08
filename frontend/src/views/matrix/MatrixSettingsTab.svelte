@@ -5,10 +5,15 @@
   const matrixViewModel = MatrixViewModel.getInstance();
 
   let recoveryKey: string = matrixSettings.recoveryKey;
+  // Cooldown is stored in milliseconds; edit as seconds in UI
+  let notifyCooldownSeconds: number = Math.floor((matrixSettings.notifyCooldownMs || 0) / 1000);
 
-  function saveRecoveryKey() {
+  function saveSettings() {
     matrixSettings.recoveryKey = recoveryKey;
-    console.log('Recovery Key saved to settings object.');
+    // Persist cooldown (seconds -> ms)
+    const ms = Math.max(0, Math.floor(Number(notifyCooldownSeconds) || 0)) * 1000;
+    matrixSettings.saveNotifyCooldown(ms);
+    console.log('Settings saved.');
   }
 </script>
 
@@ -27,11 +32,29 @@
     />
   </div>
 
+  <div class="mb-4">
+    <label for="notify-cooldown" class="block text-sm font-medium text-gray-700"
+      >Notification Cooldown (per room)</label
+    >
+    <div class="mt-1 flex items-center gap-2">
+      <input
+        type="number"
+        id="notify-cooldown"
+        min="0"
+        step="1"
+        bind:value={notifyCooldownSeconds}
+        class="block w-40 rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500 sm:text-sm"
+        placeholder="0"
+      />
+      <span class="text-sm text-gray-600">seconds (0 = always notify)</span>
+    </div>
+  </div>
+
   <button
-    on:click={saveRecoveryKey}
+    on:click={saveSettings}
     class="inline-flex justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
   >
-    Save Recovery Key
+    Save Settings
   </button>
 
   <button

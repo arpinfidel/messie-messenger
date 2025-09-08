@@ -33,7 +33,7 @@
     </div>
   {/if}
 
-  <div class="message-bubble {message.isSelf ? 'self' : 'other'} {isFirstInGroup ? 'first-in-group' : ''} {isLastInGroup ? 'last-in-group' : ''} {isLastInGroup || nextIsUnread ? 'has-timestamp' : ''}">
+  <div class="message-bubble {message.isSelf ? 'self' : 'other'} {isFirstInGroup ? 'first-in-group' : ''} {isLastInGroup ? 'last-in-group' : ''} {isLastInGroup || (nextIsUnread && message.isSelf) ? 'has-timestamp' : ''}">
     {#if !message.isSelf && isFirstInGroup}
       <div class="sender-name">{message.senderDisplayName}</div>
     {/if}
@@ -62,7 +62,7 @@
       <div class="message-content">{message.description}</div>
     {/if}
 
-    {#if isLastInGroup || nextIsUnread}
+    {#if isLastInGroup || (nextIsUnread && message.isSelf)}
       <div class="message-timestamp">
         {new Date(message.timestamp).toLocaleTimeString('en-US', {
           hour: '2-digit',

@@ -9,6 +9,7 @@ import type { ImageContent } from 'matrix-js-sdk/lib/@types/media';
 import { MediaResolver } from './core/MediaResolver';
 import { AvatarService } from './core/AvatarService';
 import type { INotificationService } from '@/notifications/NotificationService';
+import { matrixSettings } from './MatrixSettings';
 
 export interface MatrixMessage {
   id: string;
@@ -35,6 +36,7 @@ export class MatrixTimelineService {
   // Invalidate counter to notify UI when async media resolves
   private mediaVersion: Writable<number> = writable(0);
   private notifications?: INotificationService;
+  private lastNotifyByRoom = new Map<string, number>();
 
   constructor(
     private readonly ctx: {
@@ -203,19 +205,40 @@ export class MatrixTimelineService {
         ev?.type === 'm.room.message' &&
         ev.sender !== this.client?.getUserId()
       ) {
-        try {
-          const client = this.client;
-          const mxEv = room.findEventById(ev.eventId);
-          const actions = mxEv && client?.getPushActionsForEvent(mxEv);
-          if (actions?.notify) {
-            void this.notifications.notify({
-              title,
-              body: description,
-              icon: avatarUrl,
-            });
+        // Suppress notifications when the app tab is active/visible
+        const isVisible =
+          typeof document !== 'undefined' && document.visibilityState === 'visible';
+        const hasFocus =
+          typeof document !== 'undefined' &&
+          typeof document.hasFocus === 'function' &&
+          document.hasFocus();
+        const suppress = isVisible && hasFocus;
+
+        if (!suppress) {
+          // Per-room notification cooldown
+          const now = Date.now();
+          const cooldownMs = Math.max(0, Number(matrixSettings.notifyCooldownMs) || 0);
+          const last = this.lastNotifyByRoom.get(id) || 0;
+          if (cooldownMs > 0 && now - last < cooldownMs) {
+            // Skip due to cooldown window
+            this.scheduleFlush();
+            return;
           }
-        } catch (err) {
-          console.warn('[MatrixTimelineService] notify failed', err);
+          try {
+            const client = this.client;
+            const mxEv = room.findEventById(ev.eventId);
+            const actions = mxEv && client?.getPushActionsForEvent(mxEv);
+            if (actions?.notify) {
+              void this.notifications.notify({
+                title,
+                body: description,
+                icon: avatarUrl,
+              });
+              this.lastNotifyByRoom.set(id, now);
+            }
+          } catch (err) {
+            console.warn('[MatrixTimelineService] notify failed', err);
+          }
         }
       }
       this.scheduleFlush();

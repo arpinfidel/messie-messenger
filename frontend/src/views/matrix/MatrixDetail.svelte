@@ -381,6 +381,9 @@
       console.error('[MatrixDetail][sendMessage] Failed to send message:', e);
     } finally {
       isSending = false;
+      // Keep focus on the message input after sending
+      await tick();
+      messageInputRef?.focus();
     }
   }
 
