@@ -19,6 +19,8 @@ import { OutgoingMessageQueue } from './core/OutgoingMessageQueue';
 import { MatrixCryptoManager } from './core/MatrixCryptoManager';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
 import { BrowserNotificationService } from '@/notifications/NotificationService';
+import { BrowserMediaService } from './core/MediaService';
+import type { EncryptedFile } from 'matrix-js-sdk/lib/@types/media';
 
 export class MatrixViewModel implements IModuleViewModel {
   private static instance: MatrixViewModel;
@@ -47,6 +49,7 @@ export class MatrixViewModel implements IModuleViewModel {
     { maxMemEntries: 200, maxDbEntries: 5000 }
   );
   private notificationSvc = new BrowserNotificationService();
+  private mediaSvc = new BrowserMediaService();
   private timelineSvc = new MatrixTimelineService(
     {
       getClient: () => this.clientMgr.getClient(),
@@ -288,6 +291,103 @@ export class MatrixViewModel implements IModuleViewModel {
   }
 
   /* ---------- Messaging ---------- */
+
+  async sendImage(roomId: string): Promise<void> {
+    const file = await this.mediaSvc.pickImage();
+    if (!file) return;
+
+    const client = this.clientMgr.getClient();
+    if (!client) {
+      console.error('Cannot send media: Matrix client not initialized.');
+      return;
+    }
+
+    const content: any = {
+      body: file.name || 'image',
+      msgtype: matrixSdk.MsgType.Image,
+      info: { mimetype: file.type, size: file.size },
+    };
+
+    try {
+      const dims = await this.getImageSize(file).catch(() => undefined);
+      if (dims) {
+        content.info.w = dims.width;
+        content.info.h = dims.height;
+      }
+
+      if (client.isRoomEncrypted(roomId)) {
+        const enc = await this.encryptAttachment(file);
+        const res = await client.uploadContent(new Blob([enc.data]), {
+          type: 'application/octet-stream',
+        });
+        content.file = { ...enc.file, url: res.content_uri } as EncryptedFile;
+      } else {
+        const res = await client.uploadContent(file, { type: file.type });
+        content.url = res.content_uri;
+      }
+
+      this.queue.enqueue(roomId, 'm.room.message', content);
+      this.queue.process();
+    } catch (e) {
+      console.error('Failed to send media message', e);
+    }
+  }
+
+  private async getImageSize(file: File): Promise<{ width: number; height: number }> {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        resolve({ width: img.width, height: img.height });
+        URL.revokeObjectURL(url);
+      };
+      img.onerror = (err) => {
+        URL.revokeObjectURL(url);
+        reject(err);
+      };
+      img.src = url;
+    });
+  }
+
+  private async encryptAttachment(
+    file: File
+  ): Promise<{ data: ArrayBuffer; file: Omit<EncryptedFile, 'url'> }> {
+    const data = await file.arrayBuffer();
+    const iv = crypto.getRandomValues(new Uint8Array(16));
+    const keyBytes = crypto.getRandomValues(new Uint8Array(32));
+    const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-CTR', true, [
+      'encrypt',
+      'decrypt',
+    ]);
+    const cipher = await crypto.subtle.encrypt(
+      { name: 'AES-CTR', counter: iv, length: 64 },
+      key,
+      data
+    );
+    const hashBuf = await crypto.subtle.digest('SHA-256', cipher);
+    const keyJwk = (await crypto.subtle.exportKey('jwk', key)) as EncryptedFile['key'];
+    // Ensure required fields for Matrix spec
+    keyJwk.alg = 'A256CTR';
+    keyJwk.key_ops = ['encrypt', 'decrypt'];
+    keyJwk.ext = true;
+
+    const b64 = (buf: ArrayBuffer | Uint8Array) => {
+      const bytes = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
+      let binary = '';
+      for (const b of bytes) binary += String.fromCharCode(b);
+      return btoa(binary).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+    };
+
+    return {
+      data: cipher,
+      file: {
+        v: 'v2',
+        key: keyJwk,
+        iv: b64(iv),
+        hashes: { sha256: b64(hashBuf) },
+      },
+    };
+  }
 
   async sendMessage(roomId: string, messageContent: string): Promise<void> {
     const client = this.clientMgr.getClient();

@@ -4,11 +4,16 @@
   export let isSending: boolean = false;
   export let className: string = '';
 
-  const dispatch = createEventDispatcher<{ send: string }>();
+  const dispatch = createEventDispatcher<{ send: string; sendMedia: void }>();
 
   let text = '';
   let textareaEl: HTMLTextAreaElement;
   const canSend = text.trim().length > 0 && !isSending;
+
+  function handleMediaClick() {
+    if (isSending) return;
+    dispatch('sendMedia');
+  }
 
   function trySend() {
     const content = text.trim();
@@ -39,8 +44,23 @@
   }
 </script>
 
-<div class="message-input-container {className}">
-  <div class="input-wrapper">
+  <div class="message-input-container {className}">
+    <div class="input-wrapper">
+    <button
+      on:click={handleMediaClick}
+      class="media-button"
+      title="Send image"
+      disabled={isSending}
+    >
+      <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M21.44 11.05l-8.486 8.486a5 5 0 11-7.071-7.071l8.486-8.486a3 3 0 114.243 4.243l-8.486 8.486a1 1 0 11-1.414-1.414l8.486-8.486"
+        />
+      </svg>
+    </button>
     <textarea
       bind:this={textareaEl}
       bind:value={text}
@@ -85,6 +105,23 @@
   .send-button.enabled:hover { background: var(--color-bubble-self-hover); }
   .send-button.enabled:active { transform: scale(0.95); }
   .send-button.disabled { background: #4a5568; color: #9ca3af; cursor: not-allowed; }
+
+  .media-button {
+    flex-shrink: 0;
+    width: 2.5rem;
+    height: 2.5rem;
+    border: none;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #4a5568;
+    color: #9ca3af;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+  .media-button:hover { background: #5a6679; }
+  .media-button:disabled { opacity: 0.6; cursor: not-allowed; }
 
   .loading-spinner { width: 16px; height: 16px; border: 2px solid #4a5568; border-top: 2px solid var(--color-bubble-self); border-radius: 50%; animation: spin 1s linear infinite; }
   .loading-spinner.small { width: 12px; height: 12px; border-width: 1.5px; }

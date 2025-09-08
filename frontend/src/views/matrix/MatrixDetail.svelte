@@ -387,6 +387,21 @@
     }
   }
 
+  async function sendMedia() {
+    if (!item?.id || isSending) return;
+    const roomId = item.id;
+    isSending = true;
+    try {
+      await matrixViewModel.sendImage(roomId);
+    } catch (e) {
+      console.error('[MatrixDetail][sendMedia] Failed to send media:', e);
+    } finally {
+      isSending = false;
+      await tick();
+      messageInputRef?.focus();
+    }
+  }
+
   $: formattedRoomName = item.title || 'Matrix Room';
 </script>
 
@@ -449,7 +464,12 @@
     {/if}
   </div>
 
-  <MessageInput bind:this={messageInputRef} {isSending} on:send={(e) => sendMessage(e.detail)} />
+  <MessageInput
+    bind:this={messageInputRef}
+    {isSending}
+    on:send={(e) => sendMessage(e.detail)}
+    on:sendMedia={() => sendMedia()}
+  />
 
   {#if lightboxUrl}
     <div class="lightbox" on:click={closeLightbox}>
