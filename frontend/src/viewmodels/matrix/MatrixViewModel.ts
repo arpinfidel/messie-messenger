@@ -301,17 +301,26 @@ export class MatrixViewModel implements IModuleViewModel {
   async sendFile(roomId: string): Promise<void> {
     const file = await this.mediaSvc.pickFile();
     if (!file) return;
-    await this.sendAttachment(roomId, file);
+    // Send as a generic file (document) so bridges like WhatsApp
+    // preserve the filename instead of treating images as photos.
+    await this.sendAttachment(roomId, file, { forceFile: true });
   }
 
-  private async sendAttachment(roomId: string, file: File): Promise<void> {
+  private async sendAttachment(
+    roomId: string,
+    file: File,
+    opts?: { forceFile?: boolean }
+  ): Promise<void> {
     const client = this.clientMgr.getClient();
     if (!client) {
       console.error('Cannot send media: Matrix client not initialized.');
       return;
     }
 
-    const msgtype = file.type.startsWith('image/')
+    const isEncryptedRoom = client.isRoomEncrypted(roomId);
+    const msgtype = opts?.forceFile || isEncryptedRoom
+      ? matrixSdk.MsgType.File
+      : file.type.startsWith('image/')
       ? matrixSdk.MsgType.Image
       : file.type.startsWith('video/')
       ? matrixSdk.MsgType.Video
@@ -319,9 +328,20 @@ export class MatrixViewModel implements IModuleViewModel {
 
     const content: any = {
       body: file.name || 'file',
+      filename: file.name || 'file',
       msgtype,
-      info: { mimetype: file.type, size: file.size },
+      info: { mimetype: file.type || 'application/octet-stream', size: file.size },
     };
+
+    console.debug('[MatrixVM] preparing attachment', {
+      roomId,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      msgtype,
+      forceFile: !!opts?.forceFile,
+      isEncryptedRoom,
+    });
 
     if (msgtype === matrixSdk.MsgType.Image) {
       const dims = await this.getImageSize(file).catch(() => undefined);
@@ -332,18 +352,43 @@ export class MatrixViewModel implements IModuleViewModel {
     }
 
     try {
-      if (client.isRoomEncrypted(roomId)) {
+      if (isEncryptedRoom) {
         const enc = await this.encryptAttachment(file);
         const res = await client.uploadContent(new Blob([enc.data]), {
           type: 'application/octet-stream',
+          // Include original filename so media repo returns it in headers
+          name: file.name || 'file',
         });
         content.file = { ...enc.file, url: res.content_uri } as EncryptedFile;
+        console.debug('[MatrixVM] encrypted upload complete', {
+          roomId,
+          mxc: res?.content_uri,
+          name: file.name,
+          size: file.size,
+        });
       } else {
-        const res = await client.uploadContent(file, { type: file.type });
+        const res = await client.uploadContent(file, {
+          // Use a sensible default if the browser didn't detect a type
+          type: file.type || 'application/octet-stream',
+          // Include original filename for better bridge compatibility
+          name: file.name || 'file',
+        });
         content.url = res.content_uri;
+        console.debug('[MatrixVM] upload complete', {
+          roomId,
+          mxc: res?.content_uri,
+          name: file.name,
+          size: file.size,
+        });
       }
 
       this.queue.enqueue(roomId, 'm.room.message', content);
+      console.debug('[MatrixVM] queued attachment send', {
+        roomId,
+        msgtype,
+        hasFile: !!content.file,
+        hasUrl: !!content.url,
+      });
       this.queue.process();
     } catch (e) {
       console.error('Failed to send media message', e);
@@ -387,12 +432,13 @@ export class MatrixViewModel implements IModuleViewModel {
     keyJwk.alg = 'A256CTR';
     keyJwk.key_ops = ['encrypt', 'decrypt'];
     keyJwk.ext = true;
-
-    const b64 = (buf: ArrayBuffer | Uint8Array) => {
+    // Encode iv and sha256 as standard base64, UNPADDED, as per spec.
+    // Note: uses standard base64 alphabet (+/), not URL-safe.
+    const toBase64Unpadded = (buf: ArrayBuffer | Uint8Array) => {
       const bytes = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
       let binary = '';
       for (const b of bytes) binary += String.fromCharCode(b);
-      return btoa(binary).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+      return btoa(binary).replace(/=+$/, '');
     };
 
     return {
@@ -400,8 +446,8 @@ export class MatrixViewModel implements IModuleViewModel {
       file: {
         v: 'v2',
         key: keyJwk,
-        iv: b64(iv),
-        hashes: { sha256: b64(hashBuf) },
+        iv: toBase64Unpadded(iv),
+        hashes: { sha256: toBase64Unpadded(hashBuf) },
       },
     };
   }
