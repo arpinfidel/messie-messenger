@@ -392,9 +392,24 @@
     const roomId = item.id;
     isSending = true;
     try {
-      await matrixViewModel.sendImage(roomId);
+      await matrixViewModel.sendMedia(roomId);
     } catch (e) {
       console.error('[MatrixDetail][sendMedia] Failed to send media:', e);
+    } finally {
+      isSending = false;
+      await tick();
+      messageInputRef?.focus();
+    }
+  }
+
+  async function sendFile() {
+    if (!item?.id || isSending) return;
+    const roomId = item.id;
+    isSending = true;
+    try {
+      await matrixViewModel.sendFile(roomId);
+    } catch (e) {
+      console.error('[MatrixDetail][sendFile] Failed to send file:', e);
     } finally {
       isSending = false;
       await tick();
@@ -469,6 +484,7 @@
     {isSending}
     on:send={(e) => sendMessage(e.detail)}
     on:sendMedia={() => sendMedia()}
+    on:sendFile={() => sendFile()}
   />
 
   {#if lightboxUrl}

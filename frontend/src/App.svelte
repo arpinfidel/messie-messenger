@@ -40,12 +40,10 @@
     bind:clientWidth={timelineWidth}
     bind:this={timelineContainer}
   >
-    <UnifiedTimeline
-      on:itemSelected={handleTimelineItemSelected}
-      on:openSettings={() => (showSettingsPopup = true)}
-      {timelineWidth}
-      {timelineLeft}
-    />
+      <UnifiedTimeline
+        on:itemSelected={handleTimelineItemSelected}
+        on:openSettings={() => (showSettingsPopup = true)}
+      />
   </div>
   <div class="flex h-full flex-col overflow-auto">
     <DetailPanel selectedItem={selectedTimelineItem} />

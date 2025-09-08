@@ -1,6 +1,6 @@
 <!-- UnifiedTimeline.svelte -->
 <script lang="ts">
-  import { onMount, createEventDispatcher, onDestroy } from 'svelte';
+  import { onMount, createEventDispatcher } from 'svelte';
   import { UnifiedTimelineViewModel } from '@/viewmodels/shared/UnifiedTimelineViewModel';
   import { MatrixViewModel } from '@/viewmodels/matrix/MatrixViewModel';
   import { EmailViewModel } from '@/viewmodels/email/EmailViewModel';
@@ -12,6 +12,7 @@
   import { Configuration, DefaultConfig } from '@/api/generated';
   import { TodoViewModel } from '@/viewmodels/todo/TodoViewModel';
   import GenericTimelineItem from './timeline/GenericTimelineItem.svelte';
+  import PopupMenu from '@/views/shared/PopupMenu.svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -20,32 +21,18 @@
   let error: string | null = null;
   let loadingModuleNames: string[] = [];
   let loadingText = 'Loading timeline items...';
-  let showCreateDropdown = false;
+  let showCreateMenu = false;
 
   const unifiedTimelineViewModel = new UnifiedTimelineViewModel();
   const cloudAuthViewModel = CloudAuthViewModel.getInstance();
   const todoViewModel = TodoViewModel.getInstance();
 
   let createButton: HTMLButtonElement;
-  let createDropdown: HTMLDivElement;
-
-  function handleClickOutside(event: MouseEvent) {
-    if (
-      showCreateDropdown &&
-      createDropdown &&
-      !createDropdown.contains(event.target as Node) &&
-      !createButton.contains(event.target as Node)
-    ) {
-      showCreateDropdown = false;
-    }
-  }
 
   onMount(async () => {
     unifiedTimelineViewModel.isLoading.subscribe((value) => {
       isLoading = value;
     });
-
-    document.addEventListener('click', handleClickOutside, true);
 
     unifiedTimelineViewModel.loadingModuleNames.subscribe((value) => {
       loadingModuleNames = value;
@@ -60,9 +47,6 @@
     }
   });
 
-  onDestroy(() => {
-    document.removeEventListener('click', handleClickOutside, true);
-  });
 
   $: loadingText = loadingModuleNames.length > 0 ? `Loading: ${loadingModuleNames.join(', ')}` : '';
 
@@ -71,7 +55,7 @@
   }
 
   async function createTodoList() {
-    showCreateDropdown = false;
+    showCreateMenu = false;
     if (!cloudAuthViewModel.jwtToken) {
       console.error('User not authenticated. Cannot create todo list.');
       return;
@@ -113,44 +97,39 @@
         <!-- Action Buttons -->
         <div class="flex items-center space-x-3">
           <!-- Create Button with Dropdown -->
-          <div class="relative">
+          <div>
             <button
               bind:this={createButton}
               class="group flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl hover:from-emerald-400 hover:to-green-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-              on:click={() => (showCreateDropdown = !showCreateDropdown)}
+              on:click={() => (showCreateMenu = !showCreateMenu)}
               aria-haspopup="true"
-              aria-expanded={showCreateDropdown}
+              aria-expanded={showCreateMenu}
               title="Create new item"
             >
-              <svg 
-                class="h-5 w-5 transition-transform duration-300 {showCreateDropdown ? 'rotate-45' : ''}" 
-                fill="none" 
-                stroke="currentColor" 
+              <svg
+                class="h-5 w-5 transition-transform duration-300 {showCreateMenu ? 'rotate-45' : ''}"
+                fill="none"
+                stroke="currentColor"
                 viewBox="0 0 24 24"
               >
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
             </button>
 
-            {#if showCreateDropdown}
-              <div
-                bind:this={createDropdown}
-                class="absolute right-0 top-full z-30 mt-2 w-56 origin-top-right animate-in fade-in slide-in-from-top-2 rounded-xl border border-gray-200 bg-white/95 py-2 shadow-xl backdrop-blur-md dark:border-gray-700 dark:bg-gray-800/95"
+            <PopupMenu anchor={createButton} show={showCreateMenu} on:close={() => (showCreateMenu = false)}>
+              <button
+                class="flex w-full items-center px-4 py-3 text-left text-gray-700 transition-colors hover:bg-gray-100/80 dark:text-gray-300 dark:hover:bg-gray-700/80"
+                on:click={createTodoList}
               >
-                <button
-                  class="flex w-full items-center px-4 py-3 text-left text-gray-700 transition-colors hover:bg-gray-100/80 dark:text-gray-300 dark:hover:bg-gray-700/80"
-                  on:click={createTodoList}
-                >
-                  <div class="mr-3 flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/50">
-                    <span class="text-sm">✅</span>
-                  </div>
-                  <div>
-                    <div class="font-medium">Create todo list</div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400">Add a new task list</div>
-                  </div>
-                </button>
-              </div>
-            {/if}
+                <div class="mr-3 flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/50">
+                  <span class="text-sm">✅</span>
+                </div>
+                <div>
+                  <div class="font-medium">Create todo list</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">Add a new task list</div>
+                </div>
+              </button>
+            </PopupMenu>
           </div>
 
           <!-- Settings Button -->
@@ -199,7 +178,7 @@
         </p>
         <button
           class="flex items-center space-x-2 rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 px-6 py-3 font-medium text-white shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl"
-          on:click={() => (showCreateDropdown = !showCreateDropdown)}
+          on:click={() => (showCreateMenu = !showCreateMenu)}
         >
           <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />

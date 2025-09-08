@@ -292,29 +292,46 @@ export class MatrixViewModel implements IModuleViewModel {
 
   /* ---------- Messaging ---------- */
 
-  async sendImage(roomId: string): Promise<void> {
-    const file = await this.mediaSvc.pickImage();
+  async sendMedia(roomId: string): Promise<void> {
+    const file = await this.mediaSvc.pickMedia();
     if (!file) return;
+    await this.sendAttachment(roomId, file);
+  }
 
+  async sendFile(roomId: string): Promise<void> {
+    const file = await this.mediaSvc.pickFile();
+    if (!file) return;
+    await this.sendAttachment(roomId, file);
+  }
+
+  private async sendAttachment(roomId: string, file: File): Promise<void> {
     const client = this.clientMgr.getClient();
     if (!client) {
       console.error('Cannot send media: Matrix client not initialized.');
       return;
     }
 
+    const msgtype = file.type.startsWith('image/')
+      ? matrixSdk.MsgType.Image
+      : file.type.startsWith('video/')
+      ? matrixSdk.MsgType.Video
+      : matrixSdk.MsgType.File;
+
     const content: any = {
-      body: file.name || 'image',
-      msgtype: matrixSdk.MsgType.Image,
+      body: file.name || 'file',
+      msgtype,
       info: { mimetype: file.type, size: file.size },
     };
 
-    try {
+    if (msgtype === matrixSdk.MsgType.Image) {
       const dims = await this.getImageSize(file).catch(() => undefined);
       if (dims) {
         content.info.w = dims.width;
         content.info.h = dims.height;
       }
+    }
 
+    try {
       if (client.isRoomEncrypted(roomId)) {
         const enc = await this.encryptAttachment(file);
         const res = await client.uploadContent(new Blob([enc.data]), {
