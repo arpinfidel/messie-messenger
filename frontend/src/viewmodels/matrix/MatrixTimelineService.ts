@@ -1,12 +1,11 @@
 import * as matrixSdk from 'matrix-js-sdk';
-import { EventType, MatrixEvent, Room } from 'matrix-js-sdk';
+import { EventType } from 'matrix-js-sdk';
 import { writable, type Writable, get } from 'svelte/store';
 
 import type { TimelineItem } from '@/models/shared/TimelineItem';
 import type { RepoEvent } from './core/TimelineRepository';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
 import type { ImageContent } from 'matrix-js-sdk/lib/@types/media';
-import { MediaResolver } from './core/MediaResolver';
 import { AvatarService } from './core/AvatarService';
 import type { INotificationService } from '@/notifications/NotificationService';
 import { matrixSettings } from './MatrixSettings';
@@ -29,11 +28,8 @@ export interface MatrixMessage {
 
 export class MatrixTimelineService {
   private _timelineItems: Writable<TimelineItem[]> = writable([]);
-  private nextTimeline: TimelineItem[] = [];
+  private nextTimeline: Map<string, TimelineItem> = new Map();
   private flushTimeout: ReturnType<typeof setTimeout> | null = null;
-  private refreshTimer: ReturnType<typeof setTimeout> | null = null;
-  private pendingLiveEvents: Array<{ ev: MatrixEvent; room: Room }> = [];
-  private mediaResolver = new MediaResolver(() => this.client);
   private readonly maxRooms = 30; // limit room list to most recent N
   // Invalidate counter to notify UI when async media resolves
   private mediaVersion: Writable<number> = writable(0);
@@ -79,16 +75,14 @@ export class MatrixTimelineService {
     const limitedRooms = sortedRooms.slice(0, this.maxRooms);
 
     const items: TimelineItem[] = [];
-    const currentItems = this.nextTimeline;
-    const currentItemsByID = new Map(currentItems.map((it) => [it.id, it]));
+    const currentItemsByID = this.nextTimeline;
 
     for (const room of limitedRooms) {
       const lastEvent = (await this.data.getRoomEvents(room.id, null, 1, true)).events[0];
       let description = 'No recent messages';
       let timestamp = room.latestTimestamp || 0;
       if (lastEvent) {
-        const preview = this.repoEventToPreview(lastEvent);
-        description = preview.description;
+        description = this.repoEventToPreview(lastEvent);
         timestamp = lastEvent.originServerTs || timestamp || 0;
       }
       // get previous avatar if available
@@ -123,7 +117,7 @@ export class MatrixTimelineService {
             method: 'crop',
           });
           // No 'continue' here, allow fallback avatar
-          const existingItem = this.nextTimeline.find((t) => t.id === room.id);
+          const existingItem = this.nextTimeline.get(room.id);
           if (!existingItem) {
             continue;
           }
@@ -156,7 +150,7 @@ export class MatrixTimelineService {
       const timestamp = ev?.originServerTs ?? fallbackTs;
       const id = room.roomId;
       const title = room.name || room.roomId;
-      const { description } = ev ? this.repoEventToPreview(ev) : { description: '' };
+      const description = ev ? this.repoEventToPreview(ev) : '';
       const body = typeof ev?.content?.body === 'string' ? (ev!.content.body as string) : undefined;
 
       let avatarUrl: string | undefined;
@@ -238,17 +232,15 @@ export class MatrixTimelineService {
     });
   }
 
-  bufferTimelineUpdate(ev: TimelineItem) {
-    const idx = this.nextTimeline.findIndex((it) => it.id === ev.id);
-    if (idx === -1) {
-      this.nextTimeline.push(ev);
-    } else if ((this.nextTimeline[idx]?.timestamp ?? 0) <= ev.timestamp) {
-      this.nextTimeline[idx] = ev;
+  bufferTimelineUpdate(item: TimelineItem) {
+    const existing = this.nextTimeline.get(item.id);
+    if (!existing || (existing.timestamp ?? 0) <= item.timestamp) {
+      this.nextTimeline.set(item.id, item);
     }
   }
 
   setRoomUnread(roomId: string, unreadCount: number) {
-    const existing = this.nextTimeline.find((it) => it.id === roomId);
+    const existing = this.nextTimeline.get(roomId);
     if (!existing) return;
     const updated: TimelineItem = {
       id: existing.id,
@@ -268,7 +260,10 @@ export class MatrixTimelineService {
   async scheduleFlush() {
     if (this.flushTimeout) return;
     this.flushTimeout = setTimeout(() => {
-      this._timelineItems.set(this.nextTimeline);
+      const sorted = Array.from(this.nextTimeline.values()).sort(
+        (a, b) => (b.timestamp ?? 0) - (a.timestamp ?? 0)
+      );
+      this._timelineItems.set(sorted);
       this.flushTimeout = null;
     }, 100);
   }
@@ -392,40 +387,38 @@ export class MatrixTimelineService {
   clearMediaCache(): void {}
 
   /** Create a human preview from RepoEvent content (clear or failure content). */
-  private repoEventToPreview(re: RepoEvent): { description: string } {
+  private repoEventToPreview(re: RepoEvent): string {
     const c = re.content as any;
 
     // Images: show filename or generic label
     if (c?.msgtype === matrixSdk.MsgType.Image) {
       const body = c.body;
-      return { description: `Image: ${typeof body === 'string' ? body : 'Image'}` };
+      return `Image: ${typeof body === 'string' ? body : 'Image'}`;
     }
     // Files: show filename or generic label
     if (c?.msgtype === matrixSdk.MsgType.File) {
       const name = c.filename || c.body;
-      return { description: `File: ${typeof name === 'string' ? name : 'file'}` };
+      return `File: ${typeof name === 'string' ? name : 'file'}`;
     }
     // Decryption failure body (from sdk: msgtype m.bad.encrypted)
     if (c?.msgtype === 'm.bad.encrypted' && typeof c?.body === 'string') {
-      return { description: c.body };
+      return c.body;
     }
     // Plain text
-    if (typeof c?.body === 'string') return { description: c.body };
+    if (typeof c?.body === 'string') return c.body;
 
     const relates = c?.['m.relates_to'];
     if (relates?.rel_type === 'm.annotation') {
       const key = typeof c.key === 'string' ? (c.key as string) : undefined;
       if (key) {
-        return { description: `${re.sender} reacted with ${key}` };
+        return `${re.sender} reacted with ${key}`;
       }
     }
     if (relates?.rel_type === 'm.reference') {
-      return { description: 'Replied to a message' };
+      return 'Replied to a message';
     }
     // Final fallback: if still encrypted, prefer a short hint
-    if (re.type === 'm.room.encrypted') return { description: 'Unable to decrypt.' };
-    return { description: 'Unsupported message' };
+    if (re.type === 'm.room.encrypted') return 'Unable to decrypt.';
+    return 'Unsupported message';
   }
-
-  // removed avatar helpers: now handled by AvatarService
 }

@@ -9,11 +9,7 @@ import type { DbMember, DbUser } from './idb/constants';
 import type { ImageContent } from 'matrix-js-sdk/lib/types';
 import { MatrixViewModel } from '../MatrixViewModel';
 
-type RepoEventListener = (
-  ev: RepoEvent,
-  room: matrixSdk.Room,
-  meta?: { isLive?: boolean }
-) => void;
+type RepoEventListener = (ev: RepoEvent, room: matrixSdk.Room, meta?: { isLive?: boolean }) => void;
 
 class RepoEventEmitter {
   private listeners = new Set<RepoEventListener>();
@@ -476,8 +472,7 @@ export class MatrixDataLayer {
           if (ev.isDecryptionFailure()) return;
           try {
             const updated = await this.toRepoEvent(ev);
-            if (updated)
-              this.repoEventEmitter.emit(updated, room, { isLive: false });
+            if (updated) this.repoEventEmitter.emit(updated, room, { isLive: false });
           } finally {
             try {
               ev.off(MatrixEventEvent.Decrypted, onDecrypted);
