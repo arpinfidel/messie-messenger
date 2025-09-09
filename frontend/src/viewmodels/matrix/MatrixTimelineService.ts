@@ -189,11 +189,8 @@ export class MatrixTimelineService {
         ev.sender !== this.client?.getUserId()
       ) {
         // Suppress notifications when the app tab is active/visible
-        const isVisible = typeof document !== 'undefined' && document.visibilityState === 'visible';
-        const hasFocus =
-          typeof document !== 'undefined' &&
-          typeof document.hasFocus === 'function' &&
-          document.hasFocus();
+        const isVisible = document && document.visibilityState === 'visible';
+        const hasFocus = document && typeof document.hasFocus && document.hasFocus();
         const suppress = isVisible && hasFocus;
 
         if (!suppress) {
@@ -211,10 +208,18 @@ export class MatrixTimelineService {
             const mxEv = room.findEventById(ev.eventId);
             const actions = mxEv && client?.getPushActionsForEvent(mxEv);
             if (actions?.notify) {
+              const senderName =
+                (await this.data.getUserDisplayName(ev.sender)) || ev.sender;
               void this.notifications.notify({
-                title,
+                title: `${senderName} in ${title}`,
                 body: body ?? description,
                 icon: avatarUrl,
+                onClick: () => {
+                  window.focus();
+                  window.dispatchEvent(
+                    new CustomEvent('messie-open-room', { detail: id })
+                  );
+                },
               });
               this.lastNotifyByRoom.set(id, now);
             }

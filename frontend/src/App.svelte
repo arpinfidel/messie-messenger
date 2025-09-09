@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { get } from 'svelte/store';
   import UnifiedTimeline from './views/shared/UnifiedTimeline.svelte';
   import DetailPanel from './views/shared/DetailPanel.svelte';
   import { MatrixViewModel } from './viewmodels/matrix/MatrixViewModel';
@@ -24,6 +25,15 @@
     await matrixViewModel.initialize();
     loggedIn = matrixViewModel.isLoggedIn();
     loginStateChecked = true;
+
+    window.addEventListener('messie-open-room', (e: Event) => {
+      const roomId = (e as CustomEvent<string>).detail;
+      const items = get(matrixViewModel.getTimelineItems());
+      const item = items.find((it) => it.id === roomId);
+      if (item) {
+        selectedTimelineItem = item;
+      }
+    });
   });
 
   $: if (timelineContainer) {
