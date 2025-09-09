@@ -9,8 +9,6 @@ import {
 } from 'matrix-js-sdk/lib/crypto-api';
 import { decodeRecoveryKey } from 'matrix-js-sdk/lib/crypto-api/recovery-key';
 import type { IModuleViewModel } from '../../shared/IModuleViewModel';
-import type { IMatrixTimelineItem } from '../MatrixTimelineItem';
-import { MatrixTimelineItem } from '../MatrixTimelineItem';
 import * as matrixSdk from 'matrix-js-sdk';
 import { MatrixEvent } from 'matrix-js-sdk';
 import { matrixSettings } from '../MatrixSettings';

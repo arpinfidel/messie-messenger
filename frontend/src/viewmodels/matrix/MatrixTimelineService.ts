@@ -2,7 +2,7 @@ import * as matrixSdk from 'matrix-js-sdk';
 import { EventType, MatrixEvent, Room } from 'matrix-js-sdk';
 import { writable, type Writable, get } from 'svelte/store';
 
-import { MatrixTimelineItem, type IMatrixTimelineItem } from './MatrixTimelineItem';
+import type { TimelineItem } from '@/models/shared/TimelineItem';
 import type { RepoEvent } from './core/TimelineRepository';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
 import type { ImageContent } from 'matrix-js-sdk/lib/@types/media';
@@ -28,8 +28,8 @@ export interface MatrixMessage {
 }
 
 export class MatrixTimelineService {
-  private _timelineItems: Writable<IMatrixTimelineItem[]> = writable([]);
-  private nextTimeline: IMatrixTimelineItem[] = [];
+  private _timelineItems: Writable<TimelineItem[]> = writable([]);
+  private nextTimeline: TimelineItem[] = [];
   private flushTimeout: ReturnType<typeof setTimeout> | null = null;
   private refreshTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingLiveEvents: Array<{ ev: MatrixEvent; room: Room }> = [];
@@ -58,7 +58,7 @@ export class MatrixTimelineService {
     return this.ctx.getClient();
   }
 
-  getTimelineItemsStore(): Writable<IMatrixTimelineItem[]> {
+  getTimelineItemsStore(): Writable<TimelineItem[]> {
     return this._timelineItems;
   }
 
@@ -78,7 +78,7 @@ export class MatrixTimelineService {
       .sort((a, b) => (b.latestTimestamp ?? 0) - (a.latestTimestamp ?? 0));
     const limitedRooms = sortedRooms.slice(0, this.maxRooms);
 
-    const items: IMatrixTimelineItem[] = [];
+    const items: TimelineItem[] = [];
     const currentItems = this.nextTimeline;
     const currentItemsByID = new Map(currentItems.map((it) => [it.id, it]));
 
@@ -94,29 +94,19 @@ export class MatrixTimelineService {
       // get previous avatar if available
       let avatarUrl: string | undefined = currentItemsByID.get(room.id)?.avatarUrl;
 
-      items.push(
-        new MatrixTimelineItem({
-          id: room.id,
-          type: 'matrix',
-          title: room.name || room.id,
-          description,
-          avatarUrl,
-          timestamp,
-          unreadCount: room.unreadCount || 0,
-        })
-      );
+      items.push({
+        id: room.id,
+        type: 'matrix',
+        title: room.name || room.id,
+        description,
+        avatarUrl,
+        timestamp,
+        unreadCount: room.unreadCount || 0,
+      });
     }
 
-    // for all timeline items, if new timestamp is older than existing, keep existing
-    // else replace
-    // if new item not in existing, add
     for (const newItem of items) {
-      const existingIdx = this.nextTimeline.findIndex((it) => it.id === newItem.id);
-      if (existingIdx === -1) {
-        this.nextTimeline.push(newItem);
-      } else if ((this.nextTimeline[existingIdx]?.timestamp ?? 0) <= newItem.timestamp) {
-        this.nextTimeline[existingIdx] = newItem;
-      }
+      this.bufferTimelineUpdate(newItem);
     }
 
     // Resolve avatars in background with limited concurrency and patch items as they arrive
@@ -138,14 +128,10 @@ export class MatrixTimelineService {
             continue;
           }
 
-          const updated = new MatrixTimelineItem({
-            id: existingItem.id,
-            type: existingItem.type,
-            title: existingItem.title,
-            description: existingItem.description,
-            timestamp: existingItem.timestamp,
+          const updated: TimelineItem = {
+            ...existingItem,
             avatarUrl: url || existingItem.avatarUrl, // Use new URL or fallback to existing
-          });
+          };
 
           this.bufferTimelineUpdate(updated);
           this.scheduleFlush();
@@ -181,7 +167,7 @@ export class MatrixTimelineService {
         method: 'crop',
       });
 
-      const updated = new MatrixTimelineItem({
+      const updated: TimelineItem = {
         id,
         type: 'matrix',
         title,
@@ -189,11 +175,11 @@ export class MatrixTimelineService {
         // Keep previous avatar if resolve failed
         avatarUrl:
           avatarUrl ||
-          (get(this._timelineItems).find((it) => it.id === id) as IMatrixTimelineItem | undefined)
+          (get(this._timelineItems).find((it) => it.id === id) as TimelineItem | undefined)
             ?.avatarUrl,
         timestamp,
         unreadCount,
-      });
+      };
 
       // Apply buffered update before scheduling a flush
       this.bufferTimelineUpdate(updated);
@@ -252,7 +238,7 @@ export class MatrixTimelineService {
     });
   }
 
-  bufferTimelineUpdate(ev: MatrixTimelineItem) {
+  bufferTimelineUpdate(ev: TimelineItem) {
     const idx = this.nextTimeline.findIndex((it) => it.id === ev.id);
     if (idx === -1) {
       this.nextTimeline.push(ev);
@@ -264,7 +250,7 @@ export class MatrixTimelineService {
   setRoomUnread(roomId: string, unreadCount: number) {
     const existing = this.nextTimeline.find((it) => it.id === roomId);
     if (!existing) return;
-    const updated = new MatrixTimelineItem({
+    const updated: TimelineItem = {
       id: existing.id,
       type: existing.type,
       title: existing.title,
@@ -274,19 +260,15 @@ export class MatrixTimelineService {
       rawData: (existing as any).rawData,
       sender: (existing as any).sender,
       unreadCount,
-    });
+    };
     this.bufferTimelineUpdate(updated);
     this.scheduleFlush();
-  }
-
-  async flushTimeline() {
-    this._timelineItems.set(this.nextTimeline);
   }
 
   async scheduleFlush() {
     if (this.flushTimeout) return;
     this.flushTimeout = setTimeout(() => {
-      this.flushTimeline();
+      this._timelineItems.set(this.nextTimeline);
       this.flushTimeout = null;
     }, 100);
   }

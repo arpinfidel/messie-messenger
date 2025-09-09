@@ -5,7 +5,7 @@ import { logger } from 'matrix-js-sdk/lib/logger.js';
 import loglevel from 'loglevel';
 import { type Writable } from 'svelte/store';
 import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
-import { type IMatrixTimelineItem } from '@/viewmodels/matrix/MatrixTimelineItem';
+import type { TimelineItem } from '@/models/shared/TimelineItem';
 import { matrixSettings } from '@/viewmodels/matrix/MatrixSettings';
 import {
   MatrixTimelineService,
@@ -85,7 +85,7 @@ export class MatrixViewModel implements IModuleViewModel {
     return !!c && c.isLoggedIn();
   }
 
-  public getTimelineItems(): Writable<IMatrixTimelineItem[]> {
+  public getTimelineItems(): Writable<TimelineItem[]> {
     return this.timelineSvc.getTimelineItemsStore();
   }
 

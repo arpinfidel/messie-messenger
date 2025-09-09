@@ -21,7 +21,7 @@ export interface IModuleViewModel {
   /**
    * @method getTimelineItems
    * @description Retrieves a list of timeline items for the module.
-   * @returns {Writable<IMatrixTimelineItem[]>} A writable store containing an array of timeline item objects.
+   * @returns {Readable<TimelineItem[]>} A readable store containing an array of timeline item objects.
    */
   getTimelineItems(): Readable<TimelineItem[]>;
 
