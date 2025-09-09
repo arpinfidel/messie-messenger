@@ -9,6 +9,7 @@ import type { ImageContent } from 'matrix-js-sdk/lib/@types/media';
 import { AvatarService } from './core/AvatarService';
 import type { INotificationService } from '@/notifications/NotificationService';
 import { matrixSettings } from './MatrixSettings';
+import type { DbRoom } from './core/idb/constants';
 
 export interface MatrixMessage {
   id: string;
@@ -72,51 +73,68 @@ export class MatrixTimelineService {
     const sortedRooms = rooms
       .slice()
       .sort((a, b) => (b.latestTimestamp ?? 0) - (a.latestTimestamp ?? 0));
-    const limitedRooms = sortedRooms.slice(0, this.maxRooms);
+    const activeRooms = sortedRooms.slice(0, this.maxRooms);
+    const inactiveRooms = sortedRooms.slice(this.maxRooms);
 
-    const items: TimelineItem[] = [];
+    // Process active rooms and wait for them to be added to the timeline
+    await this._processRooms(activeRooms);
+
+    // Process inactive rooms in the background
+    void this._processRooms(inactiveRooms);
+  }
+
+  private async _processRooms(rooms: DbRoom[]): Promise<void> {
+    if (!rooms.length) {
+      return;
+    }
+
     const currentItemsByID = this.nextTimeline;
 
-    for (const room of limitedRooms) {
-      const lastEvent = (await this.data.getRoomEvents(room.id, null, 1, true)).events[0];
-      let description = 'No recent messages';
-      let timestamp = room.latestTimestamp || 0;
-      if (lastEvent) {
-        description = this.repoEventToPreview(lastEvent);
-        timestamp = lastEvent.originServerTs || timestamp || 0;
-      }
-      // get previous avatar if available
-      let avatarUrl: string | undefined = currentItemsByID.get(room.id)?.avatarUrl;
+    // 1. Create initial timeline items in parallel
+    const items = await Promise.all(
+      rooms.map(async (room) => {
+        const lastEvent = (await this.data.getRoomEvents(room.id, null, 1, true)).events[0];
+        let description = 'No recent messages';
+        let timestamp = room.latestTimestamp || 0;
+        if (lastEvent) {
+          description = this.repoEventToPreview(lastEvent);
+          timestamp = lastEvent.originServerTs || timestamp || 0;
+        }
+        // get previous avatar if available
+        const avatarUrl: string | undefined = currentItemsByID.get(room.id)?.avatarUrl;
 
-      items.push({
-        id: room.id,
-        type: 'matrix',
-        title: room.name || room.id,
-        description,
-        avatarUrl,
-        timestamp,
-        unreadCount: room.unreadCount || 0,
-      });
-    }
+        const item: TimelineItem = {
+          id: room.id,
+          type: 'matrix',
+          title: room.name || room.id,
+          description,
+          avatarUrl,
+          timestamp,
+          unreadCount: room.unreadCount || 0,
+        };
+        return item;
+      })
+    );
 
     for (const newItem of items) {
       this.bufferTimelineUpdate(newItem);
     }
+    this.scheduleFlush(); // Flush once after initial items
 
-    // Resolve avatars in background with limited concurrency and patch items as they arrive
+    // 2. Resolve avatars in background
     const maxConcurrent = 6;
     let i = 0;
     const work = async () => {
       try {
-        while (i < limitedRooms.length) {
+        while (i < rooms.length) {
           const idx = i++;
-          const room = limitedRooms[idx];
+          const room = rooms[idx];
           const url = await this.avatars.resolveRoomAvatar(room.id, room.avatarMxcUrl, {
             w: 64,
             h: 64,
             method: 'crop',
           });
-          // No 'continue' here, allow fallback avatar
+
           const existingItem = this.nextTimeline.get(room.id);
           if (!existingItem) {
             continue;
@@ -124,7 +142,7 @@ export class MatrixTimelineService {
 
           const updated: TimelineItem = {
             ...existingItem,
-            avatarUrl: url || existingItem.avatarUrl, // Use new URL or fallback to existing
+            avatarUrl: url || existingItem.avatarUrl,
           };
 
           this.bufferTimelineUpdate(updated);
@@ -134,8 +152,8 @@ export class MatrixTimelineService {
         console.warn('Error resolving room avatar:', e);
       }
     };
-    // Kick off workers without awaiting completion
-    for (let k = 0; k < Math.min(maxConcurrent, limitedRooms.length); k++) {
+
+    for (let k = 0; k < Math.min(maxConcurrent, rooms.length); k++) {
       work();
     }
   }
@@ -208,17 +226,14 @@ export class MatrixTimelineService {
             const mxEv = room.findEventById(ev.eventId);
             const actions = mxEv && client?.getPushActionsForEvent(mxEv);
             if (actions?.notify) {
-              const senderName =
-                (await this.data.getUserDisplayName(ev.sender)) || ev.sender;
+              const senderName = (await this.data.getUserDisplayName(ev.sender)) || ev.sender;
               void this.notifications.notify({
                 title: `${senderName} in ${title}`,
                 body: body ?? description,
                 icon: avatarUrl,
                 onClick: () => {
                   window.focus();
-                  window.dispatchEvent(
-                    new CustomEvent('messie-open-room', { detail: id })
-                  );
+                  window.dispatchEvent(new CustomEvent('messie-open-room', { detail: id }));
                 },
               });
               this.lastNotifyByRoom.set(id, now);
