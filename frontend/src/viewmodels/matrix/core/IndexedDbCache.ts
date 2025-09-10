@@ -18,6 +18,9 @@ export class IndexedDbCache {
   private readonly media = new MediaStore(this.conn);
   private readonly members = new MembersStore(this.conn);
 
+  // Cache for per-room monotonic event indexes
+  private readonly indexCache = new Map<string, number>();
+
   readonly rooms = new RoomsStore(this.conn);
   readonly users = new UsersStore(this.conn);
 
@@ -30,11 +33,33 @@ export class IndexedDbCache {
   putEvents(roomId: string, events: RepoEvent[]): Promise<void> {
     return this.events.putEvents(roomId, events);
   }
-  getEventsByRoom(roomId: string, limit = 50, beforeTs?: number): Promise<RepoEvent[]> {
-    return this.events.getEventsByRoom(roomId, limit, beforeTs);
+  getLatestEventsByRoom(roomId: string, limit = 50, beforeIndex?: number): Promise<RepoEvent[]> {
+    return this.events.getLatestEventsByRoom(roomId, limit, beforeIndex);
+  }
+  getEventsByRoom(roomId: string, limit = 50, beforeIndex?: number): Promise<RepoEvent[]> {
+    return this.events.getEventsByRoom(roomId, limit, beforeIndex);
   }
   getEventById(eventId: string): Promise<RepoEvent | undefined> {
     return this.events.getEventById(eventId);
+  }
+
+  /**
+   * Generate the next monotonic index for a room. Persist the latest index in
+   * the meta store so it survives reloads.
+   */
+  async nextEventIndex(roomId: string): Promise<number> {
+    let current = this.indexCache.get(roomId);
+    if (current == null) {
+      current = (await this.meta.getMeta<number>(`idx:${roomId}`)) ?? 0;
+      if (!current) {
+        const last = await this.events.getEventsByRoom(roomId, 1);
+        current = last[0]?.index ?? 0;
+      }
+    }
+    const next = current + 1;
+    this.indexCache.set(roomId, next);
+    await this.meta.setMeta(`idx:${roomId}`, next);
+    return next;
   }
 
   // Tokens

@@ -1,7 +1,9 @@
 // Shared IndexedDB constants and shared record types
 
 export const DB_NAME = 'mx-app-store';
-export const DB_VERSION = 4;
+// Bump DB version whenever the schema changes. Version 5 introduces a
+// monotonic index for events to avoid relying on timestamps for pagination.
+export const DB_VERSION = 5;
 
 export const STORES = {
   ROOMS: 'rooms',

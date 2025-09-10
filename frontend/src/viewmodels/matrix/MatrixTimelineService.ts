@@ -93,7 +93,7 @@ export class MatrixTimelineService {
     // 1. Create initial timeline items in parallel
     const items = await Promise.all(
       rooms.map(async (room) => {
-        const lastEvent = (await this.data.getRoomEvents(room.id, null, 1, true)).events[0];
+        const lastEvent = (await this.data.getLatestCachedMessages(room.id, null, 1)).events[0];
         let description = 'No recent messages';
         let timestamp = room.latestTimestamp || 0;
         if (lastEvent) {
@@ -269,8 +269,8 @@ export class MatrixTimelineService {
       description: existing.description,
       avatarUrl: existing.avatarUrl,
       timestamp: existing.timestamp,
-      rawData: (existing as any).rawData,
-      sender: (existing as any).sender,
+      rawData: existing.rawData,
+      sender: existing.sender,
       unreadCount,
     };
     this.bufferTimelineUpdate(updated);
@@ -293,16 +293,16 @@ export class MatrixTimelineService {
   /** First page: from live timeline when fromToken is null, otherwise older page. */
   async getRoomMessages(
     roomId: string,
-    beforeTS: number | null,
+    beforeIndex: number | null,
     limit = 20
   ): Promise<{ messages: MatrixMessage[]; nextBatch: number | null }> {
-    const { events, firstTS } = await this.data.getRoomEvents(roomId, beforeTS, limit);
+    const { events, firstIndex } = await this.data.getRoomEvents(roomId, beforeIndex, limit);
     console.time(`[MatrixTimelineService] mapRepoEventsToMessages(${roomId})`);
     const messages = await this.mapRepoEventsToMessages(events);
     // Ensure chronological order (oldest first) for consumers
     messages.sort((a, b) => a.timestamp - b.timestamp);
     console.timeEnd(`[MatrixTimelineService] mapRepoEventsToMessages(${roomId})`);
-    return { messages, nextBatch: firstTS };
+    return { messages, nextBatch: firstIndex };
   }
 
   /* ---------------- Mapping helpers ---------------- */

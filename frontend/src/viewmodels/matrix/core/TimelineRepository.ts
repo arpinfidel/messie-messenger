@@ -6,6 +6,12 @@ export interface RepoEvent {
   type: string; // SDK event.getType()
   sender: string;
   originServerTs: number;
+  /**
+   * Monotonically increasing index used for pagination. Timestamp ordering is
+   * not reliable when backfilling events, so we assign a custom 64‑bit integer
+   * to each event to preserve insertion order.
+   */
+  index: number;
   content: matrixSdk.IContent; // clear or encrypted content
   unsigned?: any;
 }

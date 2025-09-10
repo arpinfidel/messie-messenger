@@ -101,8 +101,8 @@ export class MatrixViewModel implements IModuleViewModel {
     return this.dataLayer.getCurrentUserDisplayName() || 'unknown';
   }
 
-  public async getRoomMessages(roomId: string, beforeTS: number | null, limit = 20) {
-    return this.timelineSvc.getRoomMessages(roomId, beforeTS, limit);
+  public async getRoomMessages(roomId: string, beforeIndex: number | null, limit = 20) {
+    return this.timelineSvc.getRoomMessages(roomId, beforeIndex, limit);
   }
 
   public onRepoEvent(

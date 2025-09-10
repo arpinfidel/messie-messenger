@@ -310,49 +310,74 @@ export class MatrixDataLayer {
   // ------------------------------------------------------------------
 
   /** Convert SDK event to RepoEvent with optional decryption + filter. */
-  private async toRepoEvent(ev: matrixSdk.MatrixEvent): Promise<RepoEvent | null> {
+  private async toRepoEvent(ev: matrixSdk.MatrixEvent, index?: number): Promise<RepoEvent | null> {
     if (this.opts.shouldIncludeEvent && !this.opts.shouldIncludeEvent(ev)) return null;
     if (this.opts.tryDecryptEvent) {
       await this.opts.tryDecryptEvent(ev);
     }
+    const idx = index ?? (ev as any).mxIndex ?? 0;
     return {
       eventId: ev.getId() ?? '',
       roomId: ev.getRoomId() ?? '',
       type: ev.getType(),
       sender: ev.getSender() ?? '',
       originServerTs: ev.getTs(),
+      index: idx,
       content: ev.getContent(),
       unsigned: ev.getUnsigned(),
     };
   }
 
   /** Build RepoEvent using wire type/content (encrypted if originally encrypted). */
-  private toWireRepoEvent(ev: matrixSdk.MatrixEvent): RepoEvent {
+  private toWireRepoEvent(ev: matrixSdk.MatrixEvent, index: number): RepoEvent {
     return {
       eventId: ev.getId() ?? '',
       roomId: ev.getRoomId() ?? '',
       type: (ev as MatrixEvent).getWireType?.() ?? ev.getType(),
       sender: ev.getSender() ?? '',
       originServerTs: ev.getTs(),
+      index,
       content: (ev as MatrixEvent).getWireContent?.() ?? ev.getContent(),
       unsigned: ev.getUnsigned(),
     };
   }
 
+  async getLatestCachedMessages(
+    roomId: string,
+    beforeIndex: number | null,
+    limit = this.pageSize
+  ): Promise<{ events: RepoEvent[]; firstIndex: number | null }> {
+    // Try to satisfy from cache first
+    let events = await this.db.getEventsByRoom(roomId, limit, beforeIndex ?? undefined);
+    // decrypt on read (in-memory only) for any encrypted-at-rest entries
+    events = await this.tryDecryptRepoEvents(roomId, events);
+    if (events.length >= limit) {
+      // If caller allows network/SDK, and we still have encrypted entries,
+      // wait for client to be prepared and attempt decryption again before returning.
+      console.log(
+        `[MatrixDataLayer] getRoomMessages(${roomId}) → ${events.length} events from cache`
+      );
+      const firstIdx = events.length ? events[events.length - 1].index : (beforeIndex ?? null);
+      events.reverse();
+      return { events, firstIndex: firstIdx };
+    }
+    return { events, firstIndex: beforeIndex };
+  }
+
   /**
    * Fetch a paginated set of events for a room. Uses cached events first and
    * falls back to the Matrix SDK when more events are needed. Always paginate
-   * by TS. If events from DB are insufficient, fetch more from the SDK and
-   * return last timestamp as the next token.
+   * by custom monotonic index. If events from DB are insufficient, fetch more
+   * from the SDK and return the smallest index as the next token.
    */
   async getRoomEvents(
     roomId: string,
-    beforeTs: number | null,
+    beforeIndex: number | null,
     limit = this.pageSize,
     dbOnly = false
-  ): Promise<{ events: RepoEvent[]; firstTS: number | null }> {
+  ): Promise<{ events: RepoEvent[]; firstIndex: number | null }> {
     // Try to satisfy from cache first
-    let events = await this.db.getEventsByRoom(roomId, limit, beforeTs ?? undefined);
+    let events = await this.db.getEventsByRoom(roomId, limit, beforeIndex ?? undefined);
     // decrypt on read (in-memory only) for any encrypted-at-rest entries
     events = await this.tryDecryptRepoEvents(roomId, events);
     if (events.length >= limit) {
@@ -365,13 +390,13 @@ export class MatrixDataLayer {
       console.log(
         `[MatrixDataLayer] getRoomMessages(${roomId}) → ${events.length} events from cache`
       );
-      const firstTS = events.length ? events[events.length - 1].originServerTs : (beforeTs ?? null);
+      const firstIdx = events.length ? events[events.length - 1].index : (beforeIndex ?? null);
       events.reverse();
-      return { events, firstTS: firstTS };
+      return { events, firstIndex: firstIdx };
     }
     if (dbOnly) {
       console.log(`[MatrixDataLayer] getRoomMessages(${roomId}) → DB only`);
-      return { events, firstTS: beforeTs };
+      return { events, firstIndex: beforeIndex };
     }
 
     console.log(
@@ -387,7 +412,7 @@ export class MatrixDataLayer {
     if (!room) {
       console.log(`[MatrixDataLayer] getRoomMessages(${roomId}) → room not found`);
       // Room not found
-      return { events, firstTS: beforeTs };
+      return { events, firstIndex: beforeIndex };
     }
 
     const token = await this.db.getBackwardToken(roomId);
@@ -407,30 +432,34 @@ export class MatrixDataLayer {
     remoteToken = room.getLiveTimeline().getPaginationToken(Direction.Backward);
     await this.db.setBackwardToken(roomId, remoteToken);
 
-    events = await this.db.getEventsByRoom(roomId, limit, beforeTs ?? undefined);
+    events = await this.db.getEventsByRoom(roomId, limit, beforeIndex ?? undefined);
     // decrypt on read (in-memory only)
     events = await this.tryDecryptRepoEvents(roomId, events);
-    const firstTS = events.length ? events[events.length - 1].originServerTs : (beforeTs ?? null);
+    const firstIndex = events.length ? events[events.length - 1].index : (beforeIndex ?? null);
     events.reverse();
 
-    return { events, firstTS };
+    return { events, firstIndex };
   }
 
   private handleEvents(client: matrixSdk.MatrixClient) {
     client.on(
       matrixSdk.RoomEvent.Timeline,
       async (ev, room, toStartOfTimeline, removed, data: { liveEvent?: boolean } = {}) => {
-        const re = await this.toRepoEvent(ev);
-        if (!re) return;
         if (!room) {
           console.warn('[MatrixDataLayer] timeline event without room?');
           return;
         }
+        let re = await this.toRepoEvent(ev);
+        if (!re) return;
 
         if (!this.isMessageLike(re)) {
           console.debug('[MatrixDataLayer] ignoring non-message timeline event', re);
           return;
         }
+
+        const eventIndex = await this.db.nextEventIndex(room.roomId);
+        (ev as any).mxIndex = eventIndex;
+        re.index = eventIndex;
 
         await client.decryptEventIfNeeded(ev);
 
@@ -438,29 +467,18 @@ export class MatrixDataLayer {
         // during initial sync or backfill where SDK replays timeline history.
         const syncState = (client as any)?.getSyncState?.();
         const isTrueLive = data?.liveEvent === true && syncState === 'SYNCING';
-        if (isTrueLive) {
-          // Do not touch unread here; rely on SDK UnreadNotifications
-          const existing = await this.db.rooms.get(room.roomId);
-          await this.db.rooms.put({
-            id: room.roomId,
-            name: room.name || room.roomId,
-            latestTimestamp: ev.getTs(),
-            avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
-            unreadCount: existing?.unreadCount ?? 0,
-          });
-        } else {
-          // Still update latestTimestamp & metadata without touching unread
-          const existing = await this.db.rooms.get(room.roomId);
-          await this.db.rooms.put({
-            id: room.roomId,
-            name: room.name || room.roomId,
-            latestTimestamp: ev.getTs(),
-            avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
-            unreadCount: existing?.unreadCount ?? 0,
-          });
-        }
+
+        // Still update latestTimestamp & metadata without touching unread
+        const existing = await this.db.rooms.get(room.roomId);
+        await this.db.rooms.put({
+          id: room.roomId,
+          name: room.name || room.roomId,
+          latestTimestamp: Math.max(ev.getTs(), existing?.latestTimestamp ?? 0),
+          avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
+          unreadCount: existing?.unreadCount ?? 0,
+        });
         // Persist encrypted-at-rest: always store the wire form
-        const wireRe = this.toWireRepoEvent(ev);
+        const wireRe = this.toWireRepoEvent(ev, eventIndex);
         await this.db.putEvents(room.roomId, [wireRe]).catch(() => {
           console.warn('[MatrixDataLayer] failed to persist timeline event', wireRe);
         });
@@ -471,7 +489,7 @@ export class MatrixDataLayer {
         const onDecrypted = async () => {
           if (ev.isDecryptionFailure()) return;
           try {
-            const updated = await this.toRepoEvent(ev);
+            const updated = await this.toRepoEvent(ev, eventIndex);
             if (updated) this.repoEventEmitter.emit(updated, room, { isLive: false });
           } finally {
             try {
@@ -624,6 +642,7 @@ export class MatrixDataLayer {
           type: mev.getType(),
           sender: re.sender,
           originServerTs: re.originServerTs,
+          index: re.index,
           content: mev.getContent(),
           unsigned: mev.getUnsigned(),
         };
@@ -636,15 +655,17 @@ export class MatrixDataLayer {
           type: mev.getType(),
           sender: re.sender,
           originServerTs: re.originServerTs,
+          index: re.index,
           content: mev.getContent(),
           unsigned: mev.getUnsigned(),
         };
         // If the SDK knows about this event, subscribe for future decryption and re-emit
         const sdkEv = room.findEventById(re.eventId);
         if (sdkEv) {
+          (sdkEv as any).mxIndex = re.index;
           const onDecrypted = async () => {
             if (sdkEv.isDecryptionFailure()) return;
-            const updated = await this.toRepoEvent(sdkEv);
+            const updated = await this.toRepoEvent(sdkEv, re.index);
             if (updated) this.repoEventEmitter.emit(updated, room);
             sdkEv.off(MatrixEventEvent.Decrypted, onDecrypted);
           };

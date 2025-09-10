@@ -7,14 +7,17 @@ export class DbConnection {
     if (this.db) return;
     this.db = await new Promise<IDBDatabase>((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = () => {
+      req.onupgradeneeded = (ev) => {
         const db = req.result;
+        const oldVersion = ev.oldVersion;
         if (!db.objectStoreNames.contains(STORES.ROOMS)) {
           db.createObjectStore(STORES.ROOMS, { keyPath: 'id' });
         }
+        // EVENTS store and indexes
         if (!db.objectStoreNames.contains(STORES.EVENTS)) {
           const events = db.createObjectStore(STORES.EVENTS, { keyPath: 'eventId' });
           events.createIndex('byRoomTs', ['roomId', 'originServerTs']);
+          events.createIndex('byRoomIndex', ['roomId', 'index']);
         }
         if (!db.objectStoreNames.contains(STORES.TOKENS)) {
           db.createObjectStore(STORES.TOKENS, { keyPath: 'roomId' });
@@ -65,4 +68,3 @@ export class DbConnection {
     });
   }
 }
-

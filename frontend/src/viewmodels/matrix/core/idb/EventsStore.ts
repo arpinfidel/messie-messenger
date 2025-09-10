@@ -13,7 +13,7 @@ export class EventsStore {
     });
   }
 
-  async getEventsByRoom(roomId: string, limit = 50, beforeTs?: number): Promise<RepoEvent[]> {
+  async getLatestEventsByRoom(roomId: string, limit = 50, beforeTs?: number): Promise<RepoEvent[]> {
     await this.conn.init();
     const MAX = 9007199254740991; // Number.MAX_SAFE_INTEGER
     const upper = beforeTs ?? MAX;
@@ -23,6 +23,34 @@ export class EventsStore {
         const tx = db.transaction(STORES.EVENTS, 'readonly');
         const s = tx.objectStore(STORES.EVENTS);
         const idx = s.index('byRoomTs');
+        const range = IDBKeyRange.bound([roomId, 0], [roomId, upper]);
+        const out: RepoEvent[] = [];
+        const cursorReq = idx.openCursor(range, 'prev');
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result as IDBCursorWithValue | null;
+          if (!cursor || out.length >= limit) return;
+          out.push(cursor.value as RepoEvent);
+          cursor.continue();
+        };
+        cursorReq.onerror = () => reject(cursorReq.error);
+        tx.oncomplete = () => resolve(out);
+        tx.onerror = () => reject(tx.error);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  }
+
+  async getEventsByRoom(roomId: string, limit = 50, beforeIndex?: number): Promise<RepoEvent[]> {
+    await this.conn.init();
+    const MAX = 9007199254740991; // Number.MAX_SAFE_INTEGER
+    const upper = beforeIndex ?? MAX;
+    return new Promise<RepoEvent[]>((resolve, reject) => {
+      try {
+        const db = this.conn.ensure();
+        const tx = db.transaction(STORES.EVENTS, 'readonly');
+        const s = tx.objectStore(STORES.EVENTS);
+        const idx = s.index('byRoomIndex');
         const range = IDBKeyRange.bound([roomId, 0], [roomId, upper]);
         const out: RepoEvent[] = [];
         const cursorReq = idx.openCursor(range, 'prev');
