@@ -94,6 +94,8 @@ export class MatrixDataLayer {
   private repoEventEmitter = new RepoEventEmitter();
   private unreadEventEmitter = new UnreadEventEmitter();
   private readReceiptEmitter = new ReadReceiptEventEmitter();
+  private caughtUp = new Map<string, boolean>();
+  private catchingUp = new Set<string>();
 
   constructor(private readonly opts: MatrixDataLayerOptions) {
     this.pageSize = opts.pageSize ?? 20;
@@ -440,15 +442,95 @@ export class MatrixDataLayer {
 
     return { events, firstIndex };
   }
+  private async ensureRoomCaughtUp(
+    room: matrixSdk.Room,
+    liveEv: matrixSdk.MatrixEvent
+  ): Promise<void> {
+    const roomId = room.roomId;
+    if (this.caughtUp.get(roomId) || this.catchingUp.has(roomId)) return;
+
+    const evId = liveEv.getId();
+    if (!evId) return;
+
+    this.catchingUp.add(roomId);
+
+    try {
+      const latest = await this.db.getEventsByRoom(roomId, 1);
+      if (!latest.length) {
+        this.caughtUp.set(roomId, true);
+        return;
+      }
+
+      await this.opts.waitForPrepared();
+      const c = this.client;
+      if (!c) return;
+
+      // APPROACH 1: Timeline-based solution
+      // Instead of getting timeline for the live event, create a new timeline set
+      // or use the room's live timeline set but handle it properly
+      const timelineSet = room.getUnfilteredTimelineSet();
+
+      // Find the event in the timeline first
+      const eventTimeline = timelineSet.getTimelineForEvent(evId);
+      if (!eventTimeline) {
+        console.warn('[MatrixDataLayer] Could not find timeline for event', evId);
+        this.caughtUp.set(roomId, true);
+        return;
+      }
+
+      // Check if we're already at the live edge
+      const liveTimeline = timelineSet.getLiveTimeline();
+      if (eventTimeline === liveTimeline) {
+        console.log('[MatrixDataLayer] Already at live edge', roomId);
+        this.caughtUp.set(roomId, true);
+        return;
+      }
+
+      // Paginate forward from the event's timeline until we reach live
+      let currentTimeline = eventTimeline;
+      while (currentTimeline !== liveTimeline) {
+        const more = await c.paginateEventTimeline(currentTimeline, {
+          backwards: false,
+          limit: this.pageSize,
+        });
+
+        if (!more) {
+          console.log('[MatrixDataLayer] caught up', roomId);
+          break;
+        }
+
+        // Move to the next timeline if we've reached the end of this one
+        const nextTimeline = currentTimeline.getNeighbouringTimeline(matrixSdk.Direction.Forward);
+        if (nextTimeline) {
+          currentTimeline = nextTimeline;
+        } else {
+          break;
+        }
+      }
+
+      this.caughtUp.set(roomId, true);
+    } catch (err) {
+      console.error('[MatrixDataLayer] forward pagination failed', err);
+    } finally {
+      this.catchingUp.delete(roomId);
+    }
+  }
 
   private handleEvents(client: matrixSdk.MatrixClient) {
     client.on(
       matrixSdk.RoomEvent.Timeline,
-      async (ev, room, toStartOfTimeline, removed, data: { liveEvent?: boolean } = {}) => {
+      async (
+        ev: MatrixEvent,
+        room: matrixSdk.Room | undefined,
+        toStartOfTimeline: boolean | undefined,
+        removed: boolean,
+        data: matrixSdk.IRoomTimelineData
+      ) => {
         if (!room) {
           console.warn('[MatrixDataLayer] timeline event without room?');
           return;
         }
+        await this.ensureRoomCaughtUp(room, ev);
         let re = await this.toRepoEvent(ev);
         if (!re) return;
 
