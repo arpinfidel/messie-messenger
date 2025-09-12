@@ -2,6 +2,9 @@
 /* eslint-disable */
 export * from './AuthResponse';
 export * from './CollaboratorDetail';
+export * from './EmailLoginRequest';
+export * from './EmailMessageHeader';
+export * from './EmailMessagesResponse';
 export * from './LoginRequest';
 export * from './MatrixAuthResponse';
 export * from './MatrixOpenIDRequest';

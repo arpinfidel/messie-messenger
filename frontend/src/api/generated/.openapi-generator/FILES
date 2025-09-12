@@ -3,6 +3,9 @@ apis/index.ts
 index.ts
 models/AuthResponse.ts
 models/CollaboratorDetail.ts
+models/EmailLoginRequest.ts
+models/EmailMessageHeader.ts
+models/EmailMessagesResponse.ts
 models/LoginRequest.ts
 models/MatrixAuthResponse.ts
 models/MatrixOpenIDRequest.ts

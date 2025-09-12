@@ -37,6 +37,26 @@ type CollaboratorDetail struct {
 	Username string `json:"username"`
 }
 
+// EmailLoginRequest defines model for EmailLoginRequest.
+type EmailLoginRequest struct {
+	AppPassword string              `json:"appPassword"`
+	Email       openapi_types.Email `json:"email"`
+	Host        string              `json:"host"`
+	Port        int32               `json:"port"`
+}
+
+// EmailMessageHeader defines model for EmailMessageHeader.
+type EmailMessageHeader struct {
+	Date    *time.Time `json:"date,omitempty"`
+	From    *string    `json:"from,omitempty"`
+	Subject *string    `json:"subject,omitempty"`
+}
+
+// EmailMessagesResponse defines model for EmailMessagesResponse.
+type EmailMessagesResponse struct {
+	Messages *[]EmailMessageHeader `json:"messages,omitempty"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	Message string `json:"message"`
@@ -163,6 +183,9 @@ type GetTodoListsByUserIdParams struct {
 // PostMatrixAuthJSONRequestBody defines body for PostMatrixAuth for application/json ContentType.
 type PostMatrixAuthJSONRequestBody = MatrixOpenIDRequest
 
+// EmailLoginTestJSONRequestBody defines body for EmailLoginTest for application/json ContentType.
+type EmailLoginTestJSONRequestBody = EmailLoginRequest
+
 // PostLoginJSONRequestBody defines body for PostLogin for application/json ContentType.
 type PostLoginJSONRequestBody = LoginRequest
 
@@ -189,6 +212,9 @@ type ServerInterface interface {
 	// Authenticate using Matrix OpenID
 	// (POST /auth/matrix/openid)
 	PostMatrixAuth(w http.ResponseWriter, r *http.Request)
+	// Test email login and fetch recent message headers
+	// (POST /email/login-test)
+	EmailLoginTest(w http.ResponseWriter, r *http.Request)
 	// Log in a user
 	// (POST /login)
 	PostLogin(w http.ResponseWriter, r *http.Request)
@@ -249,6 +275,12 @@ type Unimplemented struct{}
 // Authenticate using Matrix OpenID
 // (POST /auth/matrix/openid)
 func (_ Unimplemented) PostMatrixAuth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Test email login and fetch recent message headers
+// (POST /email/login-test)
+func (_ Unimplemented) EmailLoginTest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -368,6 +400,20 @@ func (siw *ServerInterfaceWrapper) PostMatrixAuth(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PostMatrixAuth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EmailLoginTest operation middleware
+func (siw *ServerInterfaceWrapper) EmailLoginTest(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmailLoginTest(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1008,6 +1054,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/matrix/openid", wrapper.PostMatrixAuth)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/email/login-test", wrapper.EmailLoginTest)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/login", wrapper.PostLogin)

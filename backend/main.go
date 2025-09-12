@@ -18,6 +18,7 @@ import (
 
 	// Added for uuid.Parse
 
+	emailHandler "messenger/backend/internal/email/handler"
 	todoEntity "messenger/backend/internal/todo/entity"
 	"messenger/backend/internal/todo/repository"
 	"messenger/backend/internal/todo/todohandler"
@@ -51,7 +52,6 @@ func main() {
 	}
 	log.Printf("GORM models auto-migrated successfully.")
 
-	
 	// Initialize JWT Service
 	log.Printf("Initializing JWT Service...")
 	jwtSecret := os.Getenv("JWT_SECRET")
@@ -97,12 +97,19 @@ func main() {
 	todoH := todohandler.NewHandler(todoUsecase)
 	log.Printf("Todo Handler initialized.")
 
+	// Initialize Email Handler
+	log.Printf("Initializing Email Handler...")
+	emailH := emailHandler.NewEmailHandler()
+	log.Printf("Email Handler initialized.")
+
 	handlers := struct {
 		*authHandler.AuthHandler
 		*todohandler.TodoHandler
+		*emailHandler.EmailHandler
 	}{
-		AuthHandler: authH,
-		TodoHandler: todoH,
+		AuthHandler:  authH,
+		TodoHandler:  todoH,
+		EmailHandler: emailH,
 	}
 
 	// Setup Chi router

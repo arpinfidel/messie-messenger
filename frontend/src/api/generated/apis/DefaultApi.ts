@@ -16,6 +16,8 @@ import * as runtime from '../runtime';
 import type {
   AuthResponse,
   CollaboratorDetail,
+  EmailLoginRequest,
+  EmailMessagesResponse,
   LoginRequest,
   MatrixAuthResponse,
   MatrixOpenIDRequest,
@@ -34,6 +36,10 @@ import {
   AuthResponseToJSON,
   CollaboratorDetailFromJSON,
   CollaboratorDetailToJSON,
+  EmailLoginRequestFromJSON,
+  EmailLoginRequestToJSON,
+  EmailMessagesResponseFromJSON,
+  EmailMessagesResponseToJSON,
   LoginRequestFromJSON,
   LoginRequestToJSON,
   MatrixAuthResponseFromJSON,
@@ -81,6 +87,10 @@ export interface DeleteTodoItemRequest {
 
 export interface DeleteTodoListRequest {
   listId: string;
+}
+
+export interface EmailLoginTestRequest {
+  emailLoginRequest: EmailLoginRequest;
 }
 
 export interface GetCollaboratorsRequest {
@@ -450,6 +460,55 @@ export class DefaultApi extends runtime.BaseAPI {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void> {
     await this.deleteTodoListRaw(requestParameters, initOverrides);
+  }
+
+  /**
+   * Test email login and fetch recent message headers
+   */
+  async emailLoginTestRaw(
+    requestParameters: EmailLoginTestRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<EmailMessagesResponse>> {
+    if (requestParameters['emailLoginRequest'] == null) {
+      throw new runtime.RequiredError(
+        'emailLoginRequest',
+        'Required parameter "emailLoginRequest" was null or undefined when calling emailLoginTest().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters['Content-Type'] = 'application/json';
+
+    let urlPath = `/email/login-test`;
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'POST',
+        headers: headerParameters,
+        query: queryParameters,
+        body: EmailLoginRequestToJSON(requestParameters['emailLoginRequest']),
+      },
+      initOverrides
+    );
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      EmailMessagesResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   * Test email login and fetch recent message headers
+   */
+  async emailLoginTest(
+    requestParameters: EmailLoginTestRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<EmailMessagesResponse> {
+    const response = await this.emailLoginTestRaw(requestParameters, initOverrides);
+    return await response.value();
   }
 
   /**

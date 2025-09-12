@@ -258,10 +258,8 @@ export class BaseAPI {
    * and then shallow cloning data members.
    */
   private clone<T extends BaseAPI>(this: T): T {
-    const Ctor = (this as unknown as {
-      constructor: new (configuration: Configuration) => T;
-    }).constructor;
-    const next = new Ctor(this.configuration);
+    const constructor = this.constructor as any;
+    const next = new constructor(this.configuration);
     next.middleware = this.middleware.slice();
     return next;
   }

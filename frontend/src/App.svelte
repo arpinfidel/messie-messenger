@@ -8,6 +8,7 @@
   import MatrixSettingsTab from './views/matrix/MatrixSettingsTab.svelte';
   import CloudAuthTab from './views/auth/CloudAuthTab.svelte';
   import MatrixLogin from './views/matrix/MatrixLogin.svelte';
+  import EmailLoginTab from './views/email/EmailLoginTab.svelte';
   let timelineWidth: number = 0;
   let timelineLeft: number = 0;
   let timelineContainer: HTMLDivElement;
@@ -50,10 +51,10 @@
     bind:clientWidth={timelineWidth}
     bind:this={timelineContainer}
   >
-      <UnifiedTimeline
-        on:itemSelected={handleTimelineItemSelected}
-        on:openSettings={() => (showSettingsPopup = true)}
-      />
+    <UnifiedTimeline
+      on:itemSelected={handleTimelineItemSelected}
+      on:openSettings={() => (showSettingsPopup = true)}
+    />
   </div>
   <div class="flex h-full flex-col overflow-auto">
     <DetailPanel selectedItem={selectedTimelineItem} />
@@ -66,6 +67,7 @@
   tabs={[
     { name: 'Matrix', component: MatrixSettingsTab },
     { name: 'Cloud Auth', component: CloudAuthTab },
+    { name: 'Email', component: EmailLoginTab },
   ]}
 />
 
@@ -80,11 +82,8 @@
           loginStateChecked = true;
         } catch (err) {
           console.error('Matrix login failed in App:', err);
-          const msg = err instanceof Error
-            ? err.message
-            : typeof err === 'string'
-            ? err
-            : undefined;
+          const msg =
+            err instanceof Error ? err.message : typeof err === 'string' ? err : undefined;
           onError?.(msg || 'Login failed. Check details.');
         } finally {
           onDone?.();

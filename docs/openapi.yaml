@@ -13,32 +13,32 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RegisterRequest'
+              $ref: "#/components/schemas/RegisterRequest"
       responses:
-        '201':
+        "201":
           description: User registered successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '400':
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
           description: Invalid input
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '409':
+                $ref: "#/components/schemas/Error"
+        "409":
           description: User with email already exists
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '500':
+                $ref: "#/components/schemas/Error"
+        "500":
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
   /login:
     post:
       summary: Log in a user
@@ -47,32 +47,32 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LoginRequest'
+              $ref: "#/components/schemas/LoginRequest"
       responses:
-        '200':
+        "200":
           description: User logged in successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthResponse'
-        '400':
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
           description: Invalid input
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
+                $ref: "#/components/schemas/Error"
+        "401":
           description: Invalid credentials
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '500':
+                $ref: "#/components/schemas/Error"
+        "500":
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
   /users/{id}:
     get:
       security:
@@ -87,48 +87,83 @@ paths:
           required: true
           description: User ID
       responses:
-        '200':
+        "200":
           description: User found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
-        '404':
+                $ref: "#/components/schemas/User"
+        "404":
           description: User not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '500':
+                $ref: "#/components/schemas/Error"
+        "500":
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
   /users/me:
     get:
       security:
         - bearerAuth: []
       summary: Get current user profile
       responses:
-        '200':
+        "200":
           description: Current user profile
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/User'
-        '401':
+                $ref: "#/components/schemas/User"
+        "401":
           description: Unauthorized
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '500':
+                $ref: "#/components/schemas/Error"
+        "500":
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
+  /email/login-test:
+    post:
+      summary: Test email login and fetch recent message headers
+      operationId: emailLoginTest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLoginRequest"
+      responses:
+        "200":
+          description: Successfully fetched message headers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailMessagesResponse"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /todolists:
     post:
       security:
@@ -140,15 +175,15 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/NewTodoList'
+              $ref: "#/components/schemas/NewTodoList"
       responses:
-        '201':
+        "201":
           description: Todo list created successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TodoList'
-        '400':
+                $ref: "#/components/schemas/TodoList"
+        "400":
           description: Invalid input
     get:
       security:
@@ -164,14 +199,14 @@ paths:
           required: true
           description: ID of the user to retrieve todo lists for
       responses:
-        '200':
+        "200":
           description: A list of todo lists
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/TodoList'
+                  $ref: "#/components/schemas/TodoList"
   /todolists/{listId}:
     get:
       security:
@@ -187,13 +222,13 @@ paths:
           required: true
           description: ID of the todo list to retrieve
       responses:
-        '200':
+        "200":
           description: Todo list found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TodoList'
-        '404':
+                $ref: "#/components/schemas/TodoList"
+        "404":
           description: Todo list not found
     put:
       security:
@@ -213,17 +248,17 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateTodoList'
+              $ref: "#/components/schemas/UpdateTodoList"
       responses:
-        '200':
+        "200":
           description: Todo list updated successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TodoList'
-        '400':
+                $ref: "#/components/schemas/TodoList"
+        "400":
           description: Invalid input
-        '404':
+        "404":
           description: Todo list not found
     delete:
       security:
@@ -239,9 +274,9 @@ paths:
           required: true
           description: ID of the todo list to delete
       responses:
-        '204':
+        "204":
           description: Todo list deleted successfully
-        '404':
+        "404":
           description: Todo list not found
   /todolists/{listId}/items:
     post:
@@ -262,17 +297,17 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/NewTodoItem'
+              $ref: "#/components/schemas/NewTodoItem"
       responses:
-        '201':
+        "201":
           description: Todo item created successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TodoItem'
-        '400':
+                $ref: "#/components/schemas/TodoItem"
+        "400":
           description: Invalid input
-        '404':
+        "404":
           description: Todo list not found
     get:
       security:
@@ -288,15 +323,15 @@ paths:
           required: true
           description: ID of the todo list to retrieve items for
       responses:
-        '200':
+        "200":
           description: A list of todo items
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/TodoItem'
-        '404':
+                  $ref: "#/components/schemas/TodoItem"
+        "404":
           description: Todo list not found
   /todolists/{listId}/items/{itemId}:
     get:
@@ -320,13 +355,13 @@ paths:
           required: true
           description: ID of the todo item to retrieve
       responses:
-        '200':
+        "200":
           description: Todo item found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TodoItem'
-        '404':
+                $ref: "#/components/schemas/TodoItem"
+        "404":
           description: Todo item or list not found
     put:
       security:
@@ -353,17 +388,17 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/UpdateTodoItem'
+              $ref: "#/components/schemas/UpdateTodoItem"
       responses:
-        '200':
+        "200":
           description: Todo item updated successfully
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/TodoItem'
-        '400':
+                $ref: "#/components/schemas/TodoItem"
+        "400":
           description: Invalid input
-        '404':
+        "404":
           description: Todo item or list not found
     delete:
       security:
@@ -386,9 +421,9 @@ paths:
           required: true
           description: ID of the todo item to delete
       responses:
-        '204':
+        "204":
           description: Todo item deleted successfully
-        '404':
+        "404":
           description: Todo item or list not found
   /todolists/{listId}/collaborators:
     get:
@@ -405,26 +440,26 @@ paths:
           required: true
           description: ID of the todo list to retrieve collaborators for
       responses:
-        '200':
+        "200":
           description: A list of collaborators
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/CollaboratorDetail'
-        '404':
+                  $ref: "#/components/schemas/CollaboratorDetail"
+        "404":
           description: Todo list not found
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '500':
+                $ref: "#/components/schemas/Error"
+        "500":
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
     post:
       security:
         - bearerAuth: []
@@ -443,15 +478,15 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/NewCollaborator'
+              $ref: "#/components/schemas/NewCollaborator"
       responses:
-        '201':
+        "201":
           description: Collaborator added successfully
-        '400':
+        "400":
           description: Invalid input
-        '404':
+        "404":
           description: Todo list or user not found
-        '409':
+        "409":
           description: User is already a collaborator
   /todolists/{listId}/collaborators/{userId}:
     delete:
@@ -475,9 +510,9 @@ paths:
           required: true
           description: ID of the user to remove as collaborator
       responses:
-        '204':
+        "204":
           description: Collaborator removed successfully
-        '404':
+        "404":
           description: Todo list or collaborator not found
   /auth/matrix/openid:
     post:
@@ -488,32 +523,32 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/MatrixOpenIDRequest'
+              $ref: "#/components/schemas/MatrixOpenIDRequest"
       responses:
-        '200':
+        "200":
           description: Matrix authentication successful
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MatrixAuthResponse'
-        '400':
+                $ref: "#/components/schemas/MatrixAuthResponse"
+        "400":
           description: Invalid input
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '401':
+                $ref: "#/components/schemas/Error"
+        "401":
           description: Unauthorized - Matrix token verification failed
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
-        '500':
+                $ref: "#/components/schemas/Error"
+        "500":
           description: Internal server error
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Error'
+                $ref: "#/components/schemas/Error"
 components:
   securitySchemes:
     bearerAuth:
@@ -605,7 +640,7 @@ components:
         - token
       properties:
         user:
-          $ref: '#/components/schemas/User'
+          $ref: "#/components/schemas/User"
         token:
           type: string
           description: JWT token
@@ -793,3 +828,39 @@ components:
           format: uuid
           description: ID of the user in the todo service
           example: "123e4567-e89b-12d3-a456-426614174000"
+    EmailLoginRequest:
+      type: object
+      required:
+        - host
+        - port
+        - email
+        - appPassword
+      properties:
+        host:
+          type: string
+        port:
+          type: integer
+          format: int32
+        email:
+          type: string
+          format: email
+        appPassword:
+          type: string
+          format: password
+    EmailMessageHeader:
+      type: object
+      properties:
+        from:
+          type: string
+        subject:
+          type: string
+        date:
+          type: string
+          format: date-time
+    EmailMessagesResponse:
+      type: object
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailMessageHeader"
