@@ -164,6 +164,111 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /email/inbox:
+    post:
+      summary: List recent inbox message headers
+      operationId: emailInbox
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLoginRequest"
+      responses:
+        "200":
+          description: Successfully fetched inbox headers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailMessagesResponse"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /email/important:
+    post:
+      summary: List recent important message headers
+      operationId: emailImportant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLoginRequest"
+      responses:
+        "200":
+          description: Successfully fetched important headers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailMessagesResponse"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /email/threads:
+    post:
+      summary: List recent email threads
+      operationId: emailThreads
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLoginRequest"
+      responses:
+        "200":
+          description: Successfully fetched thread headers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailMessagesResponse"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /todolists:
     post:
       security:
@@ -864,3 +969,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/EmailMessageHeader"
+        unreadCount:
+          type: integer
+          format: int32

@@ -89,7 +89,19 @@ export interface DeleteTodoListRequest {
   listId: string;
 }
 
+export interface EmailImportantRequest {
+  emailLoginRequest: EmailLoginRequest;
+}
+
+export interface EmailInboxRequest {
+  emailLoginRequest: EmailLoginRequest;
+}
+
 export interface EmailLoginTestRequest {
+  emailLoginRequest: EmailLoginRequest;
+}
+
+export interface EmailThreadsRequest {
   emailLoginRequest: EmailLoginRequest;
 }
 
@@ -463,6 +475,104 @@ export class DefaultApi extends runtime.BaseAPI {
   }
 
   /**
+   * List recent important message headers
+   */
+  async emailImportantRaw(
+    requestParameters: EmailImportantRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<EmailMessagesResponse>> {
+    if (requestParameters['emailLoginRequest'] == null) {
+      throw new runtime.RequiredError(
+        'emailLoginRequest',
+        'Required parameter "emailLoginRequest" was null or undefined when calling emailImportant().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters['Content-Type'] = 'application/json';
+
+    let urlPath = `/email/important`;
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'POST',
+        headers: headerParameters,
+        query: queryParameters,
+        body: EmailLoginRequestToJSON(requestParameters['emailLoginRequest']),
+      },
+      initOverrides
+    );
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      EmailMessagesResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   * List recent important message headers
+   */
+  async emailImportant(
+    requestParameters: EmailImportantRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<EmailMessagesResponse> {
+    const response = await this.emailImportantRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * List recent inbox message headers
+   */
+  async emailInboxRaw(
+    requestParameters: EmailInboxRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<EmailMessagesResponse>> {
+    if (requestParameters['emailLoginRequest'] == null) {
+      throw new runtime.RequiredError(
+        'emailLoginRequest',
+        'Required parameter "emailLoginRequest" was null or undefined when calling emailInbox().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters['Content-Type'] = 'application/json';
+
+    let urlPath = `/email/inbox`;
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'POST',
+        headers: headerParameters,
+        query: queryParameters,
+        body: EmailLoginRequestToJSON(requestParameters['emailLoginRequest']),
+      },
+      initOverrides
+    );
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      EmailMessagesResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   * List recent inbox message headers
+   */
+  async emailInbox(
+    requestParameters: EmailInboxRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<EmailMessagesResponse> {
+    const response = await this.emailInboxRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
    * Test email login and fetch recent message headers
    */
   async emailLoginTestRaw(
@@ -508,6 +618,55 @@ export class DefaultApi extends runtime.BaseAPI {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<EmailMessagesResponse> {
     const response = await this.emailLoginTestRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * List recent email threads
+   */
+  async emailThreadsRaw(
+    requestParameters: EmailThreadsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<EmailMessagesResponse>> {
+    if (requestParameters['emailLoginRequest'] == null) {
+      throw new runtime.RequiredError(
+        'emailLoginRequest',
+        'Required parameter "emailLoginRequest" was null or undefined when calling emailThreads().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters['Content-Type'] = 'application/json';
+
+    let urlPath = `/email/threads`;
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'POST',
+        headers: headerParameters,
+        query: queryParameters,
+        body: EmailLoginRequestToJSON(requestParameters['emailLoginRequest']),
+      },
+      initOverrides
+    );
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      EmailMessagesResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   * List recent email threads
+   */
+  async emailThreads(
+    requestParameters: EmailThreadsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<EmailMessagesResponse> {
+    const response = await this.emailThreadsRaw(requestParameters, initOverrides);
     return await response.value();
   }
 

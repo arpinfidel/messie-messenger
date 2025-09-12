@@ -33,6 +33,12 @@ export interface EmailMessagesResponse {
    * @memberof EmailMessagesResponse
    */
   messages?: Array<EmailMessageHeader>;
+  /**
+   *
+   * @type {number}
+   * @memberof EmailMessagesResponse
+   */
+  unreadCount?: number;
 }
 
 /**
@@ -58,6 +64,7 @@ export function EmailMessagesResponseFromJSONTyped(
       json['messages'] == null
         ? undefined
         : (json['messages'] as Array<any>).map(EmailMessageHeaderFromJSON),
+    unreadCount: json['unreadCount'] == null ? undefined : json['unreadCount'],
   };
 }
 
@@ -78,5 +85,6 @@ export function EmailMessagesResponseToJSONTyped(
       value['messages'] == null
         ? undefined
         : (value['messages'] as Array<any>).map(EmailMessageHeaderToJSON),
+    unreadCount: value['unreadCount'],
   };
 }

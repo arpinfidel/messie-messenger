@@ -19,7 +19,7 @@ export class UnifiedTimelineViewModel {
   constructor() {
     this.modules = [
       MatrixViewModel.getInstance(),
-      new EmailViewModel(),
+      EmailViewModel.getInstance(),
       TodoViewModel.getInstance(),
     ];
     this.initializeModules();

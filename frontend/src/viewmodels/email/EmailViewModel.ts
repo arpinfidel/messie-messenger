@@ -3,43 +3,63 @@ import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
 import type { TimelineItem } from '@/models/shared/TimelineItem';
 
 export class EmailViewModel implements IModuleViewModel {
+  private static instance: EmailViewModel | null = null;
   private timelineItems = writable<TimelineItem[]>([]);
 
-  async initialize(): Promise<void> {
-    console.log('[EmailViewModel] Initialization started.');
-    // Simulate a 20-second loading delay
-    await new Promise((resolve) => setTimeout(resolve, 30000));
-    console.log('[EmailViewModel] Initialization completed.');
+  static getInstance(): EmailViewModel {
+    if (!EmailViewModel.instance) {
+      EmailViewModel.instance = new EmailViewModel();
+    }
+    return EmailViewModel.instance;
+  }
 
-    // Populate with dummy TimelineItem objects
-    const dummyItems: TimelineItem[] = [
+  async initialize(): Promise<void> {
+    const now = Date.now();
+    const items: TimelineItem[] = [
       {
-        id: 'email-1',
-        title: 'Dummy Email 1',
-        description: 'This is a dummy email item for testing.',
-        timestamp: new Date().getTime(),
+        id: 'email-inbox',
+        title: 'All Mail',
+        description: 'All non-important emails',
+        timestamp: now,
         type: 'email',
+        unreadCount: 0,
       },
       {
-        id: 'email-2',
-        title: 'Dummy Email 2',
-        description: 'Another dummy email for demonstration.',
-        timestamp: new Date(Date.now() - 3600000).getTime(), // 1 hour ago
+        id: 'email-important',
+        title: 'Important',
+        description: 'Important emails',
+        timestamp: now - 1,
         type: 'email',
+        unreadCount: 0,
       },
       {
-        id: 'email-3',
-        title: 'Dummy Email 3',
-        description: 'A third dummy email.',
-        timestamp: new Date(Date.now() - 7200000).getTime(), // 2 hours ago
+        id: 'email-thread-1',
+        title: 'Sample thread 1',
+        description: 'Thread subject',
+        timestamp: now - 2,
         type: 'email',
+        unreadCount: 0,
+      },
+      {
+        id: 'email-thread-2',
+        title: 'Sample thread 2',
+        description: 'Thread subject',
+        timestamp: now - 3,
+        type: 'email',
+        unreadCount: 0,
       },
     ];
-    this.timelineItems.set(dummyItems);
+    this.timelineItems.set(items);
   }
 
   getTimelineItems(): Readable<TimelineItem[]> {
     return this.timelineItems;
+  }
+
+  updateUnreadCount(itemId: string, count: number): void {
+    this.timelineItems.update((items) =>
+      items.map((it) => (it.id === itemId ? { ...it, unreadCount: count } : it))
+    );
   }
 
   getModuleName(): string {

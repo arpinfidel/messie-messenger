@@ -9,6 +9,8 @@
   import CloudAuthTab from './views/auth/CloudAuthTab.svelte';
   import MatrixLogin from './views/matrix/MatrixLogin.svelte';
   import EmailLoginTab from './views/email/EmailLoginTab.svelte';
+  import { emailCredentials } from './viewmodels/email/EmailCredentialsStore';
+  import { EmailViewModel } from './viewmodels/email/EmailViewModel';
   let timelineWidth: number = 0;
   let timelineLeft: number = 0;
   let timelineContainer: HTMLDivElement;
@@ -42,6 +44,36 @@
   }
   function handleTimelineItemSelected(event: CustomEvent) {
     selectedTimelineItem = event.detail;
+    if (selectedTimelineItem?.type === 'email') {
+      const creds = get(emailCredentials);
+      if (!creds) {
+        console.error('Email credentials not set');
+        return;
+      }
+      let endpoint = '';
+      if (selectedTimelineItem.id === 'email-inbox') {
+        endpoint = '/api/v1/email/inbox';
+      } else if (selectedTimelineItem.id === 'email-important') {
+        endpoint = '/api/v1/email/important';
+      } else if (selectedTimelineItem.id.startsWith('email-thread')) {
+        endpoint = '/api/v1/email/threads';
+      }
+      if (endpoint) {
+        fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(creds),
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            console.log('Fetched messages:', data);
+            // Update unread count badge in the timeline for this item
+            const unread = typeof data?.unreadCount === 'number' ? data.unreadCount : 0;
+            EmailViewModel.getInstance().updateUnreadCount(selectedTimelineItem.id, unread);
+          })
+          .catch((err) => console.error('Email fetch failed:', err));
+      }
+    }
   }
 </script>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { emailCredentials } from '@/viewmodels/email/EmailCredentialsStore';
   let host = '';
   let port: number = 993;
   let email = '';
@@ -10,10 +11,11 @@
     isLoading = true;
     error = '';
     try {
+      const creds = { host, port: Number(port), email, appPassword };
       const res = await fetch('/api/v1/email/login-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host, port: Number(port), email, appPassword }),
+        body: JSON.stringify(creds),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -21,6 +23,7 @@
       }
       const data = await res.json();
       console.log('Fetched messages:', data.messages);
+      emailCredentials.set(creds);
     } catch (e: any) {
       error = e?.message ?? 'Unknown error occurred';
     } finally {

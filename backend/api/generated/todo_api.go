@@ -54,7 +54,8 @@ type EmailMessageHeader struct {
 
 // EmailMessagesResponse defines model for EmailMessagesResponse.
 type EmailMessagesResponse struct {
-	Messages *[]EmailMessageHeader `json:"messages,omitempty"`
+	Messages    *[]EmailMessageHeader `json:"messages,omitempty"`
+	UnreadCount *int32                `json:"unreadCount,omitempty"`
 }
 
 // Error defines model for Error.
@@ -183,8 +184,17 @@ type GetTodoListsByUserIdParams struct {
 // PostMatrixAuthJSONRequestBody defines body for PostMatrixAuth for application/json ContentType.
 type PostMatrixAuthJSONRequestBody = MatrixOpenIDRequest
 
+// EmailImportantJSONRequestBody defines body for EmailImportant for application/json ContentType.
+type EmailImportantJSONRequestBody = EmailLoginRequest
+
+// EmailInboxJSONRequestBody defines body for EmailInbox for application/json ContentType.
+type EmailInboxJSONRequestBody = EmailLoginRequest
+
 // EmailLoginTestJSONRequestBody defines body for EmailLoginTest for application/json ContentType.
 type EmailLoginTestJSONRequestBody = EmailLoginRequest
+
+// EmailThreadsJSONRequestBody defines body for EmailThreads for application/json ContentType.
+type EmailThreadsJSONRequestBody = EmailLoginRequest
 
 // PostLoginJSONRequestBody defines body for PostLogin for application/json ContentType.
 type PostLoginJSONRequestBody = LoginRequest
@@ -212,9 +222,18 @@ type ServerInterface interface {
 	// Authenticate using Matrix OpenID
 	// (POST /auth/matrix/openid)
 	PostMatrixAuth(w http.ResponseWriter, r *http.Request)
+	// List recent important message headers
+	// (POST /email/important)
+	EmailImportant(w http.ResponseWriter, r *http.Request)
+	// List recent inbox message headers
+	// (POST /email/inbox)
+	EmailInbox(w http.ResponseWriter, r *http.Request)
 	// Test email login and fetch recent message headers
 	// (POST /email/login-test)
 	EmailLoginTest(w http.ResponseWriter, r *http.Request)
+	// List recent email threads
+	// (POST /email/threads)
+	EmailThreads(w http.ResponseWriter, r *http.Request)
 	// Log in a user
 	// (POST /login)
 	PostLogin(w http.ResponseWriter, r *http.Request)
@@ -278,9 +297,27 @@ func (_ Unimplemented) PostMatrixAuth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List recent important message headers
+// (POST /email/important)
+func (_ Unimplemented) EmailImportant(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List recent inbox message headers
+// (POST /email/inbox)
+func (_ Unimplemented) EmailInbox(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Test email login and fetch recent message headers
 // (POST /email/login-test)
 func (_ Unimplemented) EmailLoginTest(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List recent email threads
+// (POST /email/threads)
+func (_ Unimplemented) EmailThreads(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -409,11 +446,53 @@ func (siw *ServerInterfaceWrapper) PostMatrixAuth(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// EmailImportant operation middleware
+func (siw *ServerInterfaceWrapper) EmailImportant(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmailImportant(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EmailInbox operation middleware
+func (siw *ServerInterfaceWrapper) EmailInbox(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmailInbox(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // EmailLoginTest operation middleware
 func (siw *ServerInterfaceWrapper) EmailLoginTest(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.EmailLoginTest(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EmailThreads operation middleware
+func (siw *ServerInterfaceWrapper) EmailThreads(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmailThreads(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1056,7 +1135,16 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/auth/matrix/openid", wrapper.PostMatrixAuth)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/email/important", wrapper.EmailImportant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/email/inbox", wrapper.EmailInbox)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/email/login-test", wrapper.EmailLoginTest)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/email/threads", wrapper.EmailThreads)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/login", wrapper.PostLogin)

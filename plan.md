@@ -43,11 +43,11 @@ Implement the new **email endpoints inside the existing Golang server** and a mi
 
 ## Phase 1 — Status
 
-- Backend: Added `POST /email/login-test` (no auth) to accept `{host, port, email, appPassword}`, connect via IMAP over TLS, select `INBOX`, fetch last N headers, and return `EmailMessagesResponse`.
-- OpenAPI: Updated spec with `EmailLoginRequest`, `EmailMessageHeader`, `EmailMessagesResponse`; regenerated server and TS client bindings.
-- Server wiring: Registered handler in Chi router under `/api/v1`; route bypasses JWT middleware per spec security.
-- Web client: Added Email login tab with a minimal form posting creds to `/api/v1/email/login-test` and `console.log` of returned headers.
-- Validation: Happy-path tested locally via fetch; error cases return 401/400/500 with JSON error message.
+* Backend: Added `POST /email/login-test` (no auth) to accept `{host, port, email, appPassword}`, connect via IMAP over TLS, select `INBOX`, fetch last N headers, and return `EmailMessagesResponse`.
+* OpenAPI: Updated spec with `EmailLoginRequest`, `EmailMessageHeader`, `EmailMessagesResponse`; regenerated server and TS client bindings.
+* Server wiring: Registered handler in Chi router under `/api/v1`; route bypasses JWT middleware per spec security.
+* Web client: Added Email login tab with a minimal form posting creds to `/api/v1/email/login-test` and `console.log` of returned headers.
+* Validation: Happy-path tested locally via fetch; error cases return 401/400/500 with JSON error message.
 
 ---
 
@@ -99,265 +99,318 @@ Bodies, attachments, send/drafts, SSE, persistence, OAuth.
 **Instruction to AI agent:**
 Add minimal filter/list endpoints and render the three sidebar entries. Keep actions to console logging only.
 
+## Phase 2 — Status
+
+* Backend: Implemented `POST /email/inbox`, `POST /email/important`, and `POST /email/threads` using a shared IMAP header fetcher, returning `EmailMessagesResponse` with `unreadCount`.
+* OpenAPI: Added email list endpoints to `docs/openapi.yaml`; regenerated Go server bindings and TS client. Endpoints are unauthenticated per spec.
+* Server wiring: Registered new routes under `/api/v1` via `oapi-codegen` router; they bypass JWT middleware automatically (no security on ops).
+* Web client: Sidebar now shows All Mail, Important, and stubbed Threads. Clicks POST the saved credentials to the corresponding endpoints and log results.
+* Unread counts: After fetch, the sidebar badge updates via a singleton `EmailViewModel` that tracks per-item `unreadCount`.
+
 ---
 
-# Implementation Plan (Phase 3 — Folders, listing, pagination)
+# Implementation Plan (Phase 3 — Thread identity & pagination in 3-view model)
 
 **Goal**
-Expose folder list and **paged** message metadata retrieval.
+Add proper **thread grouping** and **pagination** for the three main views (All Mail, Important, Threads). Each thread appears as a **room-like item** in the sidebar.
 
 ## Scope
 
 * **Existing Go server**
 
-  * `GET /email/accounts/{id}/folders`
-  * `GET /email/accounts/{id}/folders/{fid}/messages?cursor=…&limit=…` (headers only)
-  * Track `UIDVALIDITY`, `lastUID` cursors.
+  * Compute a stable `threadKey` (e.g. SHA1 of root `Message-ID` + `References` chain).
+  * Endpoints:
+
+    * `/email/inbox` → returns newest headers with `threadKey` and `cursor`.
+    * `/email/important` → same, filtered by Important/`\,Flagged`.
+    * `/email/threads` → returns **one row per threadKey** with latest message + unread count, paginated.
+  * Return `threadKey`, `latestSubject`, `from`, `date`, `unreadCount`.
 * **Web client**
 
-  * Simple folder picker; show counts; log paged results.
+  * Update sidebar:
+
+    * All Mail → one entry, shows unread total.
+    * Important → one entry, shows unread total.
+    * Threads → **list of thread rooms**, each with latest subject, unread badge, timestamp.
+  * Clicking a thread logs the full header list for that thread.
 
 ## Flow
 
-Fetch folders → fetch first page for INBOX → use `cursor` to page older.
+1. Client requests `/email/threads?cursor=…` → server groups by `threadKey` → returns list of thread previews.
+2. Sidebar shows each thread as a “room.”
+3. Clicking a thread calls `/email/thread/{threadKey}/messages` → logs headers.
 
 ## Design reasons
 
-* Scalable browsing without full downloads; sets up cursors for later live sync.
+* Forces UI to treat threads as rooms, not folders.
+* Pagination ensures large mailboxes load progressively.
+* Stable `threadKey` guarantees consistent grouping across syncs.
 
 ## Out of scope
 
-Events/push, flags, bodies, OAuth.
+Bodies, attachments, flags, drafts, SSE, OAuth.
 
 ## Expected results (test)
 
-* Folder list renders; selecting a folder returns a page of headers.
-* Requesting next page with `cursor` returns older messages with no duplicates.
+* Sidebar shows All Mail, Important, and a **dynamic list of thread rooms**.
+* Each thread room shows subject, unread count, and last date.
+* Clicking a thread logs that thread’s messages.
+* Paging `/email/threads` loads older threads without duplicates.
 
 **Instruction to AI agent:**
-Implement folder listing + paginated metadata endpoints and client calls.
+Implement `threadKey` grouping server-side and render per-thread rooms in sidebar. Client must show thread list as clickable rooms, not just log all headers.
 
 ---
 
-# Implementation Plan (Phase 4 — Live updates via SSE)
+# Implementation Plan (Phase 4 — Live updates via SSE for 3-view model)
 
 **Goal**
-Provide **near-real-time** updates (new mail/flag changes) via **SSE**.
+Add **real-time updates** (new messages, flag changes, deletions) so sidebar items and thread rooms stay current.
 
 ## Scope
 
 * **Existing Go server**
 
-  * `GET /email/accounts/{id}/events` (SSE).
+  * `GET /email/events` (SSE).
   * Use IMAP `IDLE` (fallback to polling).
-  * Emit deltas: `{folder, uid, type: new|flags|deleted}`.
+  * Emit events:
+
+    * `inbox:new`, `important:new`, `thread:update`, `thread:new`, `message:deleted`.
+  * Include `threadKey`, `uid`, `unreadCount`, `latestSubject`, `date`.
 * **Web client**
 
-  * Open SSE stream; log deltas; trigger narrow refetches.
+  * Subscribe once; update:
+
+    * All Mail/Important unread counts.
+    * Thread rooms: update preview subject, bump unread, or add new thread.
 
 ## Flow
 
-Client subscribes to SSE → server pushes deltas → client refetches affected items.
+1. New mail → server emits `inbox:new` + `thread:update`.
+2. Client updates All Mail count, and thread room preview/unread badge.
+3. Starring/unstarring updates Important view.
+4. Deletions remove or update a thread room.
 
 ## Design reasons
 
-* Instant feel without complex state sync; fits gateway model.
+* Keeps sidebar in sync, same as Matrix live timeline.
+* Users see thread rooms update instantly without refresh.
 
 ## Out of scope
 
-Bodies, send, drafts, OAuth.
+Bodies, drafts, OAuth.
 
 ## Expected results (test)
 
-* New email arriving triggers an SSE event within seconds.
-* Flag change (e.g., star) emits an event; client refetch prints updated header.
+* Sending self a test mail creates a new thread room in sidebar.
+* Marking a message seen decreases unread badge.
+* Star toggles add/remove thread from Important view in real time.
 
 **Instruction to AI agent:**
-Add SSE endpoint wired to IMAP IDLE; minimal client listener to log events and refetch.
+Wire SSE events to update sidebar counts and per-thread rooms. Don’t just log; UI must update live.
 
 ---
 
-# Implementation Plan (Phase 5 — Bodies, attachments, read/star)
+# Implementation Plan (Phase 5 — Bodies, attachments, read/star inside thread rooms)
 
 **Goal**
-Fetch **message bodies/attachments on demand**; set `\Seen` / `\Flagged`.
+Open threads, fetch **message bodies/attachments**, and allow marking read/star.
 
 ## Scope
 
 * **Existing Go server**
 
-  * `GET /email/accounts/{id}/messages/{uid}/body` (stream)
-  * `GET /email/accounts/{id}/messages/{uid}/attachments/{partId}` (stream)
-  * `POST /email/accounts/{id}/messages/{uid}/flags` (seen/flagged)
+  * `GET /email/thread/{threadKey}/messages` → headers for all messages in thread.
+  * `GET /email/messages/{uid}/body` → stream body.
+  * `GET /email/messages/{uid}/attachments/{partId}` → stream attachment.
+  * `POST /email/messages/{uid}/flags` → set `\Seen`, `\Flagged`.
 * **Web client**
 
-  * Console-log first KB of body; test star/unstar; reflect via SSE.
+  * Clicking a thread room loads message list → console.log messages.
+  * Clicking a message fetches body/attachment → console.log.
+  * Star/unstar updates Important view + thread preview unread badge.
 
 ## Flow
 
-Click message → fetch body; toggle star → server updates IMAP → SSE confirms.
+Open thread → fetch all messages → click message → fetch body → toggle flags → SSE updates Important & All Mail.
 
 ## Design reasons
 
-* On-demand fetch keeps bandwidth low; flags enable basic triage.
+* Adds depth to thread rooms without leaving 3-view model.
+* Flags integrate naturally into Important.
 
 ## Out of scope
 
-Send, drafts, move/delete, OAuth.
+Drafts, send, move, OAuth.
 
 ## Expected results (test)
 
-* Body endpoint returns text/html; attachments stream with correct MIME/size.
-* Toggling `\Flagged` updates IMAP and emits SSE; read state updates with `\Seen`.
+* Opening thread logs all messages in it.
+* Clicking message prints body text.
+* Starring moves it to Important and updates thread room immediately.
 
 **Instruction to AI agent:**
-Implement body/attachment streaming and flags API; wire minimal client calls.
+Implement thread detail + message body/flag endpoints. Client must load thread room content, not just log global headers.
 
 ---
 
-# Implementation Plan (Phase 6 — Drafts & send)
+# Implementation Plan (Phase 6 — Drafts & send in thread context)
 
 **Goal**
-Create/update **drafts** and **send** messages (new/reply) via SMTP.
+Enable composing replies or new mails inside thread rooms.
 
 ## Scope
 
 * **Existing Go server**
 
-  * `POST /email/accounts/{id}/drafts` (create/update in “Drafts” with `\Draft`)
-  * `POST /email/accounts/{id}/send` (SMTP app password; later XOAUTH2)
-  * Add `In-Reply-To/References` for replies.
+  * `POST /email/drafts` → save to Drafts with `\Draft`, keyed by `threadKey` if replying.
+  * `POST /email/send` → send via SMTP, set `In-Reply-To` for replies.
+  * Emit SSE to update thread preview + All Mail.
 * **Web client**
 
-  * Minimal compose form; log send result.
+  * Compose box in thread room (minimal).
+  * Log send result, update preview via SSE.
 
 ## Flow
 
-Compose → optional save draft → send → server returns success.
+Compose reply → send → new message appears in same thread room.
 
 ## Design reasons
 
-* Completes core mail loop with minimal UI changes.
+* Completes mail loop while keeping thread as main unit.
+* Matches Matrix chat experience.
 
 ## Out of scope
 
-Scheduling, templates, rich editor, OAuth.
+Rich editor, scheduling, OAuth.
 
 ## Expected results (test)
 
-* Creating/updating draft reflects in Drafts folder.
-* Sending succeeds and appears in Sent folder (server confirms ID).
+* Replying adds new message to thread room in real time.
+* Draft saving logs confirmation; draft visible in thread when fetched again.
 
 **Instruction to AI agent:**
-Add draft/save and send endpoints; simple client compose + console result.
+Implement send/draft endpoints; client adds compose box inside thread rooms.
 
 ---
 
-# Implementation Plan (Phase 7 — Move & delete)
+# Implementation Plan (Phase 7 — Delete & archive in 3-view model)
 
 **Goal**
-Support moving messages between folders and deletion.
+Support delete/archive actions while preserving 3-view sidebar model.
 
 ## Scope
 
 * **Existing Go server**
 
-  * `POST /email/accounts/{id}/messages/{uid}/move` (IMAP MOVE or COPY+EXPUNGE)
-  * `DELETE /email/accounts/{id}/messages/{uid}`
+  * `DELETE /email/messages/{uid}` → Trash per server default.
+  * `POST /email/messages/{uid}/archive` → move to Archive (if supported).
+  * Emit SSE to remove/update thread room + counts.
 * **Web client**
 
-  * Trigger moves/deletes; log confirmations; observe SSE deltas.
+  * Delete/archive buttons in thread rooms.
+  * Log action + observe sidebar updates.
 
 ## Flow
 
-Action → server applies → SSE announces delta → client refetches.
+Delete → removes message/thread from All Mail + Important.
+Archive → removes from All Mail but thread remains accessible.
 
 ## Design reasons
 
-* Basic mailbox management; parity with common clients.
+* Simple mailbox management in thread UI.
+* Fits 3-view abstraction without showing folder tree.
 
 ## Out of scope
 
-Undo/Trash restore beyond server defaults.
+Restore, move to arbitrary folders, OAuth.
 
 ## Expected results (test)
 
-* Move moves the UID to target folder; source no longer lists it.
-* Delete removes message; SSE `deleted` event fires.
+* Deleting last message in thread removes thread room from sidebar.
+* Archiving hides thread from All Mail but doesn’t break Important/Thread view.
 
 **Instruction to AI agent:**
-Implement move/delete endpoints and SSE announcements; minimal client triggers.
+Implement delete/archive with SSE events to keep 3-view model consistent.
 
 ---
 
-# Implementation Plan (Phase 8 — Minimal persistence & privacy controls)
+# Implementation Plan (Phase 8 — Persistence & wipe for 3-view model)
 
 **Goal**
-Introduce **metadata persistence** and optional **encrypted blob cache**; add wipe controls.
+Persist minimal metadata for All Mail, Important, and Threads for faster cold starts; add wipe control.
 
 ## Scope
 
 * **Existing Go server**
 
-  * Persist accounts, folders, cursors, message metadata.
-  * Optional: cache bodies as **encrypted blobs** (envelope encryption).
-  * “Disconnect & Wipe” endpoint to purge tokens + cached data.
+  * Store per-account thread index (threadKey → latest header, unread count).
+  * Optional encrypted blob cache for bodies.
+  * `POST /email/wipe` → clear all tokens + caches.
 * **Web client**
 
-  * Add “disconnect & wipe” button; log outcome.
+  * On restart, immediately render cached sidebar with counts.
+  * “Disconnect & Wipe” button clears data.
 
 ## Flow
 
-Normal usage persists metadata; user can wipe anytime.
+Restart → preload All Mail/Important counts + thread previews → background sync updates.
+Wipe → sidebar empties, login required again.
 
 ## Design reasons
 
-* Faster cold start without storing plaintext; clear privacy posture.
+* Faster UX without losing privacy.
+* Minimal persistence avoids full folder tree complexity.
 
 ## Out of scope
 
-Search/indexing, OAuth.
+Vector search, OAuth.
 
 ## Expected results (test)
 
-* Restarting app still lists folders and recent headers quickly.
-* “Wipe” clears stored metadata/blobs; next open requires fresh fetch.
+* Restart shows sidebar populated before IMAP sync completes.
+* Wipe clears sidebar and requires login.
 
 **Instruction to AI agent:**
-Add metadata persistence and optional encrypted blob cache; implement wipe.
+Persist only metadata for 3-view model; implement wipe endpoint and client action.
 
 ---
 
-# Implementation Plan (Phase 9 — Search v1: metadata filters)
+# Implementation Plan (Phase 9 — Search v1: metadata filters in 3-view model)
 
 **Goal**
-Enable **basic search** using server-side metadata filters; fetch bodies on demand.
+Add metadata search scoped to All Mail, Important, or Threads.
 
 ## Scope
 
 * **Existing Go server**
 
-  * `GET /email/search?folder=…&from=…&subject=…&dateAfter=…` (metadata only)
+  * `GET /email/search?view=inbox|important|threads&from=…&subject=…&dateAfter=…`
+  * Returns headers + `threadKey` matches.
 * **Web client**
 
-  * Call search; log IDs; fetch bodies on click.
+  * Search bar scoped to current view.
+  * Log results; clicking fetches body.
 
 ## Flow
 
-Search → server returns candidate UIDs → client fetches bodies as needed.
+Search query → server filters messages/threads → client shows results.
+Clicking a result fetches body.
 
 ## Design reasons
 
-* Adds value without storing plaintext or embeddings yet.
+* Provides search without needing folder UI.
+* Keeps consistent with 3-view sidebar model.
 
 ## Out of scope
 
-Semantic/vector search, OAuth.
+Semantic search, OAuth.
 
 ## Expected results (test)
 
-* Searching by from/subject/date returns matching headers.
-* Clicking a result fetches body successfully.
+* Searching “from\:me” in All Mail returns matching messages.
+* Searching in Threads shows matching thread rooms.
+* Clicking opens thread, logs body.
 
 **Instruction to AI agent:**
-Implement metadata search endpoint; client consumes and fetches bodies on demand.
+Implement search endpoints scoped to 3-view model; client consumes results with body fetch on click.
