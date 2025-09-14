@@ -77,6 +77,10 @@
         disabled={loading}
       >{loading ? 'Signing in...' : 'Sign In'}</button>
     </form>
+    <button
+      class="mt-4 w-full text-center text-sm text-blue-400 hover:underline"
+      on:click={() => dispatch('forgot')}
+    >Forgot password?</button>
   </div>
   </div>
 

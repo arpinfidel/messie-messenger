@@ -290,6 +290,45 @@ export class MatrixViewModel implements IModuleViewModel {
     }
   }
 
+  async requestPasswordReset(
+    homeserverUrl: string,
+    email: string,
+    nextLink: string,
+  ): Promise<{ sid: string; clientSecret: string }> {
+    const clientSecret =
+      Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+    const client = matrixSdk.createClient({ baseUrl: homeserverUrl });
+    const res = await client.requestPasswordEmailToken(email, clientSecret, 1, nextLink);
+    // Persist mapping so we can finish the flow after email confirmation
+    try {
+      localStorage.setItem(
+        `matrix:pwdreset:${res.sid}:client_secret`,
+        clientSecret,
+      );
+      localStorage.setItem('matrixHomeserverUrl', homeserverUrl);
+    } catch {
+      // ignore storage errors (e.g., SSR or storage disabled)
+    }
+    return { sid: res.sid, clientSecret };
+  }
+
+  async resetPassword(
+    homeserverUrl: string,
+    clientSecret: string,
+    sid: string,
+    newPassword: string,
+  ): Promise<void> {
+    const client = matrixSdk.createClient({ baseUrl: homeserverUrl });
+    await client.setPassword(
+      {
+        type: 'm.login.email.identity',
+        threepid_creds: { client_secret: clientSecret, sid },
+      },
+      newPassword,
+      true,
+    );
+  }
+
   /* ---------- Messaging ---------- */
 
   async pickMedia(): Promise<File | undefined> {
