@@ -160,6 +160,16 @@ Bodies, attachments, flags, drafts, SSE, OAuth.
 **Instruction to AI agent:**
 Implement `threadKey` grouping server-side and render per-thread rooms in sidebar. Client must show thread list as clickable rooms, not just log all headers.
 
+## Phase 3 — Status
+
+* Backend: Implemented thread grouping with stable `threadKey` based on `In-Reply-To` (fallback `Message-ID`) hashed via SHA1. Added pagination with `?cursor=<unix_ts>` to request older threads.
+* Endpoints:
+  * `POST /api/v1/email/threads` → returns `{ threads: [{ threadKey, latestSubject, from, date, unreadCount }], cursor }`.
+  * `POST /api/v1/email/thread/{threadKey}/messages` → returns `EmailMessagesResponse` for that thread (headers + per-thread `unreadCount`).
+* Web client: Sidebar shows a dynamic list of thread rooms from `/email/threads`. Each thread displays latest subject, from, timestamp, and unread badge.
+* Click behavior: Clicking a thread posts credentials to `/api/v1/email/thread/{threadKey}/messages`, logs headers, and updates the thread’s unread badge.
+* Notes: OpenAPI and generated TS client remain unchanged; the web uses `fetch` for these email endpoints. The `threadKey` uses `In-Reply-To`/`Message-ID` (no full References chain yet).
+
 ---
 
 # Implementation Plan (Phase 4 — Live updates via SSE for 3-view model)

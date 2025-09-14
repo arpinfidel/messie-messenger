@@ -22,6 +22,10 @@ restart:
 build:
 	$(COMPOSE) build $(ARGS)
 
+rebuild:
+	$(COMPOSE) up -d $(ARGS)
+	$(COMPOSE) up --build -d $(ARGS)
+
 ps:
 	$(COMPOSE) ps
 
