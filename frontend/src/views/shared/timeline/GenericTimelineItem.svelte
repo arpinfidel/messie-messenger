@@ -103,10 +103,10 @@
         </div>
       {/if}
     </div>
-    <div class="flex-grow">
+    <div class="flex-grow min-w-0">
       <!-- First row: room name, then date and item type capsule stacked vertically -->
       <div class="mb-1 flex items-start justify-between">
-        <div class="flex max-w-[calc(100%-100px)] items-center">
+        <div class="flex max-w-[calc(100%-100px)] min-w-0 items-center">
           <h3
             class="truncate text-base font-semibold text-gray-900 transition-colors group-hover:text-gray-700 dark:text-gray-100 dark:group-hover:text-gray-200"
           >
@@ -130,7 +130,7 @@
 
       <!-- Second row: Description (Preview) -->
       <p
-        class="line-clamp-2 text-sm text-gray-600 transition-colors group-hover:text-gray-700 dark:text-gray-300 dark:group-hover:text-gray-200"
+        class="line-clamp-2 h-10 min-w-0 break-words text-sm leading-5 text-gray-600 transition-colors group-hover:text-gray-700 dark:text-gray-300 dark:group-hover:text-gray-200"
       >
         {item.description || 'No description available'}
       </p>
