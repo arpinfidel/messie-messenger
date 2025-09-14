@@ -14,6 +14,7 @@ import { MatrixEvent } from 'matrix-js-sdk';
 import { matrixSettings } from '../MatrixSettings';
 import { VerificationMethod } from 'matrix-js-sdk/lib/types';
 import { logger } from 'matrix-js-sdk/lib/logger.js';
+import { sasVerificationStore } from './SasVerificationStore';
 
 /* =========================
  * MatrixCryptoManager
@@ -224,17 +225,48 @@ export class MatrixCryptoManager {
       v.on(VerifierEvent.ShowSas, async (sas: ShowSasCallbacks) => {
         console.log('[SAS] Emoji:', sas.sas.emoji);
         console.log('[SAS] Decimal:', sas.sas.decimal);
-        try {
-          await sas.confirm();
-          console.log('[SAS] Confirmed on this device.');
-        } catch (e) {
-          console.error('[SAS] confirm() failed:', e);
-          try {
-            sas.cancel();
-          } catch {}
-        }
+        sasVerificationStore.set({
+          emoji: sas.sas.emoji || [],
+          waiting: false,
+          confirm: async () => {
+            try {
+              await sas.confirm();
+              console.log('[SAS] Confirmed on this device. Waiting for peer…');
+              sasVerificationStore.update((curr) =>
+                curr ? { ...curr, waiting: true } : curr,
+              );
+            } catch (e) {
+              console.error('[SAS] confirm() failed:', e);
+              try {
+                sas.cancel();
+              } catch {}
+              sasVerificationStore.set(null);
+            }
+          },
+          cancel: () => {
+            try {
+              sas.mismatch();
+            } catch {
+              try {
+                sas.cancel();
+              } catch {}
+            }
+            sasVerificationStore.set(null);
+          },
+        });
       });
-      v.verify().catch((e) => console.error('[Verification] verifier.verify() error:', e));
+      v.on(VerifierEvent.Cancel, () => {
+        sasVerificationStore.set(null);
+      });
+      v
+        .verify()
+        .then(() => {
+          sasVerificationStore.set(null);
+        })
+        .catch((e) => {
+          console.error('[Verification] verifier.verify() error:', e);
+          sasVerificationStore.set(null);
+        });
     };
 
     console.log('[Verification] Bootstrapping secret storage (if not already).');

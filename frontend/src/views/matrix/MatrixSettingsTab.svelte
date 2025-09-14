@@ -1,6 +1,7 @@
 <script lang="ts">
   import { matrixSettings } from '../../viewmodels/matrix/MatrixSettings';
   import { MatrixViewModel } from '../../viewmodels/matrix/MatrixViewModel';
+  import SasVerificationModal from './components/SasVerificationModal.svelte';
 
   const matrixViewModel = MatrixViewModel.getInstance();
 
@@ -67,4 +68,6 @@
   >
     Verify Device
   </button>
+
+  <SasVerificationModal />
 </div>
