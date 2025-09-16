@@ -39,31 +39,6 @@ sh:
 %:
 	@:
 
-.PHONY: migrate-create
-migrate-create:
-	@echo "Creating new migration files..."
-	@read -p "Enter migration name: " migration_name; \
-	cd backend && migrate create -ext sql -dir migrations -seq $$migration_name
-
-.PHONY: migrate-up
-migrate-up:
-	@echo "Applying database migrations..."
-	cd backend && migrate -path migrations -database "$(DATABASE_URL)" up
-
-.PHONY: migrate-down
-migrate-down:
-	@echo "Rolling back last database migration..."
-	cd backend && migrate -path migrations -database "$(DATABASE_URL)" down 1
-
-.PHONY: migrate-status
-migrate-status:
-	@echo "Checking migration status..."
-	cd backend && migrate -path migrations -database "$(DATABASE_URL)" status
-
-.PHONY: migrate-reset
-migrate-reset: migrate-down migrate-up
-	@echo "Database reset complete (down then up)."
-
 psql:
 	@echo "Connecting to PostgreSQL database..."
 	$(COMPOSE) exec -it postgres psql -U user -d todo_db

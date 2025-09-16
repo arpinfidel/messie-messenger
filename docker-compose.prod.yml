@@ -2,9 +2,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: todo_db
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ${POSTGRES_DB:-todo_db}
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
@@ -18,11 +18,11 @@ services:
         COMMIT: "${GIT_COMMIT:-local}"
         DATE: "${BUILD_DATE:-unknown}"
     environment:
-      PORT: 8080
-      DATABASE_URL: postgres://user:password@postgres:5432/todo_db?sslmode=disable
-      JWT_SECRET: supersecretjwtkey
+      PORT: ${BACKEND_PORT:-8080}
+      DATABASE_URL: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-todo_db}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-supersecretjwtkey}
     expose:
-      - "8080"
+      - "${BACKEND_PORT:-8080}"
     healthcheck:
       test: ["CMD", "true"]
       # test: ["CMD-SHELL", "cat </dev/null >/dev/tcp/127.0.0.1/8080"]
@@ -41,7 +41,7 @@ services:
       context: .
       dockerfile: ./api-gateway/Dockerfile.prod
     ports:
-      - "8080:80"
+      - "${NGINX_PORT:-8080}:80"
     depends_on:
       # backend:
       #   condition: service_healthy

@@ -2,10 +2,10 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: todo_db
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-    ports: ["5432:5432"]
+      POSTGRES_DB: ${POSTGRES_DB:-todo_db}
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    ports: ["${POSTGRES_PORT:-5432}:5432"]
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -14,9 +14,9 @@ services:
       context: ./backend
       dockerfile: Dockerfile.dev
     environment:
-      PORT: 8080
-      DATABASE_URL: postgres://user:password@postgres:5432/todo_db?sslmode=disable
-      JWT_SECRET: supersecretjwtkey
+      PORT: ${BACKEND_PORT:-8080}
+      DATABASE_URL: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-todo_db}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET:-supersecretjwtkey}
     volumes:
       - ./backend:/backend
       - go-mod-cache:/go/pkg/mod
@@ -38,9 +38,9 @@ services:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      - "5173:5173"
+      - "${FRONTEND_PORT:-5173}:5173"
     environment:
-      VITE_API_BASE_URL: /api/v1
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:5173', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 5s
@@ -53,7 +53,7 @@ services:
       context: ./api-gateway
       dockerfile: Dockerfile.dev
     ports:
-      - "8080:80"
+      - "${NGINX_PORT:-8080}:80"
     depends_on:
       backend:
         condition: service_healthy

@@ -1,0 +1,7 @@
+# Local environment overrides
+.env
+
+# Node and build artifacts (safety)
+node_modules/
+dist/
+build/
