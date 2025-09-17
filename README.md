@@ -23,10 +23,38 @@ Note: This section intentionally stays non-technical. Detailed UI behavior and t
 
 ## Getting Started
 
-### Quick start with Docker Compose
+### Prerequisites for Development
+
+- **Docker Desktop + Compose v2** – required for the default `make up` workflow.
+- **Go 1.24.6 toolchain** – install the official release from go.dev or your OS package manager so local builds match our Docker images.
+- **Node.js 20.x + npm** – aligns with the `node:20-alpine` images and Vite dev server.
+- **Java 11+** – needed by `openapi-generator-cli` when regenerating API clients.
+- **Matrix account** – any homeserver works; needed to exercise the Matrix module once the app is running.
+
+### Initial Setup
+
+1. Clone the repository and move into the project root.
+2. Copy environment defaults: `cp .env.example .env`, then edit values as needed for your machine.
+3. Install frontend dependencies (outside Docker) if you intend to run Vite locally:
+
+   ```bash
+   cd frontend
+   npm install
+   ```
+
+4. Ensure your Go environment is using the 1.24.6 toolchain and download modules:
+
+   ```bash
+   cd backend
+   go mod download
+   ```
+
+   If you manage multiple Go versions, make sure `go version` reports 1.24.6 before running the command.
+
+### Quick start with Docker Compose (Recommended)
 
 1. Install Docker and Docker Compose (v2).
-2. Start the full stack (Postgres, backend, frontend, nginx):
+2. Start the full stack (Postgres, backend, frontend, nginx) using `make up`. This is the preferred way to develop—containers keep dependencies aligned across machines:
 
    ```bash
    make up
@@ -42,7 +70,7 @@ Note: This section intentionally stays non-technical. Detailed UI behavior and t
 
 Useful helpers: `make logs`, `make ps`, `make sh backend`.
 
-### Running services manually
+### Running services manually (optional)
 
 Backend (Go):
 
@@ -65,6 +93,12 @@ npm run dev -- --host
 ### Matrix Account
 
 You need a Matrix account to sign in for messaging. Register on any homeserver (e.g., your own or a public one), then log in from the Matrix settings screen inside the app.
+
+### Day-to-Day Development Flow
+
+- Use `make up`/`make down` to manage the full stack in Docker, or run the backend and frontend manually as shown above.
+- Regenerate OpenAPI clients whenever you touch `docs/openapi.yaml` (see **API and Code Generation** below) so both the Go server and TypeScript client stay in sync.
+- The repo does not ship automated tests yet; plan on manual verification for now.
 
 ## Operations
 

@@ -1,3 +1,9 @@
+# TODO
+
+## show reactions
+
+example format:
+
 {
   "eventId": "$hqNb62yEEbzuOuEv9m5i4O1vXLa1PWDswQGB_8ZnkxE:whatsapp.com",
   "roomId": "!eFsJm9axBElWipcYeobI:beeper.local",
