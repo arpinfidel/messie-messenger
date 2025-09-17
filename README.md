@@ -105,7 +105,7 @@ See `frontend/README.md` for standalone client generation notes.
 
 ## Project Layout
 
-```
+```txt
 backend/        Go service and generated API handlers
 frontend/       Svelte application with view models and generated client
 api-gateway/    nginx configurations and Dockerfiles for dev/prod proxies

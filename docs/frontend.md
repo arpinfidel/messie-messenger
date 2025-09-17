@@ -41,4 +41,3 @@ Open Questions / TODOs
 - Document component-level conventions (folder layout, naming)
 - Capture testing strategy (unit vs component tests)
 - Add guidance for theming and accessibility
-

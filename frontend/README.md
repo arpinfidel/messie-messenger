@@ -1,3 +1,5 @@
+# Messie Messenger Frontend
+
 ## Frontend Features (moved from root README)
 
 - Matrix-first messaging – A dedicated Matrix view model handles session restoration, client bootstrapping, crypto, notifications, room timelines, and read receipts, exposing data as timeline items consumed by the UI.

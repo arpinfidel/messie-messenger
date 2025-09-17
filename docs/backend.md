@@ -39,4 +39,3 @@ Future Additions
 - Document SSE/email streaming implementation once built
 - Capture observability stack (metrics, structured logging)
 - Add deployment guidance (Docker images, Compose targets, CI/CD)
-
