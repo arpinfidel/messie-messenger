@@ -1,5 +1,4 @@
-RFC 0001: Fractional Indexing for Todos
-=======================================
+# ADR 0001: Fractional Indexing for Todos
 
 Summary
 -------

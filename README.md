@@ -117,5 +117,9 @@ Additional assets such as the implementation roadmap (`plan.md`) and supporting 
 ## Further Reading
 
 - Architecture: `docs/architecture.md`
-- RFC 0001 – Fractional Indexing for Todos: `docs/rfcs/0001-fractional-indexing.md`
-- RFC 0002 – Thin Web IMAP Client (backend proxy first): `docs/rfcs/0002-thin-web-imap-client.md`
+- ADR 0001 – Fractional Indexing for Todos: `docs/adrs/0001-fractional-indexing.md`
+- ADR 0002 – Thin Web IMAP Client (backend proxy first): `docs/adrs/0002-thin-web-imap-client.md`
+- ADR 0003 – Matrix OpenID → Backend JWT Bridge: `docs/adrs/0003-matrix-cloud-auth.md`
+- Backend implementation notes (draft): `docs/backend.md`
+- Frontend implementation notes (draft): `docs/frontend.md`
+- Roadmap index: `docs/roadmap/README.md`

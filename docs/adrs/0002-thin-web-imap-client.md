@@ -1,5 +1,4 @@
-RFC 0002: Thin Web IMAP Client (Proxy First)
-===========================================
+# ADR 0002: Thin Web IMAP Client (Proxy First)
 
 Summary
 -------

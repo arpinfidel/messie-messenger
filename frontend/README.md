@@ -6,6 +6,8 @@
 - Unified timeline & detail panes – Items from Matrix, Email, and Todo modules appear in a unified timeline with a responsive two-pane layout and contextual settings.
 - Cloud-auth bridge for JWT issuance – Exchanges a Matrix OpenID token for a backend JWT and persists it for authenticated API calls.
 
+For architectural context on how these modules collaborate, see `docs/architecture.md` and the module breakdown in `docs/frontend.md`.
+
 ## Generating the API Client
 
 To interact with the backend API, you need to generate the TypeScript client code. This client is generated using `openapi-generator-cli` from the OpenAPI specification.
