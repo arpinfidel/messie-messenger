@@ -10,8 +10,8 @@
   import MatrixLogin from './views/matrix/MatrixLogin.svelte';
   import MatrixForgotPassword from './views/matrix/MatrixForgotPassword.svelte';
   import EmailLoginTab from './views/email/EmailLoginTab.svelte';
-  import { emailCredentials } from './viewmodels/email/EmailCredentialsStore';
   import { EmailViewModel } from './viewmodels/email/EmailViewModel';
+  const emailViewModel = EmailViewModel.getInstance();
   let timelineWidth: number = 0;
   let timelineLeft: number = 0;
   let timelineContainer: HTMLDivElement;
@@ -53,41 +53,7 @@
   function handleTimelineItemSelected(event: CustomEvent) {
     selectedTimelineItem = event.detail;
     if (selectedTimelineItem?.type === 'email') {
-      const creds = get(emailCredentials);
-      if (!creds) {
-        console.error('Email credentials not set');
-        return;
-      }
-      let endpoint = '';
-      if (selectedTimelineItem.id === 'email-inbox') {
-        endpoint = '/api/v1/email/inbox';
-      } else if (selectedTimelineItem.id === 'email-important') {
-        endpoint = '/api/v1/email/important';
-      } else if (selectedTimelineItem.id.startsWith('email-thread:')) {
-        // Delegate fetching to EmailViewModel so EmailDetail can display messages
-        EmailViewModel.getInstance().openThread(selectedTimelineItem.id);
-        return;
-      }
-      if (endpoint) {
-        // Clear the detail list immediately for aggregate views
-        EmailViewModel.getInstance().setSelectedMessages([]);
-        fetch(endpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(creds),
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            console.log('Fetched messages:', data);
-            // Update unread count badge in the timeline for this item
-            const unread = typeof data?.unreadCount === 'number' ? data.unreadCount : 0;
-            EmailViewModel.getInstance().updateUnreadCount(selectedTimelineItem.id, unread);
-            if (Array.isArray(data?.messages)) {
-              EmailViewModel.getInstance().setSelectedMessages(data.messages);
-            }
-          })
-          .catch((err) => console.error('Email fetch failed:', err));
-      }
+      void emailViewModel.handleTimelineSelection(selectedTimelineItem);
     }
   }
 </script>

@@ -1,19 +1,12 @@
 <script lang="ts">
   import type { TimelineItem } from '../models/shared/TimelineItem';
   import { EmailViewModel } from '@/viewmodels/email/EmailViewModel';
-  import type { EmailMessageHeader } from '@/api/generated/models/EmailMessageHeader';
-  import { onMount } from 'svelte';
 
   export let item: TimelineItem;
   const emailVM = EmailViewModel.getInstance();
-  let messages: EmailMessageHeader[] = [];
-
-  const unsub = emailVM.getSelectedMessages().subscribe((v) => (messages = v));
-  onMount(() => {
-    return () => {
-      unsub();
-    };
-  });
+  const messagesStore = emailVM.getSelectedMessages();
+  const detailLoadingStore = emailVM.getDetailLoading();
+  const detailErrorStore = emailVM.getDetailError();
 </script>
 
 <div class="flex h-full flex-col">
@@ -28,10 +21,14 @@
   </div>
 
   <div class="flex-1 overflow-y-auto p-4 space-y-3">
-    {#if messages.length === 0}
+    {#if $detailLoadingStore}
+      <div class="text-gray-400">Loading messages…</div>
+    {:else if $detailErrorStore}
+      <div class="text-red-500">{$detailErrorStore}</div>
+    {:else if !$messagesStore || $messagesStore.length === 0}
       <div class="text-gray-400">No messages loaded yet.</div>
     {:else}
-      {#each messages as m, i}
+      {#each $messagesStore as m}
         <div class="rounded-lg border border-gray-800 bg-gray-850 p-3">
           <div class="mb-1 text-xs text-gray-400">
             <span class="font-medium text-gray-300">{m.from || 'Unknown sender'}</span>

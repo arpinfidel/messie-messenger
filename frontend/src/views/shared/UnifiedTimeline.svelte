@@ -3,7 +3,6 @@
   import { onMount, createEventDispatcher } from 'svelte';
   import { UnifiedTimelineViewModel } from '@/viewmodels/shared/UnifiedTimelineViewModel';
   import { MatrixViewModel } from '@/viewmodels/matrix/MatrixViewModel';
-  import { EmailViewModel } from '@/viewmodels/email/EmailViewModel';
   import type { TimelineItem } from '@/models/shared/TimelineItem';
   import { DefaultApi } from '@/api/generated/apis/DefaultApi';
   import type { NewTodoList } from '@/api/generated/models/NewTodoList';

@@ -34,4 +34,3 @@ Related Docs / Links
 
 - Auth bridge ADR: `docs/adrs/0003-matrix-cloud-auth.md`
 - Architecture overview: `docs/architecture.md`
-

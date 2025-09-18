@@ -128,9 +128,8 @@ func main() {
 
 	r.Mount("/api/v1", h)
 	// Custom routes not (yet) in OpenAPI spec
-	r.Post("/api/v1/email/thread/{threadKey}/messages", emailH.EmailThreadMessages)
 	r.Post("/api/v1/email/headers", emailH.EmailHeaders)
-    log.Printf("API routes registered at /api/v1.")
+	log.Printf("API routes registered at /api/v1.")
 
 	// Start HTTP server
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {

@@ -35,4 +35,3 @@ Related Docs / Links
 
 - Architecture overview: `docs/architecture.md`
 - Backend/frontend implementation notes: `docs/backend.md`, `docs/frontend.md`
-

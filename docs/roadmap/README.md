@@ -17,4 +17,3 @@ How to use
 - Keep high-level bullets in `docs/architecture.md` aligned with these detailed plans.
 - When a section graduates to an ADR or implementation ticket, link it from the relevant roadmap doc.
 - Feel free to add more files (e.g., calendar.md) if a domain grows large enough to merit a split.
-

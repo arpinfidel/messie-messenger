@@ -39,4 +39,3 @@ Related Docs / Links
 
 - ADR 0002 – Thin Web IMAP Client: `docs/adrs/0002-thin-web-imap-client.md`
 - Architecture overview: `docs/architecture.md`
-
