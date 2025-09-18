@@ -19,11 +19,12 @@ Proposal
 - Gate the email feature with a runtime feature flag; disable it on web-only builds if needed.
 
 API Surface (proxy phase)
-------------------------
+-------------------------
 
-- POST `/email/login` — Validate IMAP credentials (host, port, username, app password) over TLS.
-- GET `/email/headers` — Paginated message headers for a mailbox (e.g., INBOX, Flagged).
-- GET `/email/message/{id}` — Fetch specific message parts/metadata as needed.
+- POST `/api/v1/email/login-test` — Validate IMAP credentials (host, port, username, app password) over TLS.
+- POST `/api/v1/email/inbox` — Return recent inbox headers plus unread counts.
+- POST `/api/v1/email/important` — Return flagged/important headers plus unread counts.
+- POST `/api/v1/email/headers` — Temporary rich-header proxy (threading hints, references) consumed by the web client. Not yet part of the OpenAPI contract.
 
 Security & Privacy
 ------------------
@@ -47,8 +48,8 @@ Feature Flagging
 Implementation Status
 ---------------------
 
-- Endpoints and methods: Current backend exposes POST endpoints that accept credentials in the JSON body. Implemented routes include `/email/headers` and `/email/thread/{threadKey}/messages` (mounted in the router). The OpenAPI spec currently defines `/email/login-test`, `/email/inbox`, `/email/important`, and `/email/threads`, but does not include `/email/headers` or the thread messages route. Align spec and implementation (either add these routes to OpenAPI or switch the frontend to the spec’d endpoints). Given creds in the body, POST is appropriate.
-- Frontend usage: The web client calls `/api/v1/email/headers` and performs client-side grouping/threading; it does not call `/email/threads` and currently ignores pagination.
+- Endpoints and methods: Backend exposes POST endpoints that accept credentials in the JSON body. Generated handlers cover `/api/v1/email/login-test`, `/api/v1/email/inbox`, and `/api/v1/email/important`; a handwritten `/api/v1/email/headers` route returns richer threading metadata for the web client. The OpenAPI spec still omits `/email/headers` and the thread messages endpoint—keep them in sync by extending the spec or deprecating the custom route once a replacement exists.
+- Frontend usage: `ProxyEmailAdapter` posts credentials to the `/api/v1/email/*` proxy endpoints, normalises network and parsing errors, and performs client-side grouping/threading. It ignores `/email/threads` (which now responds 410) and fetches bulk headers without pagination.
 - Single-message fetch: No `GET /email/message/{id}` (or POST equivalent) is implemented yet.
 - Feature flag: `EMAIL_ENABLED` / `EMAIL_PROVIDER` not wired; email is always available in web builds.
 - Pagination: Backend supports cursors for thread listings; frontend presently fetches bulk headers and groups locally, not using cursors.
