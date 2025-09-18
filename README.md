@@ -125,6 +125,53 @@ make sh backend   # shell into a service container
 make gen          # regenerate API stubs/clients
 ```
 
+## Jira task sync utility
+
+The repository ships with a small Go program that mirrors Jira issues into a local YAML file so you can iterate on them offline (for example with Codex) and then push the results back to Jira.
+
+### Configuration
+
+1. Copy `.env.example` to `.env` if you have not already done so.
+2. Populate the Jira-related variables:
+
+   ```bash
+   JIRA_BASE_URL=https://your-domain.atlassian.net
+   JIRA_EMAIL=your-email@example.com
+   JIRA_API_TOKEN=your-api-token
+   JIRA_PROJECT_KEY=PROJ
+   JIRA_DEFAULT_ISSUE_TYPE=Task
+   # Optional overrides:
+   # JIRA_JQL=project = PROJ ORDER BY created DESC
+   # JIRA_YAML_PATH=jira-tasks.yaml   # relative paths resolve from the repo root
+   # JIRA_MAX_RESULTS=50
+   ```
+
+The YAML file defaults to `jira-tasks.yaml` at the repo root and is ignored by Git.
+
+Each YAML issue supports optional fields such as `labels`, `priority` (matching Jira priority names), `parent` (linking sub-tasks to an existing issue key—Jira only accepts parents for sub-task issue types), and `delete: true` to permanently remove an existing Jira issue on the next push.
+
+### Usage
+
+Run the helper from within the backend module:
+
+```bash
+cd backend
+go run ./cmd/jira-sync pull   # fetch issues into the YAML file (written at repo root)
+# edit ../jira-tasks.yaml locally, add or tweak issues
+go run ./cmd/jira-sync push   # push updates/new issues back to Jira
+```
+
+After a push completes, the tool automatically refreshes the YAML file from Jira so that newly created issues pick up their generated keys and status.
+
+You can also strike issues by setting `delete: true` on a YAML entry (with a valid `key`). During the next push the tool deletes the issue in Jira and drops it from the YAML file before re-syncing.
+
+Convenience targets are available from the repo root:
+
+```bash
+make jira-pull
+make jira-push
+```
+
 ## API and Code Generation
 
 Regenerate server and client stubs with:

@@ -7,6 +7,8 @@ COMPOSE = docker compose -f docker-compose.$(STACK).yml
 
 .PHONY: up down build ps logs sh
 
+.PHONY: jira-pull jira-push
+
 up:
 	$(COMPOSE) up -d $(ARGS)
 
@@ -34,6 +36,15 @@ logs:
 
 sh:
 	$(COMPOSE) exec $(firstword $(ARGS)) sh
+
+jira-pull:
+	@echo "Syncing Jira issues to YAML..."
+	cd backend && go run ./cmd/jira-sync pull
+
+jira-push:
+	@echo "Pushing local YAML changes to Jira (then refreshing YAML)..."
+	cd backend && go run ./cmd/jira-sync push
+
 
 # swallow extra targets so make doesn’t complain or rerun them
 %:
