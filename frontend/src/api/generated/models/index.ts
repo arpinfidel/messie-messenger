@@ -3,6 +3,7 @@
 export * from './AuthResponse';
 export * from './CollaboratorDetail';
 export * from './EmailLoginRequest';
+export * from './EmailListRequest';
 export * from './EmailMessageHeader';
 export * from './EmailMessagesResponse';
 export * from './EmailRichHeader';

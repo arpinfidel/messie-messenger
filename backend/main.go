@@ -128,7 +128,6 @@ func main() {
 	})
 
 	r.Mount("/api/v1", h)
-	r.Post("/api/v1/email/list", emailH.EmailList)
 	log.Printf("API routes registered at /api/v1.")
 
 	// Start HTTP server

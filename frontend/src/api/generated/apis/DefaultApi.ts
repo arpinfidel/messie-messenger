@@ -17,6 +17,7 @@ import type {
   AuthResponse,
   CollaboratorDetail,
   EmailLoginRequest,
+  EmailListRequest,
   EmailMessagesResponse,
   EmailRichHeadersResponse,
   LoginRequest,
@@ -39,6 +40,7 @@ import {
   CollaboratorDetailToJSON,
   EmailLoginRequestFromJSON,
   EmailLoginRequestToJSON,
+  EmailListRequestToJSON,
   EmailMessagesResponseFromJSON,
   EmailMessagesResponseToJSON,
   EmailRichHeadersResponseFromJSON,
@@ -98,6 +100,10 @@ export interface EmailHeadersRequest {
 
 export interface EmailImportantRequest {
   emailLoginRequest: EmailLoginRequest;
+}
+
+export interface EmailListPostRequest {
+  emailListRequest: EmailListRequest;
 }
 
 export interface EmailInboxRequest {
@@ -576,6 +582,55 @@ export class DefaultApi extends runtime.BaseAPI {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<EmailMessagesResponse> {
     const response = await this.emailImportantRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * List recent message headers for a mailbox or flag query
+   */
+  async emailListRaw(
+    requestParameters: EmailListPostRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<EmailMessagesResponse>> {
+    if (requestParameters['emailListRequest'] == null) {
+      throw new runtime.RequiredError(
+        'emailListRequest',
+        'Required parameter "emailListRequest" was null or undefined when calling emailList().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters['Content-Type'] = 'application/json';
+
+    let urlPath = `/email/list`;
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'POST',
+        headers: headerParameters,
+        query: queryParameters,
+        body: EmailListRequestToJSON(requestParameters['emailListRequest']),
+      },
+      initOverrides
+    );
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      EmailMessagesResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   * List recent message headers for a mailbox or flag query
+   */
+  async emailList(
+    requestParameters: EmailListPostRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<EmailMessagesResponse> {
+    const response = await this.emailListRaw(requestParameters, initOverrides);
     return await response.value();
   }
 

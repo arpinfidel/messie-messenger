@@ -45,6 +45,17 @@ type EmailLoginRequest struct {
 	Port        int32               `json:"port"`
 }
 
+// EmailListRequest defines model for EmailListRequest.
+type EmailListRequest struct {
+	EmailLoginRequest
+
+	// Mailbox name to select (defaults to INBOX when omitted)
+	Mailbox *string `json:"mailbox,omitempty"`
+
+	// Optional IMAP flags to filter on (e.g. ["\\Flagged"])
+	SearchFlags []string `json:"searchFlags,omitempty"`
+}
+
 // EmailMessageHeader defines model for EmailMessageHeader.
 type EmailMessageHeader struct {
 	Date    *time.Time `json:"date,omitempty"`
@@ -205,6 +216,9 @@ type EmailHeadersJSONRequestBody = EmailLoginRequest
 // EmailImportantJSONRequestBody defines body for EmailImportant for application/json ContentType.
 type EmailImportantJSONRequestBody = EmailLoginRequest
 
+// EmailListJSONRequestBody defines body for EmailList for application/json ContentType.
+type EmailListJSONRequestBody = EmailListRequest
+
 // EmailInboxJSONRequestBody defines body for EmailInbox for application/json ContentType.
 type EmailInboxJSONRequestBody = EmailLoginRequest
 
@@ -246,6 +260,9 @@ type ServerInterface interface {
 	// List recent important message headers
 	// (POST /email/important)
 	EmailImportant(w http.ResponseWriter, r *http.Request)
+	// List recent message headers for a mailbox or flag query
+	// (POST /email/list)
+	EmailList(w http.ResponseWriter, r *http.Request)
 	// List recent inbox message headers
 	// (POST /email/inbox)
 	EmailInbox(w http.ResponseWriter, r *http.Request)
@@ -327,6 +344,12 @@ func (_ Unimplemented) EmailHeaders(w http.ResponseWriter, r *http.Request) {
 // List recent important message headers
 // (POST /email/important)
 func (_ Unimplemented) EmailImportant(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List recent message headers for a mailbox or flag query
+// (POST /email/list)
+func (_ Unimplemented) EmailList(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -492,6 +515,20 @@ func (siw *ServerInterfaceWrapper) EmailImportant(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.EmailImportant(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EmailList operation middleware
+func (siw *ServerInterfaceWrapper) EmailList(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmailList(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1180,6 +1217,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/email/important", wrapper.EmailImportant)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/email/list", wrapper.EmailList)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/email/inbox", wrapper.EmailInbox)

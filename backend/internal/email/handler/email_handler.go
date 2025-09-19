@@ -25,12 +25,6 @@ func NewEmailHandler() *EmailHandler {
 	return &EmailHandler{}
 }
 
-type emailListRequest struct {
-	generated.EmailLoginRequest
-	Mailbox     string   `json:"mailbox"`
-	SearchFlags []string `json:"searchFlags"`
-}
-
 // fetchHeaders is a small helper that signs in to the requested mailbox and
 // returns the latest envelopes plus the server-reported unread count. It keeps
 // the backend focused on transport and leaves any higher-level logic to the
@@ -157,15 +151,17 @@ func (h *EmailHandler) EmailImportant(w http.ResponseWriter, r *http.Request) {
 
 // EmailList handles POST /email/list requests for arbitrary mailbox/flag queries.
 func (h *EmailHandler) EmailList(w http.ResponseWriter, r *http.Request) {
-	var req emailListRequest
+	var req generated.EmailListRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	mailbox := strings.TrimSpace(req.Mailbox)
-	if mailbox == "" {
-		mailbox = "INBOX"
+	mailbox := "INBOX"
+	if req.Mailbox != nil {
+		if trimmed := strings.TrimSpace(*req.Mailbox); trimmed != "" {
+			mailbox = trimmed
+		}
 	}
 
 	h.respondWithHeaders(w, req.EmailLoginRequest, mailbox, req.SearchFlags)
