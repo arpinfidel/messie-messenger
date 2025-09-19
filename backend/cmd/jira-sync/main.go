@@ -368,6 +368,7 @@ type issueRecord struct {
 	Description         string   `yaml:"description,omitempty"`
 	Labels              []string `yaml:"labels,omitempty"`
 	IssueType           string   `yaml:"issueType,omitempty"`
+	ForceIssueType      bool     `yaml:"forceIssueType,omitempty"`
 	Status              string   `yaml:"status,omitempty"`
 	Priority            string   `yaml:"priority,omitempty"`
 	ParentKey           string   `yaml:"parent,omitempty"`
@@ -558,7 +559,7 @@ func updateIssue(ctx context.Context, client *jiraClient, issue issueRecord) err
 	}
 
 	issueType := strings.TrimSpace(issue.IssueType)
-	if issueType != "" {
+	if issue.ForceIssueType && issueType != "" {
 		issueTypeField, err := client.issueTypeField(ctx, issueType)
 		if err != nil {
 			return fmt.Errorf("resolve issue type %q: %w", issueType, err)

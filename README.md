@@ -148,7 +148,7 @@ The repository ships with a small Go program that mirrors Jira issues into a loc
 
 The YAML file defaults to `jira-tasks.yaml` at the repo root and is ignored by Git.
 
-Each YAML issue supports optional fields such as `labels`, `priority` (matching Jira priority names), `parent` (linking sub-tasks to an existing issue key—Jira only accepts parents for sub-task issue types), and `delete: true` to permanently remove an existing Jira issue on the next push.
+Each YAML issue supports optional fields such as `labels`, `priority` (matching Jira priority names), `parent` (linking sub-tasks to an existing issue key—Jira only accepts parents for sub-task issue types), and `delete: true` to permanently remove an existing Jira issue on the next push. If you explicitly need to change an issue's type during an update, set `forceIssueType: true`; otherwise the sync preserves the existing Jira type to avoid API validation errors.
 
 ### Usage
 
