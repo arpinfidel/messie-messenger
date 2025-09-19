@@ -5,6 +5,8 @@ export * from './CollaboratorDetail';
 export * from './EmailLoginRequest';
 export * from './EmailMessageHeader';
 export * from './EmailMessagesResponse';
+export * from './EmailRichHeader';
+export * from './EmailRichHeadersResponse';
 export * from './LoginRequest';
 export * from './MatrixAuthResponse';
 export * from './MatrixOpenIDRequest';

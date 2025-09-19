@@ -18,6 +18,7 @@ import type {
   CollaboratorDetail,
   EmailLoginRequest,
   EmailMessagesResponse,
+  EmailRichHeadersResponse,
   LoginRequest,
   MatrixAuthResponse,
   MatrixOpenIDRequest,
@@ -40,6 +41,8 @@ import {
   EmailLoginRequestToJSON,
   EmailMessagesResponseFromJSON,
   EmailMessagesResponseToJSON,
+  EmailRichHeadersResponseFromJSON,
+  EmailRichHeadersResponseToJSON,
   LoginRequestFromJSON,
   LoginRequestToJSON,
   MatrixAuthResponseFromJSON,
@@ -87,6 +90,10 @@ export interface DeleteTodoItemRequest {
 
 export interface DeleteTodoListRequest {
   listId: string;
+}
+
+export interface EmailHeadersRequest {
+  emailLoginRequest: EmailLoginRequest;
 }
 
 export interface EmailImportantRequest {
@@ -472,6 +479,55 @@ export class DefaultApi extends runtime.BaseAPI {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void> {
     await this.deleteTodoListRaw(requestParameters, initOverrides);
+  }
+
+  /**
+   * List recent email headers with threading metadata
+   */
+  async emailHeadersRaw(
+    requestParameters: EmailHeadersRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<EmailRichHeadersResponse>> {
+    if (requestParameters['emailLoginRequest'] == null) {
+      throw new runtime.RequiredError(
+        'emailLoginRequest',
+        'Required parameter "emailLoginRequest" was null or undefined when calling emailHeaders().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters['Content-Type'] = 'application/json';
+
+    let urlPath = `/email/headers`;
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'POST',
+        headers: headerParameters,
+        query: queryParameters,
+        body: EmailLoginRequestToJSON(requestParameters['emailLoginRequest']),
+      },
+      initOverrides
+    );
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      EmailRichHeadersResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   * List recent email headers with threading metadata
+   */
+  async emailHeaders(
+    requestParameters: EmailHeadersRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<EmailRichHeadersResponse> {
+    const response = await this.emailHeadersRaw(requestParameters, initOverrides);
+    return await response.value();
   }
 
   /**

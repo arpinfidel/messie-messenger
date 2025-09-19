@@ -15,9 +15,16 @@ export interface AdapterRichHeader {
   references: string[];
 }
 
+export interface ImportantFetchOptions {
+  mailbox?: string;
+  searchFlags?: string[];
+}
+
 export interface EmailAdapter {
   testCredentials(credentials: EmailCredentials): Promise<EmailListResult>;
-  fetchInbox(credentials: EmailCredentials): Promise<EmailListResult>;
-  fetchImportant(credentials: EmailCredentials): Promise<EmailListResult>;
+  fetchMailbox(
+    credentials: EmailCredentials,
+    options?: ImportantFetchOptions
+  ): Promise<EmailListResult>;
   fetchRecentHeaders(credentials: EmailCredentials): Promise<AdapterRichHeader[]>;
 }

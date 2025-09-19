@@ -54,7 +54,7 @@ The backend provisions users on demand by MXID, allowing non-Matrix features to 
 Email Proxy Topology
 --------------------
 
-Until native shells can speak IMAP directly, the backend exposes helper endpoints that sign in with app passwords. The frontend currently uses `/api/v1/email/headers` (custom) for grouping and `/api/v1/email/thread/{threadKey}/messages` for detail views. Additional endpoints generated from OpenAPI (e.g. `/email/inbox`, `/email/important`) remain available for future UI integrations.
+Until native shells can speak IMAP directly, the backend exposes helper endpoints that sign in with app passwords. The frontend currently uses `/api/v1/email/headers` (custom) for grouping and `/api/v1/email/thread/{threadKey}/messages` for detail views. Additional endpoints generated from OpenAPI (e.g. `/email/inbox`, `/email/list`) remain available for future UI integrations; `/email/important` now responds `410 Gone` only for legacy clients.
 
 Future Roadmap (High Level)
 ---------------------------

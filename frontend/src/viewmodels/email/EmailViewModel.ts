@@ -4,7 +4,11 @@ import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
 import type { TimelineItem } from '@/models/shared/TimelineItem';
 import { emailCredentials } from '@/viewmodels/email/EmailCredentialsStore';
 import type { EmailMessageHeader } from '@/api/generated/models/EmailMessageHeader';
-import type { AdapterRichHeader, EmailAdapter } from '@/adapters/email/IEmailAdapter';
+import type {
+  AdapterRichHeader,
+  EmailAdapter,
+  ImportantFetchOptions,
+} from '@/adapters/email/IEmailAdapter';
 import { ProxyEmailAdapter } from '@/adapters/email/ProxyEmailAdapter';
 import type { EmailCredentials } from '@/viewmodels/email/EmailCredentialsStore';
 
@@ -138,7 +142,7 @@ export class EmailViewModel implements IModuleViewModel {
 
   async testAndStoreCredentials(credentials: EmailCredentials): Promise<void> {
     const result = await this.adapter.testCredentials(credentials);
-    this.selectedMessages.set(result.messages);
+    this.selectedMessages.set(this.sortByDescendingDate(result.messages));
     this.detailError.set(null);
     this.updateUnreadCount(INBOX_ID, result.unreadCount);
     emailCredentials.set(credentials);
@@ -149,7 +153,7 @@ export class EmailViewModel implements IModuleViewModel {
     this.baseItems.set(INBOX_ID, {
       id: INBOX_ID,
       title: 'All Mail',
-      description: 'All non-important emails',
+      description: 'All emails',
       timestamp: now,
       type: 'email',
       unreadCount: 0,
@@ -166,10 +170,7 @@ export class EmailViewModel implements IModuleViewModel {
   }
 
   private emitTimeline(): void {
-    this.timelineItems.set([
-      ...this.baseItems.values(),
-      ...this.threadItems,
-    ]);
+    this.timelineItems.set([...this.baseItems.values(), ...this.threadItems]);
   }
 
   private updateUnreadCount(itemId: string, count: number): void {
@@ -199,10 +200,11 @@ export class EmailViewModel implements IModuleViewModel {
     this.detailError.set(null);
 
     try {
-      const result = kind === 'inbox'
-        ? await this.adapter.fetchInbox(creds)
-        : await this.adapter.fetchImportant(creds);
-      this.selectedMessages.set(result.messages);
+      const result =
+        kind === 'inbox'
+          ? await this.adapter.fetchMailbox(creds, { mailbox: 'INBOX' })
+          : await this.adapter.fetchMailbox(creds, this.buildImportantFetchOptions(creds));
+      this.selectedMessages.set(this.sortByDescendingDate(result.messages));
       this.updateUnreadCount(kind === 'inbox' ? INBOX_ID : IMPORTANT_ID, result.unreadCount);
     } catch (error) {
       this.selectedMessages.set([]);
@@ -262,7 +264,10 @@ export class EmailViewModel implements IModuleViewModel {
   }
 
   private buildThreadsFromHeaders(headers: AdapterRichHeader[]): void {
-    const grouped = new Map<string, { latest?: AdapterRichHeader; messages: AdapterRichHeader[]; seen: Set<string>; }>();
+    const grouped = new Map<
+      string,
+      { latest?: AdapterRichHeader; messages: AdapterRichHeader[]; seen: Set<string> }
+    >();
 
     for (const header of headers) {
       const baseId = this.deriveThreadBase(header);
@@ -296,9 +301,9 @@ export class EmailViewModel implements IModuleViewModel {
       }
 
       const threadId = `${THREAD_PREFIX}${encodeURIComponent(baseId)}`;
-      const sortedMessages = group.messages
-        .map((msg) => this.toEmailMessageHeader(msg))
-        .sort((a, b) => safeTimestamp(a.date) - safeTimestamp(b.date));
+      const sortedMessages = this.sortByDescendingDate(
+        group.messages.map((msg) => this.toEmailMessageHeader(msg))
+      );
 
       const latestTs = safeTimestamp(group.latest.date);
 
@@ -364,5 +369,26 @@ export class EmailViewModel implements IModuleViewModel {
 
   private fingerprintCredentials(credentials: EmailCredentials): string {
     return `${credentials.host}:${credentials.port}:${credentials.email}`;
+  }
+
+  private sortByDescendingDate(messages: EmailMessageHeader[]): EmailMessageHeader[] {
+    return messages.slice().sort((a, b) => safeTimestamp(b.date) - safeTimestamp(a.date));
+  }
+
+  private buildImportantFetchOptions(credentials: EmailCredentials): ImportantFetchOptions {
+    if (this.isLikelyGmailAccount(credentials)) {
+      return { mailbox: '[Gmail]/Important' };
+    }
+    return { mailbox: 'INBOX', searchFlags: ['\\Flagged'] };
+  }
+
+  private isLikelyGmailAccount(credentials: EmailCredentials): boolean {
+    const host = (credentials.host ?? '').toLowerCase();
+    const emailDomain = credentials.email.split('@')[1]?.toLowerCase() ?? '';
+    return (
+      host.includes('gmail') ||
+      emailDomain.endsWith('gmail.com') ||
+      emailDomain.endsWith('googlemail.com')
+    );
   }
 }

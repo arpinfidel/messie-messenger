@@ -23,7 +23,7 @@ API Surface (proxy phase)
 
 - POST `/api/v1/email/login-test` — Validate IMAP credentials (host, port, username, app password) over TLS.
 - POST `/api/v1/email/inbox` — Return recent inbox headers plus unread counts.
-- POST `/api/v1/email/important` — Return flagged/important headers plus unread counts.
+- POST `/api/v1/email/list` — Return headers from a caller-specified mailbox or flag query (defaults to the `INBOX` mailbox combined with an IMAP `FLAGGED` search) plus unread counts.
 - POST `/api/v1/email/headers` — Temporary rich-header proxy (threading hints, references) consumed by the web client. Not yet part of the OpenAPI contract.
 
 Security & Privacy
@@ -48,8 +48,8 @@ Feature Flagging
 Implementation Status
 ---------------------
 
-- Endpoints and methods: Backend exposes POST endpoints that accept credentials in the JSON body. Generated handlers cover `/api/v1/email/login-test`, `/api/v1/email/inbox`, and `/api/v1/email/important`; a handwritten `/api/v1/email/headers` route returns richer threading metadata for the web client. The OpenAPI spec still omits `/email/headers` and the thread messages endpoint—keep them in sync by extending the spec or deprecating the custom route once a replacement exists.
-- Frontend usage: `ProxyEmailAdapter` posts credentials to the `/api/v1/email/*` proxy endpoints, normalises network and parsing errors, and performs client-side grouping/threading. It ignores `/email/threads` (which now responds 410) and fetches bulk headers without pagination.
+- Endpoints and methods: Backend exposes POST endpoints that accept credentials in the JSON body. Generated handlers cover `/api/v1/email/login-test`, `/api/v1/email/inbox`, and `/api/v1/email/list`; a handwritten `/api/v1/email/headers` route returns richer threading metadata for the web client. `/api/v1/email/important` now responds `410 Gone` for backwards compatibility. The OpenAPI spec still omits `/email/headers` and the thread messages endpoint—keep them in sync by extending the spec or deprecating the custom route once a replacement exists.
+- Frontend usage: `ProxyEmailAdapter` posts credentials (and optional mailbox/search flags for "Important") to the `/api/v1/email/*` proxy endpoints, normalises network and parsing errors, and performs client-side grouping/threading. It ignores `/email/threads` (which now responds 410) and fetches bulk headers without pagination.
 - Single-message fetch: No `GET /email/message/{id}` (or POST equivalent) is implemented yet.
 - Feature flag: `EMAIL_ENABLED` / `EMAIL_PROVIDER` not wired; email is always available in web builds.
 - Pagination: Backend supports cursors for thread listings; frontend presently fetches bulk headers and groups locally, not using cursors.

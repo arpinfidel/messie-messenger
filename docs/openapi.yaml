@@ -201,7 +201,8 @@ paths:
                 $ref: "#/components/schemas/Error"
   /email/important:
     post:
-      summary: List recent important message headers
+      summary: List recent important message headers (deprecated)
+      deprecated: true
       operationId: emailImportant
       requestBody:
         required: true
@@ -210,12 +211,64 @@ paths:
             schema:
               $ref: "#/components/schemas/EmailLoginRequest"
       responses:
+        "410":
+          description: Endpoint deprecated. Use /email/list instead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /email/list:
+    post:
+      summary: List recent message headers for a mailbox or flag query
+      operationId: emailList
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailListRequest"
+      responses:
         "200":
-          description: Successfully fetched important headers
+          description: Successfully fetched headers
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/EmailMessagesResponse"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /email/headers:
+    post:
+      summary: List recent email headers with threading metadata
+      operationId: emailHeaders
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailLoginRequest"
+      responses:
+        "200":
+          description: Successfully fetched rich headers
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EmailRichHeadersResponse"
         "400":
           description: Invalid input
           content:
@@ -952,6 +1005,19 @@ components:
         appPassword:
           type: string
           format: password
+    EmailListRequest:
+      allOf:
+        - $ref: "#/components/schemas/EmailLoginRequest"
+        - type: object
+          properties:
+            mailbox:
+              type: string
+              description: Mailbox name to select (defaults to INBOX when omitted)
+            searchFlags:
+              type: array
+              description: Optional IMAP flags to filter on (e.g. ["\\Flagged"])
+              items:
+                type: string
     EmailMessageHeader:
       type: object
       properties:
@@ -972,3 +1038,30 @@ components:
         unreadCount:
           type: integer
           format: int32
+    EmailRichHeader:
+      type: object
+      properties:
+        from:
+          type: string
+        subject:
+          type: string
+        date:
+          type: string
+          format: date-time
+        messageId:
+          type: string
+        inReplyTo:
+          type: string
+        references:
+          type: array
+          items:
+            type: string
+    EmailRichHeadersResponse:
+      type: object
+      required:
+        - messages
+      properties:
+        messages:
+          type: array
+          items:
+            $ref: "#/components/schemas/EmailRichHeader"

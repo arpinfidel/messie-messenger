@@ -58,6 +58,21 @@ type EmailMessagesResponse struct {
 	UnreadCount *int32                `json:"unreadCount,omitempty"`
 }
 
+// EmailRichHeader defines model for EmailRichHeader.
+type EmailRichHeader struct {
+	Date       *time.Time `json:"date,omitempty"`
+	From       *string    `json:"from,omitempty"`
+	InReplyTo  *string    `json:"inReplyTo,omitempty"`
+	MessageId  *string    `json:"messageId,omitempty"`
+	References *[]string  `json:"references,omitempty"`
+	Subject    *string    `json:"subject,omitempty"`
+}
+
+// EmailRichHeadersResponse defines model for EmailRichHeadersResponse.
+type EmailRichHeadersResponse struct {
+	Messages []EmailRichHeader `json:"messages"`
+}
+
 // Error defines model for Error.
 type Error struct {
 	Message string `json:"message"`
@@ -184,6 +199,9 @@ type GetTodoListsByUserIdParams struct {
 // PostMatrixAuthJSONRequestBody defines body for PostMatrixAuth for application/json ContentType.
 type PostMatrixAuthJSONRequestBody = MatrixOpenIDRequest
 
+// EmailHeadersJSONRequestBody defines body for EmailHeaders for application/json ContentType.
+type EmailHeadersJSONRequestBody = EmailLoginRequest
+
 // EmailImportantJSONRequestBody defines body for EmailImportant for application/json ContentType.
 type EmailImportantJSONRequestBody = EmailLoginRequest
 
@@ -222,6 +240,9 @@ type ServerInterface interface {
 	// Authenticate using Matrix OpenID
 	// (POST /auth/matrix/openid)
 	PostMatrixAuth(w http.ResponseWriter, r *http.Request)
+	// List recent email headers with threading metadata
+	// (POST /email/headers)
+	EmailHeaders(w http.ResponseWriter, r *http.Request)
 	// List recent important message headers
 	// (POST /email/important)
 	EmailImportant(w http.ResponseWriter, r *http.Request)
@@ -294,6 +315,12 @@ type Unimplemented struct{}
 // Authenticate using Matrix OpenID
 // (POST /auth/matrix/openid)
 func (_ Unimplemented) PostMatrixAuth(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List recent email headers with threading metadata
+// (POST /email/headers)
+func (_ Unimplemented) EmailHeaders(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -437,6 +464,20 @@ func (siw *ServerInterfaceWrapper) PostMatrixAuth(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PostMatrixAuth(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// EmailHeaders operation middleware
+func (siw *ServerInterfaceWrapper) EmailHeaders(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.EmailHeaders(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1133,6 +1174,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/matrix/openid", wrapper.PostMatrixAuth)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/email/headers", wrapper.EmailHeaders)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/email/important", wrapper.EmailImportant)

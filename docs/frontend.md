@@ -18,7 +18,7 @@ Core View Models (to flesh out)
 -------------------------------
 
 - `MatrixViewModel`: session restoration, timelines, crypto bootstrap
-- `EmailViewModel`: IMAP proxy integration, thread grouping, credential store
+- `EmailViewModel`: IMAP proxy integration, thread grouping, credential store; detects Gmail accounts to request `[Gmail]/Important` via `/api/v1/email/list` and otherwise falls back to an `INBOX` mailbox query with the IMAP `FLAGGED` search.
 - `TodoViewModel`: backend API integration, fractional indexing helper
 - `UnifiedTimelineViewModel`: aggregation of module timelines for UI consumption
 

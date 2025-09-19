@@ -119,6 +119,7 @@ func main() {
 	log.Printf("Chi router setup complete.")
 
 	log.Printf("Registering API routes...")
+	// ALL APIs must be generated from the OpenAPI spec
 	h := generated.HandlerWithOptions(handlers, generated.ChiServerOptions{
 		BaseRouter: r,
 		Middlewares: []generated.MiddlewareFunc{
@@ -127,8 +128,7 @@ func main() {
 	})
 
 	r.Mount("/api/v1", h)
-	// Custom routes not (yet) in OpenAPI spec
-	r.Post("/api/v1/email/headers", emailH.EmailHeaders)
+	r.Post("/api/v1/email/list", emailH.EmailList)
 	log.Printf("API routes registered at /api/v1.")
 
 	// Start HTTP server

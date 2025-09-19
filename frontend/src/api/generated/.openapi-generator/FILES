@@ -6,6 +6,8 @@ models/CollaboratorDetail.ts
 models/EmailLoginRequest.ts
 models/EmailMessageHeader.ts
 models/EmailMessagesResponse.ts
+models/EmailRichHeader.ts
+models/EmailRichHeadersResponse.ts
 models/LoginRequest.ts
 models/MatrixAuthResponse.ts
 models/MatrixOpenIDRequest.ts

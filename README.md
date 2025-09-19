@@ -4,7 +4,7 @@ Messie Messenger is a multi-channel productivity hub that combines Matrix chat, 
 
 ## Vision
 
-Use Matrix as the backbone to connect commonly used messengers, and complement it with email, collaborative notes/todos, and calendar for daily work.
+Use Matrix bridges as the backbone to connect commonly used messengers, and complement it with email, collaborative notes/todos, and calendar for daily work.
 
 ## Stack Overview
 

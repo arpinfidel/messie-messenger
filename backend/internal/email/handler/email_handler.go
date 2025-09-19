@@ -25,6 +25,12 @@ func NewEmailHandler() *EmailHandler {
 	return &EmailHandler{}
 }
 
+type emailListRequest struct {
+	generated.EmailLoginRequest
+	Mailbox     string   `json:"mailbox"`
+	SearchFlags []string `json:"searchFlags"`
+}
+
 // fetchHeaders is a small helper that signs in to the requested mailbox and
 // returns the latest envelopes plus the server-reported unread count. It keeps
 // the backend focused on transport and leaves any higher-level logic to the
@@ -141,67 +147,34 @@ func (h *EmailHandler) EmailInbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	headers, unread, err := fetchHeaders(req, "INBOX", nil)
-	if err != nil {
-		status := http.StatusInternalServerError
-		if err.Error() == "authentication failed" {
-			status = http.StatusUnauthorized
-		}
-		http.Error(w, err.Error(), status)
-		return
-	}
-
-	unreadCount := int32(unread)
-	resp := generated.EmailMessagesResponse{Messages: &headers, UnreadCount: &unreadCount}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	h.respondWithHeaders(w, req, "INBOX", nil)
 }
 
-// EmailImportant handles POST /email/important requests.
+// EmailImportant now signals deprecation in favor of /api/v1/email/list.
 func (h *EmailHandler) EmailImportant(w http.ResponseWriter, r *http.Request) {
-	var req generated.EmailLoginRequest
+	http.Error(w, "deprecated: use /api/v1/email/list", http.StatusGone)
+}
+
+// EmailList handles POST /email/list requests for arbitrary mailbox/flag queries.
+func (h *EmailHandler) EmailList(w http.ResponseWriter, r *http.Request) {
+	var req emailListRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	criteria := imap.NewSearchCriteria()
-	criteria.WithFlags = []string{imap.FlaggedFlag}
-
-	headers, unread, err := fetchHeaders(req, "INBOX", criteria)
-	if err != nil {
-		status := http.StatusInternalServerError
-		if err.Error() == "authentication failed" {
-			status = http.StatusUnauthorized
-		}
-		http.Error(w, err.Error(), status)
-		return
+	mailbox := strings.TrimSpace(req.Mailbox)
+	if mailbox == "" {
+		mailbox = "INBOX"
 	}
 
-	unreadCount := int32(unread)
-	resp := generated.EmailMessagesResponse{Messages: &headers, UnreadCount: &unreadCount}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(resp)
+	h.respondWithHeaders(w, req.EmailLoginRequest, mailbox, req.SearchFlags)
 }
 
 // EmailThreads is kept for backwards compatibility with the OpenAPI definition
 // but the frontend now threads client-side. Return 410 to signal the move.
 func (h *EmailHandler) EmailThreads(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "deprecated: use /api/v1/email/headers for raw headers", http.StatusGone)
-}
-
-// richHeader models the thin proxy payload returned by EmailHeaders.
-type richHeader struct {
-	From       *string    `json:"from,omitempty"`
-	Subject    *string    `json:"subject,omitempty"`
-	Date       *time.Time `json:"date,omitempty"`
-	MessageID  string     `json:"messageId"`
-	InReplyTo  string     `json:"inReplyTo,omitempty"`
-	References []string   `json:"references,omitempty"`
-}
-
-type richHeadersResponse struct {
-	Messages []richHeader `json:"messages"`
 }
 
 // EmailHeaders proxies envelopes plus threading identifiers so the client can
@@ -228,7 +201,7 @@ func (h *EmailHandler) EmailHeaders(w http.ResponseWriter, r *http.Request) {
 
 	mailboxes := []string{"INBOX", "[Gmail]/All Mail", "[Gmail]/Sent Mail", "Sent", "Sent Items"}
 	const perBoxLimit uint32 = 1000
-	out := make([]richHeader, 0, 2*perBoxLimit)
+	out := make([]generated.EmailRichHeader, 0, 2*perBoxLimit)
 
 	for _, mboxName := range mailboxes {
 		mbox, err := c.Select(mboxName, true)
@@ -266,16 +239,30 @@ func (h *EmailHandler) EmailHeaders(w http.ResponseWriter, r *http.Request) {
 			date := env.Date
 
 			messageID := strings.Trim(env.MessageId, "<>")
-			inReply := strings.Trim(env.InReplyTo, "<>")
-			refs := readRefsFromBody(msg)
+			var messageIDPtr *string
+			if messageID != "" {
+				messageIDPtr = &messageID
+			}
 
-			out = append(out, richHeader{
+			inReply := strings.Trim(env.InReplyTo, "<>")
+			var inReplyPtr *string
+			if inReply != "" {
+				inReplyPtr = &inReply
+			}
+
+			refs := readRefsFromBody(msg)
+			var refsPtr *[]string
+			if len(refs) > 0 {
+				refsPtr = &refs
+			}
+
+			out = append(out, generated.EmailRichHeader{
 				From:       fromPtr,
 				Subject:    subjPtr,
 				Date:       &date,
-				MessageID:  messageID,
-				InReplyTo:  inReply,
-				References: refs,
+				MessageId:  messageIDPtr,
+				InReplyTo:  inReplyPtr,
+				References: refsPtr,
 			})
 		}
 		if err := <-done; err != nil {
@@ -295,7 +282,7 @@ func (h *EmailHandler) EmailHeaders(w http.ResponseWriter, r *http.Request) {
 	})
 
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(richHeadersResponse{Messages: out})
+	_ = json.NewEncoder(w).Encode(generated.EmailRichHeadersResponse{Messages: out})
 }
 
 // readRefsFromBody extracts the References header from any literal body parts
@@ -342,4 +329,32 @@ func extractMessageIDs(s string) []string {
 		}
 	}
 	return ids
+}
+
+func (h *EmailHandler) respondWithHeaders(
+	w http.ResponseWriter,
+	req generated.EmailLoginRequest,
+	mailbox string,
+	withFlags []string,
+) {
+	var criteria *imap.SearchCriteria
+	if len(withFlags) > 0 {
+		criteria = imap.NewSearchCriteria()
+		criteria.WithFlags = append(criteria.WithFlags, withFlags...)
+	}
+
+	headers, unread, err := fetchHeaders(req, mailbox, criteria)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if err.Error() == "authentication failed" {
+			status = http.StatusUnauthorized
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+
+	unreadCount := int32(unread)
+	resp := generated.EmailMessagesResponse{Messages: &headers, UnreadCount: &unreadCount}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }

@@ -1,7 +1,12 @@
 import type { EmailMessagesResponse } from '@/api/generated/models/EmailMessagesResponse';
 import { EmailMessagesResponseFromJSON } from '@/api/generated/models/EmailMessagesResponse';
 import type { EmailCredentials } from '@/viewmodels/email/EmailCredentialsStore';
-import type { AdapterRichHeader, EmailAdapter, EmailListResult } from './IEmailAdapter';
+import type {
+  AdapterRichHeader,
+  EmailAdapter,
+  EmailListResult,
+  ImportantFetchOptions,
+} from './IEmailAdapter';
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' } as const;
 
@@ -21,17 +26,24 @@ export class ProxyEmailAdapter implements EmailAdapter {
   constructor(baseUrl = '/api/v1/email') {
     this.baseUrl = baseUrl.replace(/\/$/, '');
   }
+  fetchInbox(credentials: EmailCredentials): Promise<EmailListResult> {
+    throw new Error('Method not implemented.');
+  }
 
   async testCredentials(credentials: EmailCredentials): Promise<EmailListResult> {
     return this.postForList(`${this.baseUrl}/login-test`, credentials);
   }
 
-  async fetchInbox(credentials: EmailCredentials): Promise<EmailListResult> {
-    return this.postForList(`${this.baseUrl}/inbox`, credentials);
-  }
-
-  async fetchImportant(credentials: EmailCredentials): Promise<EmailListResult> {
-    return this.postForList(`${this.baseUrl}/important`, credentials);
+  async fetchMailbox(
+    credentials: EmailCredentials,
+    options?: ImportantFetchOptions
+  ): Promise<EmailListResult> {
+    const payload = {
+      ...credentials,
+      ...(options?.mailbox ? { mailbox: options.mailbox } : {}),
+      ...(options?.searchFlags ? { searchFlags: options.searchFlags } : {}),
+    };
+    return this.postForList(`${this.baseUrl}/list`, payload);
   }
 
   async fetchRecentHeaders(credentials: EmailCredentials): Promise<AdapterRichHeader[]> {
@@ -39,11 +51,13 @@ export class ProxyEmailAdapter implements EmailAdapter {
     const messages = Array.isArray(payload?.messages) ? payload.messages : [];
     return messages
       .map((raw: any) => this.mapToRichHeader(raw))
-      .filter((header: AdapterRichHeader | null): header is AdapterRichHeader => Boolean(header?.messageId));
+      .filter((header: AdapterRichHeader | null): header is AdapterRichHeader =>
+        Boolean(header?.messageId)
+      );
   }
 
-  private async postForList(url: string, credentials: EmailCredentials): Promise<EmailListResult> {
-    const payload = await this.post(url, credentials);
+  private async postForList(url: string, body: unknown): Promise<EmailListResult> {
+    const payload = await this.post(url, body);
     const parsed: EmailMessagesResponse = EmailMessagesResponseFromJSON(payload);
     const messages = Array.isArray(parsed.messages) ? parsed.messages : [];
     const unreadCount = typeof parsed.unreadCount === 'number' ? parsed.unreadCount : 0;
