@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"golang.org/x/sync/errgroup"
 	"gopkg.in/yaml.v3"
 )
 
@@ -25,6 +26,7 @@ const (
 	defaultIssueTypeValue = "Task"
 	defaultYAMLFile       = "jira-tasks.yaml"
 	defaultMaxResults     = 50
+	defaultPushWorkers    = 4
 	jiraAPIPrefix         = "/rest/api/3"
 )
 
@@ -92,6 +94,7 @@ type config struct {
 	JQL              string
 	YAMLPath         string
 	MaxResults       int
+	PushWorkers      int
 }
 
 func maybeLoadDotEnv() error {
@@ -159,6 +162,15 @@ func loadConfig() (config, error) {
 		maxResults = parsed
 	}
 
+	pushWorkers := defaultPushWorkers
+	if raw := strings.TrimSpace(os.Getenv("JIRA_PUSH_WORKERS")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			return config{}, fmt.Errorf("invalid JIRA_PUSH_WORKERS: %s", raw)
+		}
+		pushWorkers = parsed
+	}
+
 	return config{
 		BaseURL:          baseURL,
 		Email:            email,
@@ -168,6 +180,7 @@ func loadConfig() (config, error) {
 		JQL:              jql,
 		YAMLPath:         yamlPath,
 		MaxResults:       maxResults,
+		PushWorkers:      pushWorkers,
 	}, nil
 }
 
@@ -447,36 +460,65 @@ func runPush(ctx context.Context, client *jiraClient, cfg config) error {
 		return nil
 	}
 
-	var remaining []issueRecord
-	for _, issue := range data.Issues {
-		if issue.Delete {
-			key := strings.TrimSpace(issue.Key)
-			if key == "" {
-				fmt.Println("Skipping delete flag on issue without a key.")
-				remaining = append(remaining, issue)
-				continue
-			}
-			if err := client.deleteIssue(ctx, key); err != nil {
-				return fmt.Errorf("delete %s: %w", key, err)
-			}
-			fmt.Printf("Deleted %s\n", key)
-			continue
-		}
+	results := make([]bool, len(data.Issues))
+	for i := range results {
+		results[i] = true
+	}
 
-		if strings.TrimSpace(issue.Key) == "" {
-			key, err := createIssue(ctx, client, cfg, issue)
-			if err != nil {
-				return fmt.Errorf("create issue: %w", err)
+	group, groupCtx := errgroup.WithContext(ctx)
+	workers := cfg.PushWorkers
+	if workers <= 0 {
+		workers = 1
+	}
+	group.SetLimit(workers)
+
+	for idx, issue := range data.Issues {
+		idx := idx
+		issue := issue
+		group.Go(func() error {
+			if issue.Delete {
+				key := strings.TrimSpace(issue.Key)
+				if key == "" {
+					fmt.Println("Skipping delete flag on issue without a key.")
+					results[idx] = true
+					return nil
+				}
+				if err := client.deleteIssue(groupCtx, key); err != nil {
+					return fmt.Errorf("delete %s: %w", key, err)
+				}
+				fmt.Printf("Deleted %s\n", key)
+				results[idx] = false
+				return nil
 			}
-			fmt.Printf("Created %s\n", key)
-			continue
-		} else {
-			if err := updateIssue(ctx, client, issue); err != nil {
+
+			if strings.TrimSpace(issue.Key) == "" {
+				key, err := createIssue(groupCtx, client, cfg, issue)
+				if err != nil {
+					return fmt.Errorf("create issue: %w", err)
+				}
+				fmt.Printf("Created %s\n", key)
+				results[idx] = false
+				return nil
+			}
+
+			if err := updateIssue(groupCtx, client, issue); err != nil {
 				return fmt.Errorf("update %s: %w", issue.Key, err)
 			}
 			fmt.Printf("Updated %s\n", issue.Key)
+			results[idx] = true
+			return nil
+		})
+	}
+
+	if err := group.Wait(); err != nil {
+		return err
+	}
+
+	var remaining []issueRecord
+	for idx, keep := range results {
+		if keep {
+			remaining = append(remaining, data.Issues[idx])
 		}
-		remaining = append(remaining, issue)
 	}
 
 	if len(remaining) != len(data.Issues) {

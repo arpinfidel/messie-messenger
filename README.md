@@ -144,6 +144,7 @@ The repository ships with a small Go program that mirrors Jira issues into a loc
    # JIRA_JQL=project = PROJ ORDER BY created DESC
    # JIRA_YAML_PATH=jira-tasks.yaml   # relative paths resolve from the repo root
    # JIRA_MAX_RESULTS=50
+   # JIRA_PUSH_WORKERS=4              # number of concurrent push workers
    ```
 
 The YAML file defaults to `jira-tasks.yaml` at the repo root and is ignored by Git.
@@ -161,7 +162,7 @@ go run ./cmd/jira-sync pull   # fetch issues into the YAML file (written at repo
 go run ./cmd/jira-sync push   # push updates/new issues back to Jira
 ```
 
-After a push completes, the tool automatically refreshes the YAML file from Jira so that newly created issues pick up their generated keys and status.
+Pushes run concurrently (default 4 workers) so large batches finish faster; adjust `JIRA_PUSH_WORKERS` if you need to throttle or speed up the sync. After a push completes, the tool automatically refreshes the YAML file from Jira so that newly created issues pick up their generated keys and status.
 
 You can also strike issues by setting `delete: true` on a YAML entry (with a valid `key`). During the next push the tool deletes the issue in Jira and drops it from the YAML file before re-syncing.
 
