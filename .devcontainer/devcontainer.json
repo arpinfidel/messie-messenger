@@ -1,0 +1,37 @@
+{
+  "name": "Messie Messenger",
+  "dockerComposeFile": [
+    "../docker-compose.dev.yml",
+    "docker-compose.codespaces.yml"
+  ],
+  "service": "devcontainer",
+  "workspaceFolder": "/workspace",
+  "runServices": [
+    "postgres",
+    "backend",
+    "frontend",
+    "nginx"
+  ],
+  "overrideCommand": true,
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "ms-azuretools.vscode-docker",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "go.toolsManagement.autoUpdate": true,
+        "editor.formatOnSave": true
+      }
+    }
+  },
+  "postCreateCommand": "sudo mkdir -p /go/pkg/mod /root/.cache/go-build && sudo chown -R vscode:vscode /go/pkg/mod /root/.cache/go-build && cd backend && go mod download && cd ../frontend && npm install",
+  "forwardPorts": [
+    8080,
+    5173,
+    5432
+  ],
+  "remoteUser": "vscode"
+}

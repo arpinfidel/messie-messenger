@@ -70,6 +70,13 @@ Note: This section intentionally stays non-technical. Detailed UI behavior and t
 
 Useful helpers: `make logs`, `make ps`, `make sh backend`.
 
+### GitHub Codespaces
+
+- Open the repo in Codespaces; the workspace attaches to the `devcontainer` service defined in `.devcontainer/devcontainer.json`.
+- The devcontainer uses `docker-compose.dev.yml` and automatically launches Postgres, backend, frontend, and nginx via Docker Compose.
+- Port forwarding for `8080`, `5173`, and `5432` is preconfigured; Codespaces will prompt you to open the web UI when the stack is ready.
+- The first boot runs `go mod download` and `npm install` inside the container. To rebuild later, use `docker compose -f docker-compose.dev.yml up --build` from `/workspace`.
+
 ### Running services manually (optional)
 
 Backend (Go):

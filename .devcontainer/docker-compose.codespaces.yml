@@ -1,0 +1,19 @@
+services:
+  devcontainer:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - .:/workspace:cached
+      - go-mod-cache:/go/pkg/mod
+      - go-build-cache:/root/.cache/go-build
+    command: sleep infinity
+    init: true
+    environment:
+      GOMODCACHE: /go/pkg/mod
+      GOPATH: /go
+      GOFLAGS: -tags=dev
+    depends_on:
+      postgres:
+        condition: service_started
+    restart: unless-stopped
