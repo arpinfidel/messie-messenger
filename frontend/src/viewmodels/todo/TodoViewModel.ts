@@ -12,6 +12,7 @@ import type {
 } from '../../api/generated/models';
 import { generatePosition } from '../../utils/fractionalIndexing';
 import { CloudAuthViewModel } from '@/viewmodels/cloud-auth/CloudAuthViewModel';
+import { DetailSaveQueue } from './DetailSaveQueue';
 
 const cloudAuthViewModel = CloudAuthViewModel.getInstance();
 
@@ -33,96 +34,9 @@ export type TodoDetailItem = {
   position?: string | null;
 };
 
-type TodoItemPatch = Partial<Pick<UpdateTodoItem, 'title' | 'description' | 'dueDate' | 'completed'>>;
-
-type PutFn = (itemId: string, payload: UpdateTodoItem, signal?: AbortSignal) => Promise<void>;
-
-function debounce<T extends (...args: any[]) => void>(fn: T, delay: number) {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const debounced = function (this: ThisParameterType<T>, ...args: Parameters<T>) {
-    if (timeout) clearTimeout(timeout);
-    timeout = setTimeout(() => {
-      timeout = undefined;
-      fn.apply(this, args);
-    }, delay);
-  } as T & { cancel: () => void; flush: (...args: Parameters<T>) => void };
-
-  debounced.cancel = () => {
-    if (timeout) {
-      clearTimeout(timeout);
-      timeout = undefined;
-    }
-  };
-
-  debounced.flush = function (this: ThisParameterType<T>, ...args: Parameters<T>) {
-    if (timeout) {
-      clearTimeout(timeout);
-      timeout = undefined;
-      fn.apply(this, args);
-    }
-  };
-
-  return debounced;
-}
-
-class SaveManager {
-  private inFlight = new Map<string, { reqId: number; ctrl: AbortController }>();
-  private nextId = new Map<string, number>();
-  private queued = new Map<string, UpdateTodoItem>();
-  private lastSent = new Map<string, string>();
-
-  constructor(private put: PutFn) {}
-
-  enqueue(itemId: string, payload: UpdateTodoItem) {
-    const key = JSON.stringify(payload);
-    if (this.lastSent.get(itemId) === key && !this.inFlight.has(itemId) && !this.queued.has(itemId)) {
-      return;
-    }
-    this.queued.set(itemId, payload);
-    if (!this.inFlight.has(itemId)) this.runNext(itemId);
-  }
-
-  cancel(itemId: string) {
-    const cur = this.inFlight.get(itemId);
-    if (cur) cur.ctrl.abort();
-    this.inFlight.delete(itemId);
-    this.queued.delete(itemId);
-  }
-
-  flush(itemId: string) {
-    const queued = this.queued.get(itemId);
-    if (!queued) return;
-    this.cancel(itemId);
-    this.queued.set(itemId, queued);
-    this.runNext(itemId);
-  }
-
-  private async runNext(itemId: string) {
-    const payload = this.queued.get(itemId);
-    if (!payload) return;
-
-    const id = (this.nextId.get(itemId) ?? 0) + 1;
-    this.nextId.set(itemId, id);
-    this.queued.delete(itemId);
-
-    const ctrl = new AbortController();
-    this.inFlight.set(itemId, { reqId: id, ctrl });
-
-    try {
-      await this.put(itemId, payload, ctrl.signal);
-      this.lastSent.set(itemId, JSON.stringify(payload));
-    } catch (e: any) {
-      if (e?.name !== 'AbortError') {
-        throw e;
-      }
-    } finally {
-      const cur = this.inFlight.get(itemId);
-      if (!cur || cur.reqId !== id) return;
-      this.inFlight.delete(itemId);
-      if (this.queued.has(itemId)) this.runNext(itemId);
-    }
-  }
-}
+type TodoItemPatch = Partial<
+  Pick<UpdateTodoItem, 'title' | 'description' | 'dueDate' | 'completed'>
+>;
 
 export class TodoViewModel implements IModuleViewModel {
   private static instance: TodoViewModel;
@@ -134,9 +48,8 @@ export class TodoViewModel implements IModuleViewModel {
   private selectedListId: string | null = null;
   private _selectedList = writable<TodoList | null>(null);
   private _selectedItems = writable<TodoDetailItem[]>([]);
-  private perItemDebounce = new Map<string, ReturnType<typeof debounce>>();
   private positionLocks = new Set<string>();
-  private saveManager = new SaveManager((itemId, payload, signal) =>
+  private detailQueue = new DetailSaveQueue((itemId, payload, signal) =>
     this.performTodoItemUpdate(itemId, payload, signal)
   );
 
@@ -271,6 +184,23 @@ export class TodoViewModel implements IModuleViewModel {
     itemId: string,
     patch: Partial<UpdateTodoItem>
   ): Promise<UpdateTodoItem> {
+    const localCandidate =
+      this.selectedListId === listId
+        ? get(this._selectedItems).find((item) => item.id === itemId)
+        : null;
+
+    if (localCandidate) {
+      const title = (patch.title ?? localCandidate.title ?? '').trim();
+      if (!title) throw new Error('Refusing to PUT empty title');
+      return {
+        title,
+        description: patch.description ?? localCandidate.description ?? '',
+        dueDate: patch.dueDate ?? localCandidate.dueDate,
+        completed: patch.completed ?? localCandidate.completed,
+        position: patch.position ?? localCandidate.position ?? '',
+      };
+    }
+
     const cur = await this.getItemSnapshot(listId, itemId);
     if (!cur) {
       throw new Error(`Item ${itemId} not found in list ${listId}`);
@@ -538,14 +468,13 @@ export class TodoViewModel implements IModuleViewModel {
 
     const payload = this.buildItemPayload(itemId, patch);
     if (!payload) return;
-    this.scheduleItemSave(itemId, payload);
+    this.detailQueue.schedule(itemId, payload);
   }
 
   async commitItemNow(itemId: string): Promise<void> {
     const payload = this.buildItemPayload(itemId, {});
     if (!payload) return;
-    this.cancelScheduledItemSave(itemId);
-    this.saveManager.cancel(itemId);
+    this.detailQueue.cancel(itemId);
     await this.performTodoItemUpdate(itemId, payload);
   }
 
@@ -564,8 +493,7 @@ export class TodoViewModel implements IModuleViewModel {
       return;
     }
 
-    this.cancelScheduledItemSave(itemId);
-    this.saveManager.cancel(itemId);
+    this.detailQueue.cancel(itemId);
     this.positionLocks.add(itemId);
 
     const before = [...items];
@@ -593,30 +521,9 @@ export class TodoViewModel implements IModuleViewModel {
   }
 
   flushPendingItemUpdates(): void {
-    this.perItemDebounce.forEach((fn, itemId) => {
-      try {
-        fn.flush();
-      } catch (error) {
-        console.error(`Failed to flush pending update for item ${itemId}:`, error);
-      }
-      this.perItemDebounce.delete(itemId);
+    this.detailQueue.flushAll((itemId, error) => {
+      console.error(`Failed to flush pending update for item ${itemId}:`, error);
     });
-  }
-
-  private scheduleItemSave(itemId: string, payload: UpdateTodoItem, delay = 400): void {
-    const existing = this.perItemDebounce.get(itemId);
-    if (existing) existing.cancel();
-    const debounced = debounce(() => this.saveManager.enqueue(itemId, payload), delay);
-    this.perItemDebounce.set(itemId, debounced);
-    debounced();
-  }
-
-  private cancelScheduledItemSave(itemId: string): void {
-    const existing = this.perItemDebounce.get(itemId);
-    if (existing) {
-      existing.cancel();
-      this.perItemDebounce.delete(itemId);
-    }
   }
 
   private buildItemPayload(itemId: string, patch: TodoItemPatch): UpdateTodoItem | null {
