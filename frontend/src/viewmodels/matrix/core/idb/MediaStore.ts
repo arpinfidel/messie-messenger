@@ -38,6 +38,13 @@ export class MediaStore {
     });
   }
 
+  async deleteMedia(key: string): Promise<void> {
+    await this.conn.init();
+    await this.conn.tx<void>(STORES.MEDIA, 'readwrite', (s) => {
+      s.delete(key);
+    });
+  }
+
   async pruneMedia(maxEntries: number): Promise<void> {
     await this.conn.init();
     const total = await this.conn.tx<number>(STORES.MEDIA, 'readonly', (s) => {

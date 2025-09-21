@@ -1,10 +1,26 @@
 import type { MatrixClient } from 'matrix-js-sdk';
 
-type MemEntry = { url: string; ts: number; bytes: number; mime: string };
+export type ResolveResult = {
+  status: number;
+  url?: string;
+  bytes?: number;
+  mime?: string;
+  blob?: Blob;
+  objectUrl?: string;
+};
+
+type MemEntry = {
+  status: number;
+  url?: string;
+  objectUrl?: string;
+  bytes?: number;
+  mime?: string;
+  ts: number;
+};
 
 export class AvatarResolver {
   private mem = new Map<string, MemEntry>();
-  private inflight = new Map<string, Promise<string | undefined>>();
+  private inflight = new Map<string, Promise<ResolveResult>>();
   private readonly maxMemEntries: number;
   private readonly maxDbEntries: number;
 
@@ -19,20 +35,27 @@ export class AvatarResolver {
   async resolve(
     mxc: string,
     dims = { w: 64, h: 64, method: 'crop' as const }
-  ): Promise<string | undefined> {
+  ): Promise<ResolveResult> {
     const key = this.key(mxc, dims);
     const cached = this.mem.get(key);
     if (cached) {
       cached.ts = Date.now();
-      return cached.url;
+      return {
+        status: cached.status,
+        url: cached.url,
+        bytes: cached.bytes,
+        mime: cached.mime,
+      };
     }
     const inflight = this.inflight.get(key);
     if (inflight) return inflight;
 
     const p = this.resolveInternal(mxc, dims)
-      .then((url) => {
-        if (url) this.memSet(key, url, 0, 'image/*');
-        return url;
+      .then((result) => {
+        if (result.url || result.status >= 400) {
+          this.memSet(key, result);
+        }
+        return result;
       })
       .finally(() => this.inflight.delete(key));
     this.inflight.set(key, p);
@@ -41,8 +64,9 @@ export class AvatarResolver {
 
   clear(): void {
     for (const [, e] of this.mem) {
+      if (!e.objectUrl) continue;
       try {
-        URL.revokeObjectURL(e.url);
+        URL.revokeObjectURL(e.objectUrl);
       } catch {}
     }
     this.mem.clear();
@@ -53,23 +77,27 @@ export class AvatarResolver {
   private async resolveInternal(
     mxc: string,
     dims: { w: number; h: number; method: 'scale' | 'crop' }
-  ): Promise<string | undefined> {
+  ): Promise<ResolveResult> {
     const key = this.key(mxc, dims);
 
     const cli = this.getClient();
-    if (!cli) return undefined;
+    if (!cli) return { status: 0 };
     const http = cli?.mxcUrlToHttp?.(mxc, dims.w, dims.h, dims.method, false, true, false);
-    if (!http) return undefined;
+    if (!http) return { status: 0 };
 
     try {
       const res = await fetch(http, { redirect: 'follow' });
-      if (!res.ok) return undefined; // avoid raw HTTP fallback
+      const status = res.status;
+      if (!res.ok) {
+        return { status };
+      }
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      this.memSet(key, url, blob.size, blob.type || 'image/*');
-      return url;
+      const mime = blob.type || 'image/*';
+      const objectUrl = URL.createObjectURL(blob);
+      const url = this.tagUrl(objectUrl, `mxc=${encodeURIComponent(mxc)}`);
+      return { status, url, blob, bytes: blob.size, mime, objectUrl };
     } catch {
-      return undefined; // avoid raw HTTP fallback on network failures
+      return { status: 0 };
     }
   }
 
@@ -77,9 +105,26 @@ export class AvatarResolver {
     return `avatar|${mxc}|${dims.w}x${dims.h}|m=${dims.method}`;
   }
 
-  private memSet(key: string, url: string, bytes: number, mime: string) {
-    this.mem.set(key, { url, ts: Date.now(), bytes, mime });
+  private memSet(key: string, result: ResolveResult) {
+    this.mem.set(key, {
+      status: result.status,
+      url: result.url,
+      objectUrl: result.objectUrl,
+      bytes: result.bytes,
+      mime: result.mime,
+      ts: Date.now(),
+    });
     this.evictOldest();
+  }
+
+  private tagUrl(objectUrl: string, fragment: string): string {
+    try {
+      const url = new URL(objectUrl);
+      url.hash = fragment;
+      return url.toString();
+    } catch {
+      return `${objectUrl}#${fragment}`;
+    }
   }
 
   private evictOldest() {

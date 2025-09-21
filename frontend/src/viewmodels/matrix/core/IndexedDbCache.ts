@@ -121,6 +121,9 @@ export class IndexedDbCache {
   > {
     return this.media.getMedia(key);
   }
+  deleteMedia(key: string): Promise<void> {
+    return this.media.deleteMedia(key);
+  }
   pruneMedia(maxEntries: number): Promise<void> {
     return this.media.pruneMedia(maxEntries);
   }

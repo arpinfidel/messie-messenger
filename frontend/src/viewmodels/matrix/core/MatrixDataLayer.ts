@@ -3,7 +3,7 @@ import { MatrixEvent, MatrixEventEvent, type IEvent } from 'matrix-js-sdk/lib/mo
 import type { RepoEvent } from './TimelineRepository';
 import { Direction } from 'matrix-js-sdk/lib/models/event-timeline';
 import { IndexedDbCache } from './IndexedDbCache';
-import { AvatarResolver } from './AvatarResolver';
+import { AvatarResolver, type ResolveResult } from './AvatarResolver';
 import { MediaResolver } from './MediaResolver';
 import type { DbMember, DbUser } from './idb/constants';
 import type { ImageContent } from 'matrix-js-sdk/lib/types';
@@ -878,40 +878,88 @@ export class MatrixDataLayer {
   // ------------------------------------------------------------------
   async resolveAvatarMxc(
     mxc: string,
-    dims = { w: 32, h: 32, method: 'crop' as const }
-  ): Promise<string | undefined> {
+    dims: { w: number; h: number; method: 'crop' },
+    tag?: string
+  ): Promise<ResolveResult> {
     // try db
     const key = this.avatarResolver.key(mxc, dims);
     const cached = await this.db.getMedia(key);
     if (cached) {
-      const url = URL.createObjectURL(cached.blob);
-      return url;
+      if (cached.status === 200) {
+        const objectUrl = URL.createObjectURL(cached.blob);
+        const url = this.tagUrl(objectUrl, this.buildAvatarFragment(tag, mxc, 'cache'));
+        return { status: 200, url, bytes: cached.bytes, mime: cached.mime, blob: cached.blob, objectUrl };
+      }
+      return { status: cached.status };
     }
 
     // try resolver
-    const url = await this.avatarResolver.resolve(mxc, dims);
+    const result = await this.avatarResolver.resolve(mxc, dims);
 
-    // save
-    if (url) {
+    if (result.status === 200 && result.blob) {
       try {
-        const resp = await fetch(url);
-        if (resp.ok) {
-          const blob = await resp.blob();
-          await this.db.putMedia({
-            status: 200,
-            key,
-            ts: Date.now(),
-            bytes: blob.size,
-            mime: blob.type || 'image/*',
-            blob,
-          });
-        }
+        await this.db.putMedia({
+          status: 200,
+          key,
+          ts: Date.now(),
+          bytes: result.bytes ?? result.blob.size,
+          mime: result.mime ?? (result.blob.type || 'image/png'),
+          blob: result.blob,
+        });
       } catch (err) {
         console.warn('[MatrixDataLayer] Failed to cache avatar in IDB', err);
       }
+      const objectUrl = result.objectUrl ?? URL.createObjectURL(result.blob);
+      const url = this.tagUrl(objectUrl, this.buildAvatarFragment(tag, mxc, 'fresh'));
+      return { ...result, url, objectUrl };
     }
 
-    return url;
+    if (result.status >= 400) {
+      try {
+        await this.db.putMedia({
+          status: result.status,
+          key,
+          ts: Date.now(),
+          bytes: 0,
+          mime: 'application/octet-stream',
+          blob: new Blob(),
+        });
+      } catch (err) {
+        console.warn('[MatrixDataLayer] Failed to record avatar error in IDB', err);
+      }
+    }
+
+    return result;
+  }
+
+  async invalidateAvatarMxc(
+    mxc: string,
+    dims: { w: number; h: number; method: 'crop' }
+  ): Promise<void> {
+    try {
+      const key = this.avatarResolver.key(mxc, dims);
+      await this.db.deleteMedia(key);
+    } catch (err) {
+      console.warn('[MatrixDataLayer] Failed to invalidate avatar cache', mxc, err);
+    }
+  }
+
+  private tagUrl(objectUrl: string, fragment: string): string {
+    try {
+      const url = new URL(objectUrl);
+      url.hash = fragment;
+      return url.toString();
+    } catch {
+      return `${objectUrl}#${fragment}`;
+    }
+  }
+
+  private buildAvatarFragment(tag: string | undefined, mxc: string, source: 'cache' | 'fresh'): string {
+    const parts: string[] = [];
+    if (tag) parts.push(tag);
+    parts.push(`src=${source}`);
+    parts.push(`mxc=${encodeURIComponent(mxc)}`);
+    return parts.join('|');
   }
 
   async resolveImage(

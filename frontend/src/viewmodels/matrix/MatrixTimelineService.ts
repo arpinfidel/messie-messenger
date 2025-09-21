@@ -132,7 +132,7 @@ export class MatrixTimelineService {
           const url = await this.avatars.resolveRoomAvatar(room.id, room.avatarMxcUrl, {
             w: 64,
             h: 64,
-            method: 'crop',
+            method: 'crop' as const,
           });
 
           const existingItem = this.nextTimeline.get(room.id);
@@ -176,7 +176,7 @@ export class MatrixTimelineService {
       avatarUrl = await this.avatars.resolveRoomAvatar(room.roomId, roomMxc || undefined, {
         w: 64,
         h: 64,
-        method: 'crop',
+        method: 'crop' as const,
       });
 
       const updated: TimelineItem = {
@@ -338,7 +338,7 @@ export class MatrixTimelineService {
 
       // Resolve sender avatar via AvatarService and assign onto msg
       const pAvatar = this.avatars
-        .resolveUserAvatar(re.sender, { w: 32, h: 32, method: 'crop' })
+        .resolveUserAvatar(re.sender, { w: 32, h: 32, method: 'crop' as const })
         .then((url) => {
           if (url) {
             msg.senderAvatarUrl = url;
