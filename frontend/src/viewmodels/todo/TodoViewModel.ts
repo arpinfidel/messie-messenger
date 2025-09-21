@@ -1,4 +1,4 @@
-import { writable, type Readable } from 'svelte/store';
+import { writable, get, type Readable } from 'svelte/store';
 import type { TimelineItem } from '../../models/shared/TimelineItem';
 import type { IModuleViewModel } from '../shared/IModuleViewModel';
 import { DefaultApi, Configuration } from '../../api/generated';
@@ -21,6 +21,109 @@ export type CreateTodoListState = {
   listId?: string;
 };
 
+export type TodoDetailItem = {
+  id: string;
+  listId: string;
+  title: string;
+  description: string;
+  completed: boolean;
+  dueDate?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+  position?: string | null;
+};
+
+type TodoItemPatch = Partial<Pick<UpdateTodoItem, 'title' | 'description' | 'dueDate' | 'completed'>>;
+
+type PutFn = (itemId: string, payload: UpdateTodoItem, signal?: AbortSignal) => Promise<void>;
+
+function debounce<T extends (...args: any[]) => void>(fn: T, delay: number) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const debounced = function (this: ThisParameterType<T>, ...args: Parameters<T>) {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      timeout = undefined;
+      fn.apply(this, args);
+    }, delay);
+  } as T & { cancel: () => void; flush: (...args: Parameters<T>) => void };
+
+  debounced.cancel = () => {
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = undefined;
+    }
+  };
+
+  debounced.flush = function (this: ThisParameterType<T>, ...args: Parameters<T>) {
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = undefined;
+      fn.apply(this, args);
+    }
+  };
+
+  return debounced;
+}
+
+class SaveManager {
+  private inFlight = new Map<string, { reqId: number; ctrl: AbortController }>();
+  private nextId = new Map<string, number>();
+  private queued = new Map<string, UpdateTodoItem>();
+  private lastSent = new Map<string, string>();
+
+  constructor(private put: PutFn) {}
+
+  enqueue(itemId: string, payload: UpdateTodoItem) {
+    const key = JSON.stringify(payload);
+    if (this.lastSent.get(itemId) === key && !this.inFlight.has(itemId) && !this.queued.has(itemId)) {
+      return;
+    }
+    this.queued.set(itemId, payload);
+    if (!this.inFlight.has(itemId)) this.runNext(itemId);
+  }
+
+  cancel(itemId: string) {
+    const cur = this.inFlight.get(itemId);
+    if (cur) cur.ctrl.abort();
+    this.inFlight.delete(itemId);
+    this.queued.delete(itemId);
+  }
+
+  flush(itemId: string) {
+    const queued = this.queued.get(itemId);
+    if (!queued) return;
+    this.cancel(itemId);
+    this.queued.set(itemId, queued);
+    this.runNext(itemId);
+  }
+
+  private async runNext(itemId: string) {
+    const payload = this.queued.get(itemId);
+    if (!payload) return;
+
+    const id = (this.nextId.get(itemId) ?? 0) + 1;
+    this.nextId.set(itemId, id);
+    this.queued.delete(itemId);
+
+    const ctrl = new AbortController();
+    this.inFlight.set(itemId, { reqId: id, ctrl });
+
+    try {
+      await this.put(itemId, payload, ctrl.signal);
+      this.lastSent.set(itemId, JSON.stringify(payload));
+    } catch (e: any) {
+      if (e?.name !== 'AbortError') {
+        throw e;
+      }
+    } finally {
+      const cur = this.inFlight.get(itemId);
+      if (!cur || cur.reqId !== id) return;
+      this.inFlight.delete(itemId);
+      if (this.queued.has(itemId)) this.runNext(itemId);
+    }
+  }
+}
+
 export class TodoViewModel implements IModuleViewModel {
   private static instance: TodoViewModel;
   private todoApi: DefaultApi;
@@ -28,6 +131,14 @@ export class TodoViewModel implements IModuleViewModel {
   private pollingInterval: ReturnType<typeof setInterval> | undefined;
   private readonly initialCreateState: CreateTodoListState = { status: 'idle' };
   private _createTodoListState = writable<CreateTodoListState>(this.initialCreateState);
+  private selectedListId: string | null = null;
+  private _selectedList = writable<TodoList | null>(null);
+  private _selectedItems = writable<TodoDetailItem[]>([]);
+  private perItemDebounce = new Map<string, ReturnType<typeof debounce>>();
+  private positionLocks = new Set<string>();
+  private saveManager = new SaveManager((itemId, payload, signal) =>
+    this.performTodoItemUpdate(itemId, payload, signal)
+  );
 
   private constructor() {
     const config = new Configuration({
@@ -67,8 +178,28 @@ export class TodoViewModel implements IModuleViewModel {
     return this._timelineItems;
   }
 
+  getSelectedList(): Readable<TodoList | null> {
+    return this._selectedList;
+  }
+
+  getSelectedItems(): Readable<TodoDetailItem[]> {
+    return this._selectedItems;
+  }
+
   getCreateTodoListState(): Readable<CreateTodoListState> {
     return this._createTodoListState;
+  }
+
+  async selectTodoList(listId: string): Promise<void> {
+    if (!listId) return;
+    if (this.selectedListId !== listId) {
+      this.selectedListId = listId;
+    }
+    await this.refreshSelectedList();
+  }
+
+  async reloadSelectedListDetail(): Promise<void> {
+    await this.refreshSelectedList();
   }
 
   getSettingsComponent(): any {
@@ -166,6 +297,84 @@ export class TodoViewModel implements IModuleViewModel {
   }
   // ---------------------------------------------------
 
+  private async performTodoItemUpdate(
+    itemId: string,
+    payload: UpdateTodoItem,
+    signal?: AbortSignal
+  ): Promise<void> {
+    const listId = this.selectedListId;
+    if (!listId) return;
+    try {
+      const initOverrides = signal ? { signal } : undefined;
+      await this.todoApi.updateTodoItem(
+        { listId, itemId, updateTodoItem: payload },
+        initOverrides
+      );
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      await this.fetchAndTransformTodos();
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+      if (this.selectedListId === listId) {
+        await this.refreshSelectedList();
+      }
+    } catch (error) {
+      if ((error as any)?.name === 'AbortError') {
+        throw error;
+      }
+      console.error('Failed to persist todo item update:', error);
+      throw error;
+    }
+  }
+
+  private normalizeTodoItem(item: TodoItem): TodoDetailItem {
+    return {
+      id: item.id!,
+      listId: item.listId!,
+      title: item.title ?? '',
+      description: item.description ?? '',
+      completed: !!item.completed,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      dueDate: item.dueDate,
+      position: item.position ?? '',
+    };
+  }
+
+  private async refreshSelectedList(): Promise<void> {
+    if (!this.selectedListId) {
+      this._selectedList.set(null);
+      this._selectedItems.set([]);
+      return;
+    }
+
+    const targetListId = this.selectedListId;
+    if (!targetListId) return;
+
+    try {
+      const [list, items] = await Promise.all([
+        this.todoApi.getTodoListById({ listId: targetListId }),
+        this.todoApi.getTodoItemsByListId({ listId: targetListId }),
+      ]);
+
+      if (!list) {
+        this._selectedList.set(null);
+        this._selectedItems.set([]);
+        return;
+      }
+
+      if (targetListId !== this.selectedListId) {
+        return;
+      }
+
+      this._selectedList.set(list);
+      const normalized = items
+        .map((item) => this.normalizeTodoItem(item))
+        .sort((a, b) => (a.position ?? '').localeCompare(b.position ?? ''));
+      this._selectedItems.set(normalized);
+    } catch (error) {
+      console.error(`Error refreshing todo list ${this.selectedListId}:`, error);
+    }
+  }
+
   async updateTodoItem(
     listId: string,
     itemId: string,
@@ -176,16 +385,27 @@ export class TodoViewModel implements IModuleViewModel {
       const payload = await this.buildPutPayload(listId, itemId, updateTodoItem);
       await this.todoApi.updateTodoItem({ listId, itemId, updateTodoItem: payload });
       await this.fetchAndTransformTodos();
+      if (this.selectedListId === listId) {
+        await this.refreshSelectedList();
+      }
     } catch (error) {
       console.error(`Error updating todo item ${itemId}:`, error);
       throw error;
     }
   }
 
-  async updateTodoList(listId: string, updateTodoList: UpdateTodoList): Promise<void> {
+  async updateTodoList(
+    listId: string,
+    updateTodoList: UpdateTodoList,
+    options?: { signal?: AbortSignal }
+  ): Promise<void> {
     try {
-      await this.todoApi.updateTodoList({ listId, updateTodoList });
+      const initOverrides = options?.signal ? { signal: options.signal } : undefined;
+      await this.todoApi.updateTodoList({ listId, updateTodoList }, initOverrides);
       await this.fetchAndTransformTodos();
+      if (this.selectedListId === listId) {
+        await this.refreshSelectedList();
+      }
     } catch (error) {
       console.error(`Error updating todo list ${listId}:`, error);
       throw error;
@@ -245,6 +465,9 @@ export class TodoViewModel implements IModuleViewModel {
 
       await this.todoApi.createTodoItem({ listId, newTodoItem });
       await this.fetchAndTransformTodos();
+      if (this.selectedListId === listId) {
+        await this.refreshSelectedList();
+      }
     } catch (error) {
       console.error('Error creating todo item:', error);
       throw error;
@@ -277,9 +500,140 @@ export class TodoViewModel implements IModuleViewModel {
 
       await this.todoApi.updateTodoItem({ listId, itemId, updateTodoItem: payload });
       await this.fetchAndTransformTodos();
+      if (this.selectedListId === listId) {
+        await this.refreshSelectedList();
+      }
     } catch (error) {
       console.error('Error updating todo item position:', error);
       throw error;
     }
   }
+
+  updateSelectedListDraft(patch: Partial<Pick<TodoList, 'title' | 'description'>>): void {
+    this._selectedList.update((current) => (current ? { ...current, ...patch } : current));
+  }
+
+  async persistSelectedListDraft(): Promise<void> {
+    const current = get(this._selectedList);
+    if (!current?.id) return;
+    const title = (current.title ?? '').trim();
+    if (!title) return;
+    const payload: UpdateTodoList = {
+      title,
+      description: current.description ?? '',
+    };
+    await this.updateTodoList(current.id, payload);
+  }
+
+  updateItemDraft(itemId: string, patch: TodoItemPatch): void {
+    if (!this.selectedListId || this.positionLocks.has(itemId)) return;
+
+    this._selectedItems.update((items) => {
+      const idx = items.findIndex((i) => i.id === itemId);
+      if (idx === -1) return items;
+      const next = [...items];
+      next[idx] = { ...next[idx], ...patch };
+      return next;
+    });
+
+    const payload = this.buildItemPayload(itemId, patch);
+    if (!payload) return;
+    this.scheduleItemSave(itemId, payload);
+  }
+
+  async commitItemNow(itemId: string): Promise<void> {
+    const payload = this.buildItemPayload(itemId, {});
+    if (!payload) return;
+    this.cancelScheduledItemSave(itemId);
+    this.saveManager.cancel(itemId);
+    await this.performTodoItemUpdate(itemId, payload);
+  }
+
+  toggleItemCompletion(itemId: string): void {
+    const items = get(this._selectedItems);
+    const current = items.find((i) => i.id === itemId);
+    if (!current) return;
+    this.updateItemDraft(itemId, { completed: !current.completed });
+  }
+
+  async reorderSelectedItem(itemId: string, newIndex: number): Promise<void> {
+    if (!this.selectedListId) return;
+    const items = get(this._selectedItems);
+    const oldIndex = items.findIndex((i) => i.id === itemId);
+    if (oldIndex === -1 || newIndex < 0 || newIndex >= items.length || newIndex === oldIndex) {
+      return;
+    }
+
+    this.cancelScheduledItemSave(itemId);
+    this.saveManager.cancel(itemId);
+    this.positionLocks.add(itemId);
+
+    const before = [...items];
+    const reordered = [...items];
+    const [moving] = reordered.splice(oldIndex, 1);
+    reordered.splice(newIndex, 0, moving);
+    this._selectedItems.set(reordered);
+
+    const prevItem = reordered[newIndex - 1] ?? null;
+    const nextItem = reordered[newIndex + 1] ?? null;
+
+    try {
+      await this.updateTodoItemPosition(
+        itemId,
+        this.selectedListId,
+        prevItem ? prevItem.id : null,
+        nextItem ? nextItem.id : null
+      );
+    } catch (error) {
+      this._selectedItems.set(before);
+      throw error;
+    } finally {
+      this.positionLocks.delete(itemId);
+    }
+  }
+
+  flushPendingItemUpdates(): void {
+    this.perItemDebounce.forEach((fn, itemId) => {
+      try {
+        fn.flush();
+      } catch (error) {
+        console.error(`Failed to flush pending update for item ${itemId}:`, error);
+      }
+      this.perItemDebounce.delete(itemId);
+    });
+  }
+
+  private scheduleItemSave(itemId: string, payload: UpdateTodoItem, delay = 400): void {
+    const existing = this.perItemDebounce.get(itemId);
+    if (existing) existing.cancel();
+    const debounced = debounce(() => this.saveManager.enqueue(itemId, payload), delay);
+    this.perItemDebounce.set(itemId, debounced);
+    debounced();
+  }
+
+  private cancelScheduledItemSave(itemId: string): void {
+    const existing = this.perItemDebounce.get(itemId);
+    if (existing) {
+      existing.cancel();
+      this.perItemDebounce.delete(itemId);
+    }
+  }
+
+  private buildItemPayload(itemId: string, patch: TodoItemPatch): UpdateTodoItem | null {
+    const items = get(this._selectedItems);
+    const current = items.find((i) => i.id === itemId);
+    if (!current) return null;
+
+    const title = (patch.title ?? current.title ?? '').trim();
+    if (!title) return null;
+
+    return {
+      title,
+      description: patch.description ?? current.description ?? '',
+      completed: patch.completed ?? current.completed,
+      dueDate: patch.dueDate ?? current.dueDate,
+      position: current.position ?? '',
+    };
+  }
+
 }

@@ -1,337 +1,183 @@
 <script lang="ts">
-  function onNewItemKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') handleAddTodoItem();
-  }
+  import { createEventDispatcher, onDestroy, tick } from 'svelte';
+  import { TodoViewModel, type TodoDetailItem } from '../../viewmodels/todo/TodoViewModel';
+  import type { TodoList } from '../../api/generated/models';
 
-  import { TodoViewModel } from '../../viewmodels/todo/TodoViewModel';
-  import type { TodoList, TodoItem, UpdateTodoItem, UpdateTodoList } from '../../api/generated/models';
-  import { createEventDispatcher, tick } from 'svelte';
-
-  // ============= Utilities =============
-  function debounce<T extends (...args: any[]) => void>(fn: T, delay: number) {
-    let t: ReturnType<typeof setTimeout> | null = null;
-    const d = function (this: ThisParameterType<T>, ...args: Parameters<T>) {
-      if (t) clearTimeout(t);
-      t = setTimeout(() => fn.apply(this, args), delay);
-    } as T & { cancel: () => void; flush: (...args: Parameters<T>) => void };
-    d.cancel = () => { if (t) { clearTimeout(t); t = null; } };
-    d.flush = function (this: ThisParameterType<T>, ...args: Parameters<T>) {
-      if (t) { clearTimeout(t); t = null; }
-      fn.apply(this, args);
-    };
-    return d;
-  }
-  const perItemDebounce = new Map<string, ReturnType<typeof debounce>>();
-  function schedulePerItem(id: string, fn: () => void, ms = 400) {
-    let d = perItemDebounce.get(id);
-    if (!d) {
-      d = debounce(fn, ms);
-      perItemDebounce.set(id, d);
-    } else {
-      d.cancel();
-      d = debounce(fn, ms);
-      perItemDebounce.set(id, d);
-    }
-    d();
-  }
-  function cancelPerItem(id: string) {
-    const d = perItemDebounce.get(id);
-    if (d) d.cancel();
-  }
-
-  // ============= Per-item Save Manager =============
-  type PutFn = (itemId: string, payload: UpdateTodoItem, signal?: AbortSignal) => Promise<void>;
-  class SaveManager {
-    private inFlight = new Map<string, { reqId: number; ctrl: AbortController }>();
-    private nextId = new Map<string, number>();
-    private queued = new Map<string, UpdateTodoItem>();
-    private lastSent = new Map<string, string>(); // JSON string for light dedupe
-
-    constructor(private put: PutFn) {}
-
-    enqueue(itemId: string, payload: UpdateTodoItem) {
-      const key = JSON.stringify(payload);
-      if (this.lastSent.get(itemId) === key && !this.inFlight.has(itemId) && !this.queued.has(itemId)) {
-        return;
-      }
-      this.queued.set(itemId, payload);
-      if (!this.inFlight.has(itemId)) this.runNext(itemId);
-    }
-
-    cancel(itemId: string) {
-      const cur = this.inFlight.get(itemId);
-      if (cur) cur.ctrl.abort();
-      this.inFlight.delete(itemId);
-      this.queued.delete(itemId);
-    }
-
-    private async runNext(itemId: string) {
-      const payload = this.queued.get(itemId);
-      if (!payload) return;
-
-      const id = (this.nextId.get(itemId) ?? 0) + 1;
-      this.nextId.set(itemId, id);
-      this.queued.delete(itemId);
-
-      const ctrl = new AbortController();
-      this.inFlight.set(itemId, { reqId: id, ctrl });
-
-      try {
-        await this.put(itemId, payload, ctrl.signal);
-        this.lastSent.set(itemId, JSON.stringify(payload));
-      } catch (e: any) {
-        if (e?.name !== 'AbortError') {
-          console.error('PUT failed for', itemId, e);
-        }
-      } finally {
-        const cur = this.inFlight.get(itemId);
-        if (!cur || cur.reqId !== id) return; // stale completion
-        this.inFlight.delete(itemId);
-        if (this.queued.has(itemId)) this.runNext(itemId);
-      }
-    }
-  }
-
-  // ============= Component State =============
   export let listId: string;
 
   const dispatch = createEventDispatcher();
   const todoViewModel = TodoViewModel.getInstance();
 
-  let todoList: TodoList | undefined;
-  let todoItems: TodoItem[] = [];
+  let todoList: TodoList | null = null;
+  let todoItems: TodoDetailItem[] = [];
+
+  const unsubscribers: Array<() => void> = [];
+  unsubscribers.push(
+    todoViewModel.getSelectedList().subscribe((value) => {
+      todoList = value;
+    })
+  );
+  unsubscribers.push(
+    todoViewModel.getSelectedItems().subscribe((value) => {
+      todoItems = value;
+    })
+  );
+
+  let visibilityHandler: (() => void) | null = null;
+  if (typeof document !== 'undefined') {
+    visibilityHandler = () => {
+      if (document.visibilityState === 'hidden') {
+        todoViewModel.flushPendingItemUpdates();
+      }
+    };
+    document.addEventListener('visibilitychange', visibilityHandler);
+  }
+
+  onDestroy(() => {
+    unsubscribers.forEach((unsubscribe) => unsubscribe());
+    if (visibilityHandler && typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', visibilityHandler);
+    }
+  });
+
+  let currentListId: string | null = null;
+  $: if (listId && listId !== currentListId) {
+    currentListId = listId;
+    void todoViewModel.selectTodoList(listId);
+  }
 
   let newTodoItemTitle = '';
   let newTodoItemDescription = '';
   let newTodoItemDueDate = '';
 
-  // lock set for items during reorder to block edits
-  const posLock = new Set<string>();
-
-  // SaveManager instance
-  const saveManager = new SaveManager(async (itemId, payload) => {
-    await todoViewModel.updateTodoItem(todoList!.id, itemId, payload);
-  });
-
-  // List title/desc saver
-  const debouncedSaveTodoListTitle = debounce(async (list: TodoList) => {
-    try {
-      const updatedList: UpdateTodoList = { title: list.title, description: list.description };
-      await todoViewModel.updateTodoList(list.id, updatedList);
-    } catch (error) {
-      console.error('Error saving todo list title:', error);
-    }
-  }, 500);
-
-  // helper so TS narrows in event handlers
-  function saveListOnBlur() {
-    if (!todoList) return;
-    debouncedSaveTodoListTitle(todoList);
+  function onNewItemKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter') handleAddTodoItem();
   }
 
-  $: if (listId) fetchTodoListDetails();
-
-  async function fetchTodoListDetails() {
-    try {
-      const fetchedList = await todoViewModel.getTodoListById(listId);
-      if (!fetchedList) return;
-      todoList = fetchedList;
-      const fetchedItems = await todoViewModel.getTodoItemsByListId(listId);
-      todoItems = fetchedItems
-        .map((item: TodoItem) => ({
-          id: item.id!,
-          listId: item.listId!,
-          title: item.title || '',
-          description: item.description || '',
-          completed: !!item.completed,
-          createdAt: item.createdAt,
-          updatedAt: item.updatedAt,
-          dueDate: item.dueDate,
-          position: item.position,
-        }))
-        .sort((a, b) => (a.position || '').localeCompare(b.position || ''));
-    } catch (error) {
-      console.error('Error fetching todo list details:', error);
-    }
-  }
-
-  // ============= PUT payload builder (full resource) =============
-  function buildPutPayload(
-    itemId: string,
-    patch: Partial<Pick<UpdateTodoItem, 'title' | 'description' | 'dueDate' | 'completed'>>
-  ): UpdateTodoItem | null {
-    const cur = todoItems.find((i) => i.id === itemId);
-    if (!cur) return null;
-
-    const title = (patch.title ?? cur.title ?? '').trim();
-    if (!title) return null; // never send empty title
-
-    return {
-      title,
-      description: patch.description ?? cur.description ?? '',
-      dueDate: patch.dueDate ?? cur.dueDate,
-      completed: patch.completed ?? !!cur.completed,
-      position: cur.position, // preserve position for PUT
-    };
-  }
-
-  function scheduleEditSave(item: TodoItem, patch: Partial<UpdateTodoItem>) {
-    const id = item.id!;
-    if (posLock.has(id)) return; // don't write during reorder
-    const payload = buildPutPayload(id, patch);
-    if (!payload) return;
-    schedulePerItem(id, () => saveManager.enqueue(id, payload), 400);
-  }
-
-  // ============= Handlers =============
   async function handleAddTodoItem() {
+    if (!todoList?.id) return;
     const title = newTodoItemTitle.trim();
-    if (!title || !todoList?.id) return;
+    if (!title) return;
+    const dueDate = newTodoItemDueDate ? new Date(newTodoItemDueDate) : undefined;
+
     try {
-      const dueDate = newTodoItemDueDate ? new Date(newTodoItemDueDate) : undefined;
       await todoViewModel.createTodoItem(todoList.id, title, newTodoItemDescription, dueDate);
       newTodoItemTitle = '';
       newTodoItemDescription = '';
       newTodoItemDueDate = '';
-      await fetchTodoListDetails();
     } catch (error) {
       console.error('Error adding todo item:', error);
     }
   }
 
-  function handleToggleComplete(item: TodoItem) {
-    const idx = todoItems.findIndex((i) => i.id === item.id);
-    if (idx !== -1) {
-      const next = [...todoItems];
-      next[idx] = { ...next[idx], completed: !next[idx].completed };
-      todoItems = next;
-    }
-    scheduleEditSave(item, { completed: !item.completed });
+  function handleToggleComplete(item: TodoDetailItem) {
+    todoViewModel.toggleItemCompletion(item.id);
   }
 
-  function onTitleInput(e: Event, item: TodoItem) {
-    const el = e.currentTarget as HTMLInputElement;
-    const v = el.value ?? '';
-    const idx = todoItems.findIndex((i) => i.id === item.id);
-    if (idx !== -1) {
-      const next = [...todoItems];
-      next[idx] = { ...next[idx], title: v };
-      todoItems = next;
-    }
-    if (v.trim().length === 0) return;
-    scheduleEditSave(item, { title: v });
+  function onTitleInput(event: Event, item: TodoDetailItem) {
+    const value = (event.currentTarget as HTMLInputElement).value ?? '';
+    todoViewModel.updateItemDraft(item.id, { title: value });
   }
 
-  function onTitleBlur(e: Event, item: TodoItem) {
-    const el = e.currentTarget as HTMLInputElement;
-    const v = (el.value ?? '').trim();
-    if (v.length === 0) {
-      const cur = todoItems.find((i) => i.id === item.id);
-      el.value = (cur?.title || '').trim();
+  async function onTitleBlur(event: Event, item: TodoDetailItem) {
+    const value = ((event.currentTarget as HTMLInputElement).value ?? '').trim();
+    if (!value) {
+      await todoViewModel.reloadSelectedListDetail();
       return;
     }
-    cancelPerItem(item.id!);
-    const payload = buildPutPayload(item.id!, {
-      title: v,
-      description: item.description || '',
-      dueDate: item.dueDate,
-      completed: item.completed
-    });
-    if (payload) saveManager.enqueue(item.id!, payload);
+    try {
+      await todoViewModel.commitItemNow(item.id);
+    } catch (error) {
+      console.error('Error saving todo item title:', error);
+    }
   }
 
   function onTitleKeydown(e: KeyboardEvent & { currentTarget: HTMLInputElement }) {
     if (e.key === 'Enter') e.currentTarget.blur();
   }
 
-  function onDescInput(e: Event, item: TodoItem) {
-    const el = e.currentTarget as HTMLTextAreaElement;
-    const v = el.value ?? '';
-    const idx = todoItems.findIndex((i) => i.id === item.id);
-    if (idx !== -1) {
-      const next = [...todoItems];
-      next[idx] = { ...next[idx], description: v };
-      todoItems = next;
-    }
-    scheduleEditSave(item, { description: v });
+  function onDescInput(event: Event, item: TodoDetailItem) {
+    const value = (event.currentTarget as HTMLTextAreaElement).value ?? '';
+    todoViewModel.updateItemDraft(item.id, { description: value });
   }
 
-  function onDueInput(e: Event, item: TodoItem) {
-    const el = e.currentTarget as HTMLInputElement;
-    const v = el.value;
-    const date = v ? new Date(v) : undefined;
-    const idx = todoItems.findIndex((i) => i.id === item.id);
-    if (idx !== -1) {
-      const next = [...todoItems];
-      next[idx] = { ...next[idx], dueDate: date };
-      todoItems = next;
+  async function onDescBlur(item: TodoDetailItem) {
+    try {
+      await todoViewModel.commitItemNow(item.id);
+    } catch (error) {
+      console.error('Error saving todo item description:', error);
     }
-    scheduleEditSave(item, { dueDate: date });
+  }
+
+  function onDueInput(event: Event, item: TodoDetailItem) {
+    const value = (event.currentTarget as HTMLInputElement).value ?? '';
+    const date = value ? new Date(value) : undefined;
+    todoViewModel.updateItemDraft(item.id, { dueDate: date });
+  }
+
+  async function onDueBlur(item: TodoDetailItem) {
+    try {
+      await todoViewModel.commitItemNow(item.id);
+    } catch (error) {
+      console.error('Error saving todo item due date:', error);
+    }
   }
 
   async function handleReorderTodoItem(itemId: string, newIndex: number) {
-    const oldIndex = todoItems.findIndex((i) => i.id === itemId);
-    if (oldIndex === -1) return;
-    if (newIndex < 0 || newIndex >= todoItems.length || newIndex === oldIndex) return;
-
-    cancelPerItem(itemId);
-    saveManager.cancel(itemId);
-    posLock.add(itemId);
-
-    const before = [...todoItems];
-    const moving = todoItems[oldIndex];
-    const next = [...todoItems];
-    next.splice(oldIndex, 1);
-    next.splice(newIndex, 0, moving);
-    todoItems = next;
-
-    const prevItem = newIndex > 0 ? todoItems[newIndex - 1] : null;
-    const nextItem = newIndex < todoItems.length - 1 ? todoItems[newIndex + 1] : null;
-
     try {
-      await todoViewModel.updateTodoItemPosition(
-        itemId,
-        todoList!.id,
-        prevItem ? prevItem.id : null,
-        nextItem ? nextItem.id : null
-      );
+      await todoViewModel.reorderSelectedItem(itemId, newIndex);
     } catch (error) {
       console.error('Error reordering todo item:', error);
-      todoItems = before; // rollback on failure
-    } finally {
-      posLock.delete(itemId);
     }
   }
 
   let editingItemId: string | null = null;
-  let editedItemTitle = '';
-  let editedItemDescription = '';
-  let editedItemDueDate = '';
-  async function startEdit(item: TodoItem) {
-    editingItemId = item.id!;
-    editedItemTitle = item.title || '';
-    editedItemDescription = item.description || '';
-    editedItemDueDate = item.dueDate ? item.dueDate.toISOString().split('T')[0] : '';
+
+  async function startEdit(item: TodoDetailItem) {
+    editingItemId = item.id;
     await tick();
     const inputElement = document.querySelector<HTMLInputElement>(`#item-title-${item.id}`);
     if (inputElement) inputElement.focus();
   }
-  function cancelEdit() {
+
+  async function cancelEdit() {
     editingItemId = null;
-    fetchTodoListDetails();
+    await todoViewModel.reloadSelectedListDetail();
   }
 
   function closeDetailPanel() {
     dispatch('close');
   }
 
-  // flush debounces on tab hide
-  if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') {
-        perItemDebounce.forEach((d) => d.flush());
-      }
-    });
+  function onListTitleInput(event: Event) {
+    const value = (event.currentTarget as HTMLInputElement).value ?? '';
+    todoViewModel.updateSelectedListDraft({ title: value });
+  }
+
+  async function onListTitleBlur(event: Event) {
+    const value = ((event.currentTarget as HTMLInputElement).value ?? '').trim();
+    if (!value) {
+      await todoViewModel.reloadSelectedListDetail();
+      return;
+    }
+    try {
+      await todoViewModel.persistSelectedListDraft();
+    } catch (error) {
+      console.error('Error saving list title:', error);
+    }
+  }
+
+  function onListDescriptionInput(event: Event) {
+    const value = (event.currentTarget as HTMLTextAreaElement).value ?? '';
+    todoViewModel.updateSelectedListDraft({ description: value });
+  }
+
+  async function onListDescriptionBlur() {
+    try {
+      await todoViewModel.persistSelectedListDraft();
+    } catch (error) {
+      console.error('Error saving list description:', error);
+    }
   }
 </script>
 
@@ -370,16 +216,18 @@
       <!-- List title -->
       <input
         type="text"
-        bind:value={todoList.title}
-        on:blur={saveListOnBlur}
+        value={todoList?.title ?? ''}
+        on:input={onListTitleInput}
+        on:blur={onListTitleBlur}
         placeholder="List title"
         class="w-full bg-transparent text-xl font-semibold text-white outline-none placeholder:text-gray-500"
       />
 
       <!-- List description -->
       <textarea
-        bind:value={todoList.description}
-        on:blur={saveListOnBlur}
+        value={todoList?.description ?? ''}
+        on:input={onListDescriptionInput}
+        on:blur={onListDescriptionBlur}
         placeholder="List description..."
         class="w-full resize-none rounded-xl border border-[#444] bg-[#2a2a2a] p-3 text-gray-200 outline-none transition-[box-shadow,border-color] focus:border-blue-500 focus:shadow-[0_0_0_2px_rgba(59,130,246,0.2)]"
       ></textarea>
@@ -388,35 +236,31 @@
       <ul class="flex flex-col gap-2">
         {#each todoItems as item, i (item.id)}
           <li class="group relative flex items-center justify-between rounded-xl bg-[#2a2a2a] p-2 transition-colors hover:bg-[#333]">
-            <div class="flex w-full items-center">
-              <!-- Checkbox -->
+            <div class="flex w-full items-center" on:dblclick={() => startEdit(item)}>
               <div
-                class="flex h-5 w-5 items-center justify-center rounded border-2 transition-colors
-                       {item.completed ? 'border-blue-500 bg-blue-500' : 'border-gray-500'}"
+                class="flex h-5 w-5 items-center justify-center rounded border-2 transition-colors {item.completed ? 'border-blue-500 bg-blue-500' : 'border-gray-500'}"
                 on:click={() => handleToggleComplete(item)}
               >
                 {#if item.completed}
                   <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                    <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
                   </svg>
                 {/if}
               </div>
 
-              <!-- Title -->
               <input
-                type="text"
                 id={"item-title-" + item.id}
-                bind:value={item.title}
+                type="text"
+                value={item.title}
                 minlength="1"
                 on:keydown={onTitleKeydown}
-                on:input={(e) => onTitleInput(e, item)}
-                on:blur={(e) => onTitleBlur(e, item)}
+                on:input={(event) => onTitleInput(event, item)}
+                on:blur={(event) => onTitleBlur(event, item)}
                 class="ml-2 w-full bg-transparent text-gray-200 outline-none placeholder:text-gray-500 {item.completed ? 'text-gray-400 line-through' : ''}"
                 placeholder="Untitled item"
               />
             </div>
 
-            <!-- Reorder controls -->
             <div class="absolute right-2 top-1/2 flex -translate-y-1/2 transform flex-col opacity-0 transition-opacity group-hover:opacity-100">
               <button
                 on:mousedown|preventDefault
@@ -427,7 +271,7 @@
                 title="Move up"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clip-rule="evenodd"/>
+                  <path fill-rule="evenodd" d="M14.707 12.707a1 1 0 01-1.414 0L10 9.414l-3.293 3.293a1 1 0 01-1.414-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 010 1.414z" clip-rule="evenodd" />
                 </svg>
               </button>
               <button
@@ -439,27 +283,18 @@
                 title="Move down"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
+                  <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
                 </svg>
               </button>
             </div>
           </li>
 
-          <!-- Expanded editor -->
           {#if editingItemId === item.id}
             <li class="rounded-xl bg-[#2a2a2a] p-3">
               <textarea
-                bind:value={item.description}
-                on:input={(e) => onDescInput(e, item)}
-                on:blur={() => {
-                  const payload = buildPutPayload(item.id, {
-                    title: item.title,
-                    description: item.description || '',
-                    dueDate: item.dueDate,
-                    completed: item.completed
-                  });
-                  if (payload) saveManager.enqueue(item.id, payload);
-                }}
+                value={item.description ?? ''}
+                on:input={(event) => onDescInput(event, item)}
+                on:blur={() => onDescBlur(item)}
                 placeholder="Item description (optional)"
                 class="mb-2 w-full resize-none rounded-lg border border-[#444] bg-[#1f2937] p-2 text-gray-200 outline-none transition-[box-shadow,border-color] focus:border-blue-500 focus:shadow-[0_0_0_2px_rgba(59,130,246,0.2)]"
               ></textarea>
@@ -467,23 +302,23 @@
               <input
                 type="date"
                 value={item.dueDate ? item.dueDate.toISOString().split('T')[0] : ''}
-                on:input={(e) => onDueInput(e, item)}
-                on:blur={() => {
-                  const payload = buildPutPayload(item.id, {
-                    title: item.title,
-                    description: item.description || '',
-                    dueDate: item.dueDate,
-                    completed: item.completed
-                  });
-                  if (payload) saveManager.enqueue(item.id, payload);
-                }}
+                on:input={(event) => onDueInput(event, item)}
+                on:blur={() => onDueBlur(item)}
                 class="w-full rounded-lg border border-[#444] bg-[#1f2937] p-2 text-gray-200 outline-none transition-[box-shadow,border-color] focus:border-blue-500 focus:shadow-[0_0_0_2px_rgba(59,130,246,0.2)]"
               />
+
+              <div class="mt-3 flex justify-end space-x-2">
+                <button
+                  class="rounded-lg px-3 py-1 text-sm text-gray-400 transition-colors hover:bg-gray-700 hover:text-gray-200"
+                  on:click={cancelEdit}
+                >
+                  Cancel
+                </button>
+              </div>
             </li>
           {/if}
         {/each}
 
-        <!-- New Todo Item Input (moved inside ul, no mt-[-1]) -->
         <li class="group relative flex items-center justify-between rounded-xl bg-[#2a2a2a] p-2 transition-colors hover:bg-[#333]">
           <div class="flex w-full items-center">
             <div class="flex h-5 w-5 items-center justify-center rounded {newTodoItemTitle.trim() !== '' ? 'border-2 border-gray-500' : ''}"></div>
