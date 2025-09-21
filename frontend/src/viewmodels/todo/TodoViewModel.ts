@@ -13,6 +13,7 @@ import type {
 import { generatePosition } from '../../utils/fractionalIndexing';
 import { CloudAuthViewModel } from '@/viewmodels/cloud-auth/CloudAuthViewModel';
 import { DetailSaveQueue } from './DetailSaveQueue';
+import { getApiBaseUrl } from '@/config/api';
 
 const cloudAuthViewModel = CloudAuthViewModel.getInstance();
 
@@ -55,7 +56,7 @@ export class TodoViewModel implements IModuleViewModel {
 
   private constructor() {
     const config = new Configuration({
-      basePath: 'http://localhost:8080/api/v1',
+      basePath: getApiBaseUrl(),
       accessToken: () => cloudAuthViewModel.jwtToken || '',
     });
     this.todoApi = new DefaultApi(config);
