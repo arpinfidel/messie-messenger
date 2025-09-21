@@ -2,16 +2,14 @@
 <script lang="ts">
   import { onMount, createEventDispatcher } from 'svelte';
   import { UnifiedTimelineViewModel } from '@/viewmodels/shared/UnifiedTimelineViewModel';
-  import { MatrixViewModel } from '@/viewmodels/matrix/MatrixViewModel';
   import type { TimelineItem } from '@/models/shared/TimelineItem';
-  import { DefaultApi } from '@/api/generated/apis/DefaultApi';
-  import type { NewTodoList } from '@/api/generated/models/NewTodoList';
   import LoadingIndicator from './LoadingIndicator.svelte';
-  import { CloudAuthViewModel } from '@/viewmodels/cloud-auth/CloudAuthViewModel';
-  import { Configuration, DefaultConfig } from '@/api/generated';
-  import { TodoViewModel } from '@/viewmodels/todo/TodoViewModel';
   import GenericTimelineItem from './timeline/GenericTimelineItem.svelte';
   import PopupMenu from '@/views/shared/PopupMenu.svelte';
+  import {
+    TodoViewModel,
+    type CreateTodoListState,
+  } from '@/viewmodels/todo/TodoViewModel';
 
   const dispatch = createEventDispatcher();
 
@@ -21,31 +19,72 @@
   let loadingModuleNames: string[] = [];
   let loadingText = 'Loading timeline items...';
   let showCreateMenu = false;
+  let todoCreationState: CreateTodoListState = { status: 'idle' };
+  let creationToast: { type: 'success' | 'error'; message: string } | null = null;
+  let creationToastTimer: ReturnType<typeof setTimeout> | null = null;
 
   const unifiedTimelineViewModel = new UnifiedTimelineViewModel();
-  const cloudAuthViewModel = CloudAuthViewModel.getInstance();
   const todoViewModel = TodoViewModel.getInstance();
 
   let createButton: HTMLButtonElement;
 
-  onMount(async () => {
-    unifiedTimelineViewModel.isLoading.subscribe((value) => {
-      isLoading = value;
-    });
+  onMount(() => {
+    const unsubscribers: Array<() => void> = [];
 
-    unifiedTimelineViewModel.loadingModuleNames.subscribe((value) => {
-      loadingModuleNames = value;
-    });
+    unsubscribers.push(
+      unifiedTimelineViewModel.isLoading.subscribe((value) => {
+        isLoading = value;
+      })
+    );
 
-    try {
+    unsubscribers.push(
+      unifiedTimelineViewModel.loadingModuleNames.subscribe((value) => {
+        loadingModuleNames = value;
+      })
+    );
+
+    unsubscribers.push(
       unifiedTimelineViewModel.getSortedTimelineStore().subscribe((value: TimelineItem[]) => {
         items = value;
-      });
-    } catch (e: any) {
-      error = e.message;
-    }
-  });
+      })
+    );
 
+    unsubscribers.push(
+      todoViewModel.getCreateTodoListState().subscribe((state) => {
+        todoCreationState = state;
+        if (creationToastTimer) {
+          clearTimeout(creationToastTimer);
+          creationToastTimer = null;
+        }
+
+        if (state.status === 'success') {
+          creationToast = {
+            type: 'success',
+            message: 'Todo list created successfully.',
+          };
+          creationToastTimer = setTimeout(() => {
+            creationToast = null;
+            todoViewModel.resetCreateTodoListState();
+          }, 2500);
+        } else if (state.status === 'error') {
+          creationToast = {
+            type: 'error',
+            message: state.error ?? 'Failed to create todo list.',
+          };
+        } else {
+          creationToast = null;
+        }
+      })
+    );
+
+    return () => {
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
+      if (creationToastTimer) {
+        clearTimeout(creationToastTimer);
+        creationToastTimer = null;
+      }
+    };
+  });
 
   $: loadingText = loadingModuleNames.length > 0 ? `Loading: ${loadingModuleNames.join(', ')}` : '';
 
@@ -55,26 +94,16 @@
 
   async function createTodoList() {
     showCreateMenu = false;
-    if (!cloudAuthViewModel.jwtToken) {
-      console.error('User not authenticated. Cannot create todo list.');
-      return;
-    }
-
-    const config = new Configuration({
-      accessToken: () => cloudAuthViewModel.jwtToken || '',
-    });
-    const api = new DefaultApi(config);
-    const newTodoList: NewTodoList = { title: 'New Todo List', description: '' };
-
     try {
-      const response = await api.createTodoList({ newTodoList });
-      console.log('Todo list created successfully:', response);
-      await todoViewModel.fetchAndTransformTodos();
-      alert('Todo list created successfully!');
-    } catch (error: any) {
+      await todoViewModel.createTodoList({ title: 'New Todo List', description: '' });
+    } catch (error) {
       console.error('Failed to create todo list:', error);
-      alert(`Failed to create todo list: ${error.message || 'Unknown error'}`);
     }
+  }
+
+  function dismissCreationToast() {
+    creationToast = null;
+    todoViewModel.resetCreateTodoListState();
   }
 </script>
 
@@ -117,15 +146,22 @@
 
             <PopupMenu anchor={createButton} show={showCreateMenu} on:close={() => (showCreateMenu = false)}>
               <button
-                class="flex w-full items-center px-4 py-3 text-left text-gray-700 transition-colors hover:bg-gray-100/80 dark:text-gray-300 dark:hover:bg-gray-700/80"
+                class="flex w-full items-center px-4 py-3 text-left text-gray-700 transition-colors hover:bg-gray-100/80 disabled:cursor-not-allowed disabled:opacity-60 dark:text-gray-300 dark:hover:bg-gray-700/80"
                 on:click={createTodoList}
+                disabled={todoCreationState.status === 'creating'}
               >
                 <div class="mr-3 flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/50">
                   <span class="text-sm">✅</span>
                 </div>
                 <div>
-                  <div class="font-medium">Create todo list</div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">Add a new task list</div>
+                  <div class="font-medium">
+                    {todoCreationState.status === 'creating' ? 'Creating...' : 'Create todo list'}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    {todoCreationState.status === 'creating'
+                      ? 'Hang tight while we set things up'
+                      : 'Add a new task list'}
+                  </div>
                 </div>
               </button>
             </PopupMenu>
@@ -148,6 +184,24 @@
 
   <!-- Content Area -->
   <div class="px-6 py-6">
+    {#if creationToast}
+      <div
+        class={`mb-4 flex items-start justify-between rounded-lg border px-4 py-3 text-sm ${
+          creationToast.type === 'success'
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-100'
+            : 'border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-900/30 dark:text-red-100'
+        }`}
+      >
+        <span>{creationToast.message}</span>
+        <button
+          class="ml-4 text-xs font-medium underline-offset-2 hover:underline"
+          on:click={dismissCreationToast}
+        >
+          Dismiss
+        </button>
+      </div>
+    {/if}
+
     {#if error}
       <!-- Enhanced Error State -->
       <div class="rounded-xl border border-red-200 bg-red-50 p-6 dark:border-red-800 dark:bg-red-900/20">

@@ -4,6 +4,7 @@ import type { IModuleViewModel } from '../shared/IModuleViewModel';
 import { DefaultApi, Configuration } from '../../api/generated';
 import type {
   NewTodoItem,
+  NewTodoList,
   UpdateTodoItem,
   TodoList,
   TodoItem,
@@ -14,11 +15,19 @@ import { CloudAuthViewModel } from '@/viewmodels/cloud-auth/CloudAuthViewModel';
 
 const cloudAuthViewModel = CloudAuthViewModel.getInstance();
 
+export type CreateTodoListState = {
+  status: 'idle' | 'creating' | 'success' | 'error';
+  error?: string;
+  listId?: string;
+};
+
 export class TodoViewModel implements IModuleViewModel {
   private static instance: TodoViewModel;
   private todoApi: DefaultApi;
   private _timelineItems = writable<TimelineItem[]>([]);
   private pollingInterval: ReturnType<typeof setInterval> | undefined;
+  private readonly initialCreateState: CreateTodoListState = { status: 'idle' };
+  private _createTodoListState = writable<CreateTodoListState>(this.initialCreateState);
 
   private constructor() {
     const config = new Configuration({
@@ -56,6 +65,10 @@ export class TodoViewModel implements IModuleViewModel {
 
   getTimelineItems(): Readable<TimelineItem[]> {
     return this._timelineItems;
+  }
+
+  getCreateTodoListState(): Readable<CreateTodoListState> {
+    return this._createTodoListState;
   }
 
   getSettingsComponent(): any {
@@ -177,6 +190,38 @@ export class TodoViewModel implements IModuleViewModel {
       console.error(`Error updating todo list ${listId}:`, error);
       throw error;
     }
+  }
+
+  async createTodoList(payload: { title: string; description?: string }): Promise<TodoList> {
+    const title = payload.title?.trim() ?? '';
+    if (!title) {
+      throw new Error('Todo list name is required');
+    }
+
+    if (!cloudAuthViewModel.jwtToken) {
+      throw new Error('User not authenticated');
+    }
+
+    try {
+      this._createTodoListState.set({ status: 'creating' });
+      const newTodoList: NewTodoList = {
+        title,
+        description: payload.description ?? '',
+      };
+      const created = await this.todoApi.createTodoList({ newTodoList });
+      await this.fetchAndTransformTodos();
+      this._createTodoListState.set({ status: 'success', listId: created.id });
+      return created;
+    } catch (error) {
+      console.error('Error creating todo list:', error);
+      const message = (error as Error)?.message ?? 'Unable to create todo list';
+      this._createTodoListState.set({ status: 'error', error: message });
+      throw error;
+    }
+  }
+
+  resetCreateTodoListState(): void {
+    this._createTodoListState.set(this.initialCreateState);
   }
 
   async createTodoItem(
