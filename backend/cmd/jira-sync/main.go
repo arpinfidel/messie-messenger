@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -71,6 +72,8 @@ func run(ctx context.Context) error {
 		}
 		fmt.Println("Refreshing local YAML from Jira...")
 		return runPull(ctx, client, cfg)
+	case "fields":
+		return runListFields(ctx, client)
 	default:
 		printUsage()
 		return fmt.Errorf("unknown command: %s", command)
@@ -78,11 +81,12 @@ func run(ctx context.Context) error {
 }
 
 func printUsage() {
-	fmt.Println("Usage: go run ./backend/cmd/jira-sync <pull|push>")
+	fmt.Println("Usage: go run ./backend/cmd/jira-sync <pull|push|fields>")
 	fmt.Println()
 	fmt.Println("Commands:")
 	fmt.Println("  pull   Fetch issues from Jira and write them to the YAML file")
 	fmt.Println("  push   Read the YAML file and update/create issues in Jira")
+	fmt.Println("  fields List available Jira fields (helps locate the Epic Link custom field)")
 }
 
 type config struct {
@@ -95,6 +99,7 @@ type config struct {
 	YAMLPath         string
 	MaxResults       int
 	PushWorkers      int
+	EpicLinkField    string
 }
 
 func maybeLoadDotEnv() error {
@@ -171,6 +176,11 @@ func loadConfig() (config, error) {
 		pushWorkers = parsed
 	}
 
+	epicField := strings.TrimSpace(os.Getenv("JIRA_EPIC_LINK_FIELD"))
+	if epicField == "" {
+		epicField = "customfield_10014"
+	}
+
 	return config{
 		BaseURL:          baseURL,
 		Email:            email,
@@ -181,6 +191,7 @@ func loadConfig() (config, error) {
 		YAMLPath:         yamlPath,
 		MaxResults:       maxResults,
 		PushWorkers:      pushWorkers,
+		EpicLinkField:    epicField,
 	}, nil
 }
 
@@ -341,11 +352,33 @@ func (c *jiraClient) createIssue(ctx context.Context, fields map[string]interfac
 	return resp.Key, nil
 }
 
+func (c *jiraClient) listFields(ctx context.Context) ([]jiraField, error) {
+	req, err := c.newRequest(ctx, http.MethodGet, jiraAPIPrefix+"/field", nil, nil)
+	if err != nil {
+		return nil, err
+	}
+	var payload []jiraField
+	if err := c.do(req, &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
+}
+
 type jiraSearchResponse struct {
 	StartAt    int         `json:"startAt"`
 	MaxResults int         `json:"maxResults"`
 	Total      int         `json:"total"`
 	Issues     []jiraIssue `json:"issues"`
+}
+
+type jiraField struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Schema struct {
+		Type     string `json:"type"`
+		Custom   string `json:"custom"`
+		CustomID int    `json:"customId"`
+	} `json:"schema"`
 }
 
 type jiraIssue struct {
@@ -501,7 +534,7 @@ func runPush(ctx context.Context, client *jiraClient, cfg config) error {
 				return nil
 			}
 
-			if err := updateIssue(groupCtx, client, issue); err != nil {
+			if err := updateIssue(groupCtx, client, cfg, issue); err != nil {
 				return fmt.Errorf("update %s: %w", issue.Key, err)
 			}
 			fmt.Printf("Updated %s\n", issue.Key)
@@ -525,6 +558,33 @@ func runPush(ctx context.Context, client *jiraClient, cfg config) error {
 		data.Issues = remaining
 		if err := writeIssueFile(cfg.YAMLPath, data); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func runListFields(ctx context.Context, client *jiraClient) error {
+	fmt.Println("Fetching fields from Jira...")
+	fields, err := client.listFields(ctx)
+	if err != nil {
+		return err
+	}
+	if len(fields) == 0 {
+		fmt.Println("No fields returned." )
+		return nil
+	}
+	sort.Slice(fields, func(i, j int) bool {
+		return strings.ToLower(fields[i].Name) < strings.ToLower(fields[j].Name)
+	})
+	for _, field := range fields {
+		marker := ""
+		lower := strings.ToLower(field.Name)
+		if strings.Contains(lower, "epic") {
+			marker = " <-- contains 'epic'"
+		}
+		fmt.Printf("%s\t%s%s\n", field.ID, field.Name, marker)
+		if field.Schema.Type != "" || field.Schema.Custom != "" || field.Schema.CustomID != 0 {
+			fmt.Printf("    schema: type=%s custom=%s customId=%d\n", field.Schema.Type, field.Schema.Custom, field.Schema.CustomID)
 		}
 	}
 	return nil
@@ -566,12 +626,28 @@ func createIssue(ctx context.Context, client *jiraClient, cfg config, issue issu
 		fields["priority"] = map[string]string{"name": priority}
 	}
 	parent := strings.TrimSpace(issue.ParentKey)
-	parentAllowed := parent != "" && canSetParent(issueType)
-	if parentAllowed {
+	epicField := strings.TrimSpace(cfg.EpicLinkField)
+	useEpicFallback := parent != "" && epicField != ""
+	if parent != "" {
 		fields["parent"] = map[string]string{"key": parent}
 	}
 
 	key, err := client.createIssue(ctx, fields)
+	if err != nil && parent != "" && isParentError(err) {
+		delete(fields, "parent")
+		if useEpicFallback {
+			fields[epicField] = parent
+			fmt.Printf("Warning: Jira rejected parent %s for new issue %q; retrying with %s.\n", parent, summary, epicField)
+		} else {
+			fmt.Printf("Warning: Jira rejected parent %s for new issue %q; retrying without parent.\n", parent, summary)
+		}
+		key, err = client.createIssue(ctx, fields)
+	}
+	if err != nil && useEpicFallback && isEpicLinkError(err) {
+		delete(fields, epicField)
+		fmt.Printf("Warning: Jira rejected %s for new issue %q; retrying without epic link.\n", epicField, summary)
+		key, err = client.createIssue(ctx, fields)
+	}
 	if err != nil && priority != "" && isPriorityError(err) {
 		delete(fields, "priority")
 		key, err = client.createIssue(ctx, fields)
@@ -579,17 +655,10 @@ func createIssue(ctx context.Context, client *jiraClient, cfg config, issue issu
 			fmt.Printf("Warning: Jira rejected priority for new issue %q; created without priority.\n", summary)
 		}
 	}
-	if err != nil && parentAllowed && isParentError(err) {
-		delete(fields, "parent")
-		key, err = client.createIssue(ctx, fields)
-		if err == nil {
-			fmt.Printf("Warning: Jira rejected parent %s for new issue %q; created without parent.\n", parent, summary)
-		}
-	}
 	return key, err
 }
 
-func updateIssue(ctx context.Context, client *jiraClient, issue issueRecord) error {
+func updateIssue(ctx context.Context, client *jiraClient, cfg config, issue issueRecord) error {
 	summary := strings.TrimSpace(issue.Summary)
 	if summary == "" {
 		return errors.New("summary cannot be empty when updating an issue")
@@ -620,24 +689,34 @@ func updateIssue(ctx context.Context, client *jiraClient, issue issueRecord) err
 		fields["priority"] = map[string]string{"name": priority}
 	}
 	parent := strings.TrimSpace(issue.ParentKey)
-	parentAllowed := parent != "" && canSetParent(issueType)
-	if parentAllowed {
+	epicField := strings.TrimSpace(cfg.EpicLinkField)
+	useEpicFallback := parent != "" && epicField != ""
+	if parent != "" {
 		fields["parent"] = map[string]string{"key": parent}
 	}
 
 	err := client.updateIssue(ctx, issue.Key, fields)
+	if err != nil && parent != "" && isParentError(err) {
+		delete(fields, "parent")
+		if useEpicFallback {
+			fields[epicField] = parent
+			fmt.Printf("Warning: Jira rejected parent update %s for %s; retrying with %s.\n", parent, issue.Key, epicField)
+		} else {
+			fmt.Printf("Warning: Jira rejected parent update %s for %s; retrying without parent.\n", parent, issue.Key)
+		}
+		err = client.updateIssue(ctx, issue.Key, fields)
+	}
+	if err != nil && useEpicFallback && isEpicLinkError(err) {
+		delete(fields, epicField)
+		fmt.Printf("Warning: Jira rejected epic link update %s for %s; retrying without epic link.\n", parent, issue.Key)
+		err = client.updateIssue(ctx, issue.Key, fields)
+	}
 	if err != nil && priority != "" && isPriorityError(err) {
 		delete(fields, "priority")
+		fmt.Printf("Warning: Jira rejected priority update for %s; retrying without priority.\n", issue.Key)
 		err = client.updateIssue(ctx, issue.Key, fields)
 		if err == nil {
 			fmt.Printf("Warning: Jira rejected priority update for %s; left existing priority unchanged.\n", issue.Key)
-		}
-	}
-	if err != nil && parentAllowed && isParentError(err) {
-		delete(fields, "parent")
-		err = client.updateIssue(ctx, issue.Key, fields)
-		if err == nil {
-			fmt.Printf("Warning: Jira rejected parent update %s for %s; left parent unchanged.\n", parent, issue.Key)
 		}
 	}
 	return err
@@ -732,6 +811,14 @@ func isParentError(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "parent")
+}
+
+func isEpicLinkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "epic") || strings.Contains(msg, "customfield")
 }
 
 func canSetParent(issueType string) bool {
