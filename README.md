@@ -1,10 +1,20 @@
-# Messie Messenger
+<p align="center">
+  <img src="frontend/public/messie-logo.svg" alt="Messie Messenger logo" width="160">
+</p>
+
+<h1 align="center">Messie Messenger</h1>
 
 Messie Messenger is a multi-channel productivity hub that combines Matrix chat, IMAP email, and collaborative todos inside a single workspace.
 
 ## Vision
 
 Use Matrix bridges as the backbone to connect commonly used messengers, and complement it with email, collaborative notes/todos, and calendar for daily work.
+
+Unifying those channels gives future Messie AI assistants a trusted knowledge source, since they can reference the full history of chats, emails, and todo context when offering guidance.
+
+## Seamless Bridge Integrations
+
+Bridge connections should feel invisible to teammates. We are investing in polished authentication flows, consistent room metadata, and shared settings so bridged services behave like first-class citizens across chat, email, and timeline surfaces.
 
 ## Stack Overview
 

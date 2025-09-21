@@ -10,6 +10,7 @@ Guiding Themes
 - **One desk for everything**: Matrix chat, email, and todos should feel like facets of a single workspace with consistent design language and interaction patterns.
 - **Reliability before reach**: Ship stabilizing improvements and foundational refactors before layering advanced features or new surfaces.
 - **Intelligent assistance**: Invest in AI-powered guidance (filters, summaries, search) once core data pipelines are trustworthy.
+- **Bridges without seams**: Treat bridged Matrix rooms as native spaces by aligning login flows, avatars, and notifications so external networks blend into the shared workspace.
 
 Horizon View
 ------------
