@@ -1,12 +1,13 @@
 import { derived, writable, readable, type Readable } from 'svelte/store';
 import type { TimelineItem } from '@/models/shared/TimelineItem';
 import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
-import { TodoViewModel } from '@/viewmodels/todo/TodoViewModel';
+import { TodoViewModel, type CreateTodoListState } from '@/viewmodels/todo/TodoViewModel';
 import { MatrixViewModel } from '@/viewmodels/matrix/MatrixViewModel';
 import { EmailViewModel } from '@/viewmodels/email/EmailViewModel';
 
 export class UnifiedTimelineViewModel {
   private modules: IModuleViewModel[] = [];
+  private todoViewModel: TodoViewModel;
   private _loadingModuleNames = writable<string[]>([]);
   public loadingModuleNames: Readable<string[]> = readable([], (set: (value: string[]) => void) =>
     this._loadingModuleNames.subscribe(set)
@@ -17,10 +18,11 @@ export class UnifiedTimelineViewModel {
   );
 
   constructor() {
+    this.todoViewModel = TodoViewModel.getInstance();
     this.modules = [
       MatrixViewModel.getInstance(),
       EmailViewModel.getInstance(),
-      TodoViewModel.getInstance(),
+      this.todoViewModel,
     ];
     this.initializeModules();
     console.log('UnifiedTimelineViewModel: Initialized');
@@ -87,5 +89,17 @@ export class UnifiedTimelineViewModel {
       // console.log('UnifiedTimelineViewModel: Derived sorted count:', sorted.length);
       return sorted;
     });
+  }
+
+  public getTodoCreationState(): Readable<CreateTodoListState> {
+    return this.todoViewModel.getCreateTodoListState();
+  }
+
+  public async createTodoList(payload: { title: string; description?: string }): Promise<void> {
+    await this.todoViewModel.createTodoList(payload);
+  }
+
+  public resetTodoCreationState(): void {
+    this.todoViewModel.resetCreateTodoListState();
   }
 }

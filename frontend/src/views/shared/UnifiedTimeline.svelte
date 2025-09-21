@@ -6,10 +6,7 @@
   import LoadingIndicator from './LoadingIndicator.svelte';
   import GenericTimelineItem from './timeline/GenericTimelineItem.svelte';
   import PopupMenu from '@/views/shared/PopupMenu.svelte';
-  import {
-    TodoViewModel,
-    type CreateTodoListState,
-  } from '@/viewmodels/todo/TodoViewModel';
+  import type { CreateTodoListState } from '@/viewmodels/todo/TodoViewModel';
 
   const dispatch = createEventDispatcher();
 
@@ -24,7 +21,6 @@
   let creationToastTimer: ReturnType<typeof setTimeout> | null = null;
 
   const unifiedTimelineViewModel = new UnifiedTimelineViewModel();
-  const todoViewModel = TodoViewModel.getInstance();
 
   let createButton: HTMLButtonElement;
 
@@ -50,7 +46,7 @@
     );
 
     unsubscribers.push(
-      todoViewModel.getCreateTodoListState().subscribe((state) => {
+      unifiedTimelineViewModel.getTodoCreationState().subscribe((state) => {
         todoCreationState = state;
         if (creationToastTimer) {
           clearTimeout(creationToastTimer);
@@ -64,7 +60,7 @@
           };
           creationToastTimer = setTimeout(() => {
             creationToast = null;
-            todoViewModel.resetCreateTodoListState();
+            unifiedTimelineViewModel.resetTodoCreationState();
           }, 2500);
         } else if (state.status === 'error') {
           creationToast = {
@@ -95,7 +91,7 @@
   async function createTodoList() {
     showCreateMenu = false;
     try {
-      await todoViewModel.createTodoList({ title: 'New Todo List', description: '' });
+      await unifiedTimelineViewModel.createTodoList({ title: 'New Todo List', description: '' });
     } catch (error) {
       console.error('Failed to create todo list:', error);
     }
@@ -103,7 +99,7 @@
 
   function dismissCreationToast() {
     creationToast = null;
-    todoViewModel.resetCreateTodoListState();
+    unifiedTimelineViewModel.resetTodoCreationState();
   }
 </script>
 
