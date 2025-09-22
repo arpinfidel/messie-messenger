@@ -12,6 +12,9 @@ import type {
 import { ProxyEmailAdapter } from '@/adapters/email/ProxyEmailAdapter';
 import type { EmailCredentials } from '@/viewmodels/email/EmailCredentialsStore';
 
+export type EmailLoginStatus = 'idle' | 'authenticating' | 'authenticated' | 'error';
+export type EmailMailboxStatus = 'idle' | 'refreshing' | 'ready' | 'error';
+
 interface EmailThreadEntry {
   id: string;
   baseId: string;
@@ -22,6 +25,7 @@ interface EmailThreadEntry {
 const INBOX_ID = 'email-inbox';
 const IMPORTANT_ID = 'email-important';
 const THREAD_PREFIX = 'email-thread:';
+const CREDENTIALS_STORAGE_KEY = 'messie:emailCredentials';
 
 function safeTimestamp(date?: Date): number {
   if (!date) return 0;
@@ -43,6 +47,10 @@ export class EmailViewModel implements IModuleViewModel {
   private readonly selectedMessages = writable<EmailMessageHeader[]>([]);
   private readonly detailLoading = writable<boolean>(false);
   private readonly detailError = writable<string | null>(null);
+  private readonly loginStatus = writable<EmailLoginStatus>('idle');
+  private readonly loginError = writable<string | null>(null);
+  private readonly mailboxStatus = writable<EmailMailboxStatus>('idle');
+  private readonly mailboxError = writable<string | null>(null);
   private readonly baseItems = new Map<string, TimelineItem>();
   private threadItems: TimelineItem[] = [];
   private threadCache = new Map<string, EmailThreadEntry>();
@@ -64,10 +72,28 @@ export class EmailViewModel implements IModuleViewModel {
   }
 
   async initialize(): Promise<void> {
+    const persisted = this.restorePersistedCredentials();
+    if (persisted) {
+      emailCredentials.set(persisted);
+    }
+
     const initialCreds = get(emailCredentials);
     if (initialCreds) {
-      await this.refreshThreads(initialCreds);
+      this.loginStatus.set('authenticated');
+      this.loginError.set(null);
+      try {
+        await this.refreshThreads(initialCreds);
+      } catch (error) {
+        const message = formatErrorMessage(error);
+        this.mailboxError.set(message);
+        this.mailboxStatus.set('error');
+        this.loginError.set(message);
+        this.loginStatus.set('error');
+        this.emitTimeline();
+      }
     } else {
+      this.loginStatus.set('idle');
+      this.mailboxStatus.set('idle');
       this.emitTimeline();
     }
 
@@ -84,14 +110,28 @@ export class EmailViewModel implements IModuleViewModel {
       }
       if (!creds) {
         this.lastCredentialsFingerprint = null;
+        this.persistCredentials(null);
+        this.loginStatus.set('idle');
+        this.loginError.set(null);
+        this.mailboxStatus.set('idle');
+        this.mailboxError.set(null);
         this.clearEmailState();
         return;
       }
+      this.persistCredentials(creds);
       const fingerprint = this.fingerprintCredentials(creds);
       if (fingerprint === this.lastCredentialsFingerprint) {
         return;
       }
-      void this.refreshThreads(creds);
+      this.loginStatus.set('authenticated');
+      this.loginError.set(null);
+      void this.refreshThreads(creds).catch((error) => {
+        const message = formatErrorMessage(error);
+        this.mailboxError.set(message);
+        this.mailboxStatus.set('error');
+        this.loginError.set(message);
+        this.loginStatus.set('error');
+      });
     });
   }
 
@@ -109,6 +149,26 @@ export class EmailViewModel implements IModuleViewModel {
 
   getDetailError(): Readable<string | null> {
     return this.detailError;
+  }
+
+  getLoginStatus(): Readable<EmailLoginStatus> {
+    return this.loginStatus;
+  }
+
+  getLoginError(): Readable<string | null> {
+    return this.loginError;
+  }
+
+  getMailboxStatus(): Readable<EmailMailboxStatus> {
+    return this.mailboxStatus;
+  }
+
+  getMailboxError(): Readable<string | null> {
+    return this.mailboxError;
+  }
+
+  getCredentials(): Readable<EmailCredentials | null> {
+    return emailCredentials;
   }
 
   getModuleName(): string {
@@ -140,12 +200,45 @@ export class EmailViewModel implements IModuleViewModel {
     }
   }
 
+  async login(credentials: EmailCredentials): Promise<void> {
+    this.loginStatus.set('authenticating');
+    this.loginError.set(null);
+    this.mailboxError.set(null);
+
+    try {
+      const result = await this.adapter.testCredentials(credentials);
+      this.selectedMessages.set(this.sortByDescendingDate(result.messages));
+      this.detailError.set(null);
+      this.updateUnreadCount(INBOX_ID, result.unreadCount);
+      this.lastCredentialsFingerprint = null;
+      emailCredentials.set(credentials);
+      this.loginStatus.set('authenticated');
+    } catch (error) {
+      const message = formatErrorMessage(error);
+      this.loginError.set(message);
+      this.loginStatus.set('error');
+      throw error;
+    }
+  }
+
+  async logout(): Promise<void> {
+    emailCredentials.set(null);
+  }
+
+  async refreshMailbox(): Promise<void> {
+    const creds = get(emailCredentials);
+    if (!creds) {
+      const message = 'Email credentials are required.';
+      this.mailboxError.set(message);
+      this.mailboxStatus.set('error');
+      return;
+    }
+
+    await this.refreshThreads(creds);
+  }
+
   async testAndStoreCredentials(credentials: EmailCredentials): Promise<void> {
-    const result = await this.adapter.testCredentials(credentials);
-    this.selectedMessages.set(this.sortByDescendingDate(result.messages));
-    this.detailError.set(null);
-    this.updateUnreadCount(INBOX_ID, result.unreadCount);
-    emailCredentials.set(credentials);
+    await this.login(credentials);
   }
 
   private bootstrapBaseTimeline(): void {
@@ -186,6 +279,79 @@ export class EmailViewModel implements IModuleViewModel {
     this.selectedMessages.set([]);
     this.detailError.set(null);
     this.emitTimeline();
+  }
+
+  private persistCredentials(credentials: EmailCredentials | null): void {
+    const storage = this.resolveStorage();
+    if (!storage) return;
+
+    try {
+      if (!credentials) {
+        storage.removeItem(CREDENTIALS_STORAGE_KEY);
+        return;
+      }
+      storage.setItem(CREDENTIALS_STORAGE_KEY, JSON.stringify(credentials));
+    } catch (error) {
+      console.warn('EmailViewModel: unable to persist email credentials', error);
+    }
+  }
+
+  private restorePersistedCredentials(): EmailCredentials | null {
+    const storage = this.resolveStorage();
+    if (!storage) return null;
+
+    try {
+      const raw = storage.getItem(CREDENTIALS_STORAGE_KEY);
+      if (!raw) {
+        return null;
+      }
+      const parsed = JSON.parse(raw);
+      return this.normalizePersistedCredentials(parsed);
+    } catch (error) {
+      console.warn('EmailViewModel: unable to restore email credentials', error);
+      return null;
+    }
+  }
+
+  private normalizePersistedCredentials(value: unknown): EmailCredentials | null {
+    if (!value || typeof value !== 'object') {
+      return null;
+    }
+
+    const record = value as Record<string, unknown>;
+    const host = typeof record.host === 'string' ? record.host : '';
+    const email = typeof record.email === 'string' ? record.email : '';
+    const appPassword = typeof record.appPassword === 'string' ? record.appPassword : '';
+    const portValue = record.port;
+    const port =
+      typeof portValue === 'number'
+        ? portValue
+        : typeof portValue === 'string'
+          ? Number.parseInt(portValue, 10)
+          : Number.NaN;
+
+    if (!host || !email || !appPassword || !Number.isFinite(port) || port <= 0) {
+      return null;
+    }
+
+    return {
+      host,
+      port,
+      email,
+      appPassword,
+    };
+  }
+
+  private resolveStorage(): Storage | null {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) {
+        return null;
+      }
+      return window.localStorage;
+    } catch (error) {
+      console.warn('EmailViewModel: localStorage unavailable', error);
+      return null;
+    }
   }
 
   private async loadAggregate(kind: 'inbox' | 'important'): Promise<void> {
@@ -250,17 +416,34 @@ export class EmailViewModel implements IModuleViewModel {
     }
   }
 
-  private async refreshThreads(credentials: EmailCredentials): Promise<void> {
+  private async refreshThreads(
+    credentials: EmailCredentials,
+    options: { updateStatus?: boolean } = {}
+  ): Promise<void> {
+    const { updateStatus = true } = options;
+    if (updateStatus) {
+      this.mailboxStatus.set('refreshing');
+      this.mailboxError.set(null);
+    }
+
     let headers: AdapterRichHeader[] = [];
     try {
       headers = await this.adapter.fetchRecentHeaders(credentials);
     } catch (error) {
       console.error('EmailViewModel: failed to fetch email headers', error);
-      return;
+      if (updateStatus) {
+        const message = formatErrorMessage(error);
+        this.mailboxError.set(message);
+        this.mailboxStatus.set('error');
+      }
+      throw error;
     }
 
     this.buildThreadsFromHeaders(headers);
     this.lastCredentialsFingerprint = this.fingerprintCredentials(credentials);
+    if (updateStatus) {
+      this.mailboxStatus.set('ready');
+    }
   }
 
   private buildThreadsFromHeaders(headers: AdapterRichHeader[]): void {

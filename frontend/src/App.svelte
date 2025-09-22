@@ -12,6 +12,9 @@
   import EmailLoginTab from './views/email/EmailLoginTab.svelte';
   import { EmailViewModel } from './viewmodels/email/EmailViewModel';
   const emailViewModel = EmailViewModel.getInstance();
+  const emailLoginStatusStore = emailViewModel.getLoginStatus();
+  const emailLoginErrorStore = emailViewModel.getLoginError();
+  const emailMailboxStatusStore = emailViewModel.getMailboxStatus();
   let timelineWidth: number = 0;
   let timelineLeft: number = 0;
   let timelineContainer: HTMLDivElement;
@@ -117,6 +120,18 @@
         on:forgot={() => (showForgotPassword = true)}
       />
     {/if}
+  </div>
+{/if}
+
+{#if $emailLoginStatusStore === 'error' && $emailLoginErrorStore}
+  <div class="fixed bottom-4 right-4 z-50 max-w-md rounded-md bg-red-600 px-4 py-3 text-sm text-white shadow-lg">
+    Email connection error: {$emailLoginErrorStore}
+  </div>
+{/if}
+
+{#if $emailMailboxStatusStore === 'refreshing'}
+  <div class="fixed bottom-4 left-4 z-40 rounded-md bg-gray-900/90 px-4 py-2 text-sm text-gray-100 shadow-lg">
+    Syncing email mailboxes…
   </div>
 {/if}
 

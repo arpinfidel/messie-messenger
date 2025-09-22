@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { TimelineItem } from '../models/shared/TimelineItem';
+  import type { TimelineItem } from '../../models/shared/TimelineItem';
   import { EmailViewModel } from '@/viewmodels/email/EmailViewModel';
 
   export let item: TimelineItem;
@@ -7,6 +7,8 @@
   const messagesStore = emailVM.getSelectedMessages();
   const detailLoadingStore = emailVM.getDetailLoading();
   const detailErrorStore = emailVM.getDetailError();
+  const mailboxStatus = emailVM.getMailboxStatus();
+  const mailboxError = emailVM.getMailboxError();
 </script>
 
 <div class="flex h-full flex-col">
@@ -19,6 +21,17 @@
       <div class="truncate text-sm text-gray-400">{item.description}</div>
     {/if}
   </div>
+
+  {#if $mailboxStatus === 'refreshing'}
+    <div class="border-b border-gray-800 bg-gray-850 px-4 py-2 text-sm text-gray-300">
+      Refreshing mailbox…
+    </div>
+  {/if}
+  {#if $mailboxError}
+    <div class="border-b border-red-800 bg-red-950 px-4 py-2 text-sm text-red-200">
+      {$mailboxError}
+    </div>
+  {/if}
 
   <div class="flex-1 overflow-y-auto p-4 space-y-3">
     {#if $detailLoadingStore}
