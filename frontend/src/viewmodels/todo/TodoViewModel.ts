@@ -54,6 +54,15 @@ export class TodoViewModel implements IModuleViewModel {
     this.performTodoItemUpdate(itemId, payload, signal)
   );
 
+  private async ensureAuthSession(): Promise<void> {
+    await cloudAuthViewModel.ensureValidSession();
+  }
+
+  private async callApi<T>(operation: () => Promise<T>): Promise<T> {
+    await this.ensureAuthSession();
+    return await operation();
+  }
+
   private constructor() {
     const config = new Configuration({
       basePath: getApiBaseUrl(),
@@ -126,12 +135,16 @@ export class TodoViewModel implements IModuleViewModel {
 
   public async fetchAndTransformTodos(): Promise<void> {
     try {
+      await this.ensureAuthSession();
       if (!cloudAuthViewModel.jwtToken) {
+        this._timelineItems.set([]);
         return;
       }
-      const todoLists: TodoList[] = await this.todoApi.getTodoListsByUserId({
-        userId: cloudAuthViewModel.userID || '',
-      });
+      const todoLists: TodoList[] = await this.callApi(() =>
+        this.todoApi.getTodoListsByUserId({
+          userId: cloudAuthViewModel.userID || '',
+        })
+      );
 
       const allTimelineItems: TimelineItem[] = [];
       for (const list of todoLists) {
@@ -151,14 +164,18 @@ export class TodoViewModel implements IModuleViewModel {
       allTimelineItems.sort((a, b) => b.timestamp - a.timestamp);
       this._timelineItems.set(allTimelineItems);
     } catch (error) {
-      console.error('Error fetching and transforming todo items:', error);
+      if (error instanceof Error && error.message === 'Matrix client not initialized.') {
+        console.debug('[TodoViewModel] Matrix client not ready; skipping todo fetch until auth succeeds');
+      } else {
+        console.error('Error fetching and transforming todo items:', error);
+      }
       this._timelineItems.set([]);
     }
   }
 
   async getTodoListById(listId: string): Promise<TodoList | undefined> {
     try {
-      return await this.todoApi.getTodoListById({ listId });
+      return await this.callApi(() => this.todoApi.getTodoListById({ listId }));
     } catch (error) {
       console.error(`Error fetching todo list with ID ${listId}:`, error);
       return undefined;
@@ -167,7 +184,7 @@ export class TodoViewModel implements IModuleViewModel {
 
   async getTodoItemsByListId(listId: string): Promise<TodoItem[]> {
     try {
-      return await this.todoApi.getTodoItemsByListId({ listId });
+      return await this.callApi(() => this.todoApi.getTodoItemsByListId({ listId }));
     } catch (error) {
       console.error(`Error fetching todo items for list ${listId}:`, error);
       return [];
@@ -176,7 +193,7 @@ export class TodoViewModel implements IModuleViewModel {
 
   // ---------- NEW: helpers to make PUT safe ----------
   private async getItemSnapshot(listId: string, itemId: string): Promise<TodoItem | null> {
-    const items = await this.todoApi.getTodoItemsByListId({ listId });
+    const items = await this.callApi(() => this.todoApi.getTodoItemsByListId({ listId }));
     return items.find((i) => i.id === itemId) ?? null;
   }
 
@@ -237,9 +254,8 @@ export class TodoViewModel implements IModuleViewModel {
     if (!listId) return;
     try {
       const initOverrides = signal ? { signal } : undefined;
-      await this.todoApi.updateTodoItem(
-        { listId, itemId, updateTodoItem: payload },
-        initOverrides
+      await this.callApi(() =>
+        this.todoApi.updateTodoItem({ listId, itemId, updateTodoItem: payload }, initOverrides)
       );
       if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
       await this.fetchAndTransformTodos();
@@ -281,6 +297,7 @@ export class TodoViewModel implements IModuleViewModel {
     if (!targetListId) return;
 
     try {
+      await this.ensureAuthSession();
       const [list, items] = await Promise.all([
         this.todoApi.getTodoListById({ listId: targetListId }),
         this.todoApi.getTodoItemsByListId({ listId: targetListId }),
@@ -314,7 +331,7 @@ export class TodoViewModel implements IModuleViewModel {
     try {
       // Merge patch with current snapshot to form a full, safe PUT body
       const payload = await this.buildPutPayload(listId, itemId, updateTodoItem);
-      await this.todoApi.updateTodoItem({ listId, itemId, updateTodoItem: payload });
+      await this.callApi(() => this.todoApi.updateTodoItem({ listId, itemId, updateTodoItem: payload }));
       await this.fetchAndTransformTodos();
       if (this.selectedListId === listId) {
         await this.refreshSelectedList();
@@ -332,7 +349,7 @@ export class TodoViewModel implements IModuleViewModel {
   ): Promise<void> {
     try {
       const initOverrides = options?.signal ? { signal: options.signal } : undefined;
-      await this.todoApi.updateTodoList({ listId, updateTodoList }, initOverrides);
+      await this.callApi(() => this.todoApi.updateTodoList({ listId, updateTodoList }, initOverrides));
       await this.fetchAndTransformTodos();
       if (this.selectedListId === listId) {
         await this.refreshSelectedList();
@@ -359,7 +376,7 @@ export class TodoViewModel implements IModuleViewModel {
         title,
         description: payload.description ?? '',
       };
-      const created = await this.todoApi.createTodoList({ newTodoList });
+      const created = await this.callApi(() => this.todoApi.createTodoList({ newTodoList }));
       await this.fetchAndTransformTodos();
       this._createTodoListState.set({ status: 'success', listId: created.id });
       return created;
@@ -394,7 +411,7 @@ export class TodoViewModel implements IModuleViewModel {
         dueDate,
       };
 
-      await this.todoApi.createTodoItem({ listId, newTodoItem });
+      await this.callApi(() => this.todoApi.createTodoItem({ listId, newTodoItem }));
       await this.fetchAndTransformTodos();
       if (this.selectedListId === listId) {
         await this.refreshSelectedList();
@@ -412,7 +429,7 @@ export class TodoViewModel implements IModuleViewModel {
     nextItemId: string | null
   ): Promise<void> {
     try {
-      const todoItems = await this.todoApi.getTodoItemsByListId({ listId });
+      const todoItems = await this.callApi(() => this.todoApi.getTodoItemsByListId({ listId }));
 
       let prevPosition: string | null = null;
       let nextPosition: string | null = null;
@@ -429,7 +446,7 @@ export class TodoViewModel implements IModuleViewModel {
       // Merge the new position with the current item snapshot to avoid wiping fields
       const payload = await this.buildPutPayload(listId, itemId, { position } as UpdateTodoItem);
 
-      await this.todoApi.updateTodoItem({ listId, itemId, updateTodoItem: payload });
+      await this.callApi(() => this.todoApi.updateTodoItem({ listId, itemId, updateTodoItem: payload }));
       await this.fetchAndTransformTodos();
       if (this.selectedListId === listId) {
         await this.refreshSelectedList();

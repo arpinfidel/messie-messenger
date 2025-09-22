@@ -27,7 +27,7 @@ const (
 	defaultIssueTypeValue = "Task"
 	defaultYAMLFile       = "jira-tasks.yaml"
 	defaultMaxResults     = 50
-	defaultPushWorkers    = 4
+	defaultPushWorkers    = 10
 	jiraAPIPrefix         = "/rest/api/3"
 )
 
