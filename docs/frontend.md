@@ -32,7 +32,7 @@ Build & Tooling
 Configuration
 -------------
 
-- `VITE_API_BASE_URL` (optional): overrides the default Todo API base URL of `http://localhost:8080/api/v1`. Trailing slashes are stripped automatically.
+- `VITE_API_BASE_URL` (optional): overrides the default Todo and Email API base URL root of `http://localhost:8080/api/v1`. Trailing slashes are stripped automatically.
 
 State & Persistence
 -------------------

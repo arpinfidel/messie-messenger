@@ -15,5 +15,8 @@ export function getApiBaseUrl(): string {
   return normalizeBaseUrl(DEFAULT_API_BASE_URL);
 }
 
-export { DEFAULT_API_BASE_URL };
+export function getEmailApiBaseUrl(): string {
+  return normalizeBaseUrl(`${DEFAULT_API_BASE_URL}/email`);
+}
 
+export { DEFAULT_API_BASE_URL };

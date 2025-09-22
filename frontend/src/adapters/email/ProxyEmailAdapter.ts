@@ -10,6 +10,7 @@ import type {
   EmailListResult,
   ImportantFetchOptions,
 } from './IEmailAdapter';
+import { getApiBaseUrl } from '@/config/api';
 
 function normalizeUnknown(error: unknown): string {
   if (error instanceof Error && error.message) return error.message;
@@ -24,16 +25,13 @@ function normalizeUnknown(error: unknown): string {
 export class ProxyEmailAdapter implements EmailAdapter {
   private readonly api: DefaultApi;
 
-  constructor(baseUrl = '/api/v1/email') {
-    const trimmed = baseUrl.replace(/\/+$/, '');
+  constructor(baseUrl = `${getApiBaseUrl()}/email`) {
+    const resolved = baseUrl || `${getApiBaseUrl()}/email`;
+    const trimmed = resolved.replace(/\/+$/, '');
     const basePath = trimmed.endsWith('/email')
       ? trimmed.slice(0, trimmed.length - '/email'.length)
-      : trimmed || '/api/v1';
-    this.api = new DefaultApi(new Configuration({ basePath }));
-  }
-
-  fetchInbox(_credentials: EmailCredentials): Promise<EmailListResult> {
-    throw new Error('Method not implemented.');
+      : trimmed;
+    this.api = new DefaultApi(new Configuration({ basePath: basePath || '/' }));
   }
 
   async testCredentials(credentials: EmailCredentials): Promise<EmailListResult> {
