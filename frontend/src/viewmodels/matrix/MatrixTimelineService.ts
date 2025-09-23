@@ -11,6 +11,14 @@ import type { INotificationService } from '@/notifications/NotificationService';
 import { matrixSettings } from './MatrixSettings';
 import type { DbRoom } from './core/idb/constants';
 
+export interface MatrixMessageVersion {
+  body: string;
+  timestamp: number;
+  eventId: string;
+  sender: string;
+  senderDisplayName: string;
+}
+
 export interface MatrixMessage {
   id: string;
   sender: string;
@@ -25,6 +33,10 @@ export interface MatrixMessage {
   fileName?: string;
   // For future enhancements/debugging
   mxcUrl?: string;
+  isEdited?: boolean;
+  lastEditedTimestamp?: number;
+  lastEditEventId?: string;
+  editHistory?: MatrixMessageVersion[];
 }
 
 export class MatrixTimelineService {
@@ -36,6 +48,7 @@ export class MatrixTimelineService {
   private mediaVersion: Writable<number> = writable(0);
   private notifications?: INotificationService;
   private lastNotifyByRoom = new Map<string, number>();
+  private messageCache = new Map<string, MatrixMessage>();
 
   constructor(
     private readonly ctx: {
@@ -313,96 +326,227 @@ export class MatrixTimelineService {
 
   async mapRepoEventsToMessages(events: RepoEvent[]): Promise<MatrixMessage[]> {
     const currentUserId = this.data.getCurrentUserId() ?? '';
-    const msgs: MatrixMessage[] = [];
+    const updates = new Map<string, MatrixMessage>();
     const resolvers: Array<Promise<void>> = [];
+    const pendingEdits = new Map<string, RepoEvent[]>();
+
+    const applyEdit = (target: MatrixMessage | undefined, editEvent: RepoEvent) => {
+      if (!target) return;
+      if (target.lastEditEventId === editEvent.eventId) {
+        return;
+      }
+      const editContent = editEvent.content as any;
+      const newContent = editContent?.['m.new_content'];
+      const fallbackBody =
+        typeof editContent?.body === 'string' ? (editContent.body as string) : target.body;
+      const newBody =
+        typeof newContent?.body === 'string'
+          ? (newContent.body as string)
+          : fallbackBody;
+
+      if (!target.editHistory) {
+        target.editHistory = [];
+      }
+
+      const previousEventId = target.lastEditEventId ?? target.id;
+      const alreadyRecorded = target.editHistory.some((entry) => entry.eventId === previousEventId);
+      if (!alreadyRecorded) {
+        target.editHistory.push({
+          body: target.body,
+          timestamp: target.lastEditedTimestamp ?? target.timestamp,
+          eventId: previousEventId,
+          sender: target.sender,
+          senderDisplayName: target.senderDisplayName,
+        });
+      }
+
+      if (typeof newBody === 'string') {
+        target.body = newBody;
+      }
+
+      const newMsgtype =
+        typeof newContent?.msgtype === 'string' ? (newContent.msgtype as string) : undefined;
+      if (newMsgtype) {
+        target.msgtype = newMsgtype;
+      }
+
+      target.isEdited = true;
+      target.lastEditedTimestamp =
+        editEvent.originServerTs || target.lastEditedTimestamp || target.timestamp;
+      target.lastEditEventId = editEvent.eventId;
+    };
+
+    const flushPendingEdits = (msg: MatrixMessage) => {
+      const pending = pendingEdits.get(msg.id);
+      if (!pending) return;
+      for (const editEv of pending) {
+        applyEdit(msg, editEv);
+      }
+      pendingEdits.delete(msg.id);
+    };
+
     for (const re of events.filter(
-      (re) => re.type === EventType.RoomMessage || re.type === 'm.room.encrypted'
+      (evt) => evt.type === EventType.RoomMessage || evt.type === 'm.room.encrypted'
     )) {
-      // MatrixDataLayer ensures re.content is the effective content:
-      // - clear for decrypted
-      // - m.bad.encrypted body for failures
       const c = re.content as any;
+      const relates = c?.['m.relates_to'];
+
+      if (relates?.rel_type === 'm.replace' && typeof relates?.event_id === 'string') {
+        const targetId = relates.event_id as string;
+        const target = this.messageCache.get(targetId);
+        if (target) {
+          applyEdit(target, re);
+          updates.set(targetId, target);
+        } else {
+          const queued = pendingEdits.get(targetId) ?? [];
+          queued.push(re);
+          pendingEdits.set(targetId, queued);
+        }
+        continue;
+      }
+
       const body = typeof c?.body === 'string' ? (c.body as string) : undefined;
       const isSelf = re.sender === currentUserId;
       // Prefer cached display name from store, then SDK membership, else MXID
-      let senderDisplayName = (await this.data.getUserDisplayName(re.sender)) || re.sender;
+      let senderDisplayName =
+        (await this.data.getUserDisplayName(re.sender)) || re.sender;
       if (!senderDisplayName) senderDisplayName = re.sender;
       const msgtype = c?.msgtype;
 
-      const msg: MatrixMessage = {
-        id: re.eventId,
-        sender: re.sender || 'unknown sender',
-        senderDisplayName,
-        senderAvatarUrl: undefined,
-        body: body ?? '',
-        timestamp: re.originServerTs || 0,
-        isSelf,
-        msgtype,
-      };
+      let msg = this.messageCache.get(re.eventId);
+      const isNewMessage = !msg;
+      if (!msg) {
+        msg = {
+          id: re.eventId,
+          sender: re.sender || 'unknown sender',
+          senderDisplayName,
+          senderAvatarUrl: undefined,
+          body: body ?? '',
+          timestamp: re.originServerTs || 0,
+          isSelf,
+          msgtype,
+          imageUrl: undefined,
+          fileUrl: undefined,
+          fileName: undefined,
+          mxcUrl: undefined,
+          isEdited: false,
+          lastEditedTimestamp: undefined,
+          lastEditEventId: undefined,
+          editHistory: [],
+        };
+        this.messageCache.set(re.eventId, msg);
+      } else {
+        msg.sender = re.sender || msg.sender;
+        msg.senderDisplayName = senderDisplayName || msg.senderDisplayName;
+        msg.timestamp = re.originServerTs || msg.timestamp;
+        msg.isSelf = isSelf;
+        if (typeof body === 'string') {
+          msg.body = body;
+        }
+        if (msgtype) {
+          msg.msgtype = msgtype;
+        }
+        if (!msg.editHistory) {
+          msg.editHistory = [];
+        }
+      }
 
-      // Resolve sender avatar via AvatarService and assign onto msg
-      const pAvatar = this.avatars
-        .resolveUserAvatar(re.sender, { w: 32, h: 32, method: 'crop' as const })
-        .then((url) => {
-          if (url) {
-            msg.senderAvatarUrl = url;
-            this.bumpMediaVersion();
-          }
-        })
-        .catch((err) => {
-          console.warn('[MatrixTimelineService] resolveUserAvatar failed', err);
-        });
-      resolvers.push(pAvatar);
+      if (!msg.senderAvatarUrl) {
+        const pAvatar = this.avatars
+          .resolveUserAvatar(re.sender, { w: 32, h: 32, method: 'crop' as const })
+          .then((url) => {
+            if (url) {
+              msg!.senderAvatarUrl = url;
+              this.bumpMediaVersion();
+            }
+          })
+          .catch((err) => {
+            console.warn('[MatrixTimelineService] resolveUserAvatar failed', err);
+          });
+        resolvers.push(pAvatar);
+      }
 
       console.time(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
       if (msgtype === matrixSdk.MsgType.Image) {
         const content = c as ImageContent;
-        msg.mxcUrl = content.file?.url ?? content.url;
+        const newMxc = content.file?.url ?? content.url;
+        const shouldResolve = isNewMessage || msg.mxcUrl !== newMxc || !msg.imageUrl;
+        msg.mxcUrl = newMxc;
         msg.fileName = content.filename || body || 'file';
-        const p = this.data
-          .resolveImage(content)
-          .then((blobUrl) => {
-            if (blobUrl) {
-              msg.imageUrl = blobUrl;
-              this.bumpMediaVersion();
-            }
-          })
-          .catch((err) => {
-            console.warn('[MatrixTimelineService] resolveImage failed', err);
-          })
-          .finally(() => {
-            console.timeEnd(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
-          });
-        resolvers.push(p);
+        msg.fileUrl = undefined;
+        if (shouldResolve) {
+          const p = this.data
+            .resolveImage(content)
+            .then((blobUrl) => {
+              if (blobUrl) {
+                msg!.imageUrl = blobUrl;
+                this.bumpMediaVersion();
+              }
+            })
+            .catch((err) => {
+              console.warn('[MatrixTimelineService] resolveImage failed', err);
+            })
+            .finally(() => {
+              console.timeEnd(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
+            });
+          resolvers.push(p);
+        } else {
+          console.timeEnd(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
+        }
       } else if (msgtype === matrixSdk.MsgType.File) {
         const content = c;
-        msg.mxcUrl = content.file?.url ?? content.url;
+        const newMxc = content.file?.url ?? content.url;
+        const shouldResolve = isNewMessage || msg.mxcUrl !== newMxc || !msg.fileUrl;
+        msg.mxcUrl = newMxc;
         msg.fileName = content.filename || body || 'file';
-        const p = this.data
-          .resolveFile(content)
-          .then((blobUrl) => {
-            if (blobUrl) {
-              msg.fileUrl = blobUrl;
-              this.bumpMediaVersion();
-            }
-          })
-          .catch((err) => {
-            console.warn('[MatrixTimelineService] resolveFile failed', err);
-          })
-          .finally(() => {
-            console.timeEnd(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
-          });
-        resolvers.push(p);
+        msg.imageUrl = undefined;
+        if (shouldResolve) {
+          const p = this.data
+            .resolveFile(content)
+            .then((blobUrl) => {
+              if (blobUrl) {
+                msg!.fileUrl = blobUrl;
+                this.bumpMediaVersion();
+              }
+            })
+            .catch((err) => {
+              console.warn('[MatrixTimelineService] resolveFile failed', err);
+            })
+            .finally(() => {
+              console.timeEnd(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
+            });
+          resolvers.push(p);
+        } else {
+          console.timeEnd(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
+        }
       } else {
+        if (isNewMessage) {
+          msg.imageUrl = undefined;
+          msg.fileUrl = undefined;
+          msg.fileName = undefined;
+        }
+        msg.mxcUrl = undefined;
         console.timeEnd(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
       }
 
-      msgs.push(msg);
+      flushPendingEdits(msg);
+      updates.set(msg.id, msg);
+    }
+
+    // Apply any queued edits for messages already cached but not part of this batch
+    for (const [targetId, edits] of Array.from(pendingEdits.entries())) {
+      const target = this.messageCache.get(targetId);
+      if (!target) continue;
+      for (const editEv of edits) {
+        applyEdit(target, editEv);
+      }
+      updates.set(targetId, target);
+      pendingEdits.delete(targetId);
     }
 
     // Kick off avatar and image resolution without blocking
     if (resolvers.length) void Promise.allSettled(resolvers);
-    return msgs;
+    return Array.from(updates.values());
   }
 
   // removed batch read count computation; read status is derived at render time
@@ -428,10 +572,20 @@ export class MatrixTimelineService {
     if (c?.msgtype === 'm.bad.encrypted' && typeof c?.body === 'string') {
       return c.body;
     }
+    const relates = c?.['m.relates_to'];
+    if (relates?.rel_type === 'm.replace') {
+      const newBody =
+        typeof c?.['m.new_content']?.body === 'string'
+          ? (c['m.new_content'].body as string)
+          : undefined;
+      if (newBody) {
+        return newBody;
+      }
+    }
+
     // Plain text
     if (typeof c?.body === 'string') return c.body;
 
-    const relates = c?.['m.relates_to'];
     if (relates?.rel_type === 'm.annotation') {
       const key = typeof c.key === 'string' ? (c.key as string) : undefined;
       if (key) {
