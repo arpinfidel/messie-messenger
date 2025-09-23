@@ -7,20 +7,18 @@ export class DbConnection {
     if (this.db) return;
     this.db = await new Promise<IDBDatabase>((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = (ev) => {
+      req.onupgradeneeded = () => {
         const db = req.result;
-        const oldVersion = ev.oldVersion;
+        // Drop legacy stores that were used for the old timeline cache
+        const legacyStores = ['events', 'tokens', 'members'];
+        for (const store of legacyStores) {
+          if (db.objectStoreNames.contains(store)) {
+            db.deleteObjectStore(store);
+          }
+        }
+
         if (!db.objectStoreNames.contains(STORES.ROOMS)) {
           db.createObjectStore(STORES.ROOMS, { keyPath: 'id' });
-        }
-        // EVENTS store and indexes
-        if (!db.objectStoreNames.contains(STORES.EVENTS)) {
-          const events = db.createObjectStore(STORES.EVENTS, { keyPath: 'eventId' });
-          events.createIndex('byRoomTs', ['roomId', 'originServerTs']);
-          events.createIndex('byRoomIndex', ['roomId', 'index']);
-        }
-        if (!db.objectStoreNames.contains(STORES.TOKENS)) {
-          db.createObjectStore(STORES.TOKENS, { keyPath: 'roomId' });
         }
         if (!db.objectStoreNames.contains(STORES.META)) {
           db.createObjectStore(STORES.META, { keyPath: 'key' });
@@ -31,10 +29,6 @@ export class DbConnection {
         if (!db.objectStoreNames.contains(STORES.MEDIA)) {
           const media = db.createObjectStore(STORES.MEDIA, { keyPath: 'key' });
           media.createIndex('byTs', 'ts');
-        }
-        if (!db.objectStoreNames.contains(STORES.MEMBERS)) {
-          const members = db.createObjectStore(STORES.MEMBERS, { keyPath: 'key' });
-          members.createIndex('byRoom', 'roomId');
         }
       };
       req.onsuccess = () => resolve(req.result);

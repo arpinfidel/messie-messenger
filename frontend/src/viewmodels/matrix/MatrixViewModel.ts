@@ -180,9 +180,11 @@ export class MatrixViewModel implements IModuleViewModel {
     }
 
     await this.dataLayer.init();
-    await this.timelineSvc.initTimeline().catch((err) => {
-      console.warn('Failed to initialize timeline:', err);
-    });
+    await this.timelineSvc
+      .initTimeline({ offlineOnly: true })
+      .catch((err) => {
+        console.warn('Failed to hydrate cached timeline:', err);
+      });
     void this.notificationSvc.requestPermission();
 
     console.time('[MatrixVM] create client');
@@ -241,6 +243,10 @@ export class MatrixViewModel implements IModuleViewModel {
     console.time('[MatrixVM] waitForPrepared');
     await this.clientMgr.waitForPrepared();
     console.timeEnd('[MatrixVM] waitForPrepared');
+
+    await this.timelineSvc.initTimeline().catch((err) => {
+      console.warn('Failed to initialize timeline:', err);
+    });
 
     this.hydrationState = 'decrypting';
     console.time('[MatrixVM] crypto.ensureVerificationAndKeys');

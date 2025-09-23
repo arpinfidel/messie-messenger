@@ -67,7 +67,7 @@ export class MatrixTimelineService {
     this.mediaVersion.update((n) => n + 1);
   }
 
-  async initTimeline(): Promise<void> {
+  async initTimeline(opts: { offlineOnly?: boolean } = {}): Promise<void> {
     const rooms = await this.data.getRooms();
     // Sort rooms by latest activity and keep only top N
     const sortedRooms = rooms
@@ -77,13 +77,13 @@ export class MatrixTimelineService {
     const inactiveRooms = sortedRooms.slice(this.maxRooms);
 
     // Process active rooms and wait for them to be added to the timeline
-    await this._processRooms(activeRooms);
+    await this._processRooms(activeRooms, opts);
 
     // Process inactive rooms in the background
-    void this._processRooms(inactiveRooms);
+    void this._processRooms(inactiveRooms, opts);
   }
 
-  private async _processRooms(rooms: DbRoom[]): Promise<void> {
+  private async _processRooms(rooms: DbRoom[], opts: { offlineOnly?: boolean }): Promise<void> {
     if (!rooms.length) {
       return;
     }
@@ -93,7 +93,11 @@ export class MatrixTimelineService {
     // 1. Create initial timeline items in parallel
     const items = await Promise.all(
       rooms.map(async (room) => {
-        const lastEvent = (await this.data.getLatestCachedMessages(room.id, null, 1)).events[0];
+        let lastEvent = room.lastEvent ?? undefined;
+        if (!lastEvent && !opts?.offlineOnly) {
+          const cached = await this.data.getLatestCachedMessages(room.id, null, 1);
+          lastEvent = cached.events[0];
+        }
         let description = 'No recent messages';
         let timestamp = room.latestTimestamp || 0;
         if (lastEvent) {

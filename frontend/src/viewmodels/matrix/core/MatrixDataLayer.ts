@@ -1,13 +1,12 @@
 import * as matrixSdk from 'matrix-js-sdk';
-import { MatrixEvent, MatrixEventEvent, type IEvent } from 'matrix-js-sdk/lib/models/event';
+import { MatrixEvent, MatrixEventEvent } from 'matrix-js-sdk/lib/models/event';
 import type { RepoEvent } from './TimelineRepository';
 import { Direction } from 'matrix-js-sdk/lib/models/event-timeline';
 import { IndexedDbCache } from './IndexedDbCache';
 import { AvatarResolver, type ResolveResult } from './AvatarResolver';
 import { MediaResolver } from './MediaResolver';
-import type { DbMember, DbUser } from './idb/constants';
+import type { DbMember, DbRoom, DbUser } from './idb/constants';
 import type { ImageContent } from 'matrix-js-sdk/lib/types';
-import { MatrixViewModel } from '../MatrixViewModel';
 
 type RepoEventListener = (ev: RepoEvent, room: matrixSdk.Room, meta?: { isLive?: boolean }) => void;
 
@@ -79,9 +78,9 @@ export interface MatrixDataLayerOptions {
 }
 
 /**
- * Data layer that talks to the Matrix SDK and persists data directly into
- * IndexedDB. No in-memory cache is kept; consumers should query this layer for
- * all Matrix data.
+ * Data layer that bridges the Matrix SDK with lightweight IndexedDB
+ * persistence. Sliding sync remains the source of truth for timelines, while
+ * IndexedDB keeps avatars/media and room summaries for faster cold starts.
  */
 export class MatrixDataLayer {
   private pageSize: number;
@@ -89,13 +88,13 @@ export class MatrixDataLayer {
   private currentUserId: string | null = null;
   private currentUserDisplayName: string | null = null;
 
+  private inMemoryRooms = new Map<string, DbRoom>();
+
   private avatarResolver: AvatarResolver;
   private mediaResolver: MediaResolver;
   private repoEventEmitter = new RepoEventEmitter();
   private unreadEventEmitter = new UnreadEventEmitter();
   private readReceiptEmitter = new ReadReceiptEventEmitter();
-  private caughtUp = new Map<string, boolean>();
-  private catchingUp = new Set<string>();
 
   constructor(private readonly opts: MatrixDataLayerOptions) {
     this.pageSize = opts.pageSize ?? 20;
@@ -114,6 +113,14 @@ export class MatrixDataLayer {
     ]);
     if (currentUserId) this.currentUserId = currentUserId;
     if (currentUserDisplayName) this.currentUserDisplayName = currentUserDisplayName;
+    try {
+      const persistedRooms = await this.db.rooms.getAll();
+      for (const room of persistedRooms) {
+        this.inMemoryRooms.set(room.id, room);
+      }
+    } catch (err) {
+      console.warn('[MatrixDataLayer] Failed to load cached rooms', err);
+    }
     this.bind();
     return this;
   }
@@ -139,7 +146,7 @@ export class MatrixDataLayer {
   async getMinOtherReadTs(roomId: string): Promise<number> {
     try {
       const self = this.currentUserId;
-      const members = await this.db.getRoomMembers(roomId);
+      const members = await this.getRoomMembers(roomId);
       console.log('[MatrixDataLayer] getMinOtherReadTs', roomId, members, self);
       let min = Infinity;
       for (const m of members) {
@@ -159,14 +166,65 @@ export class MatrixDataLayer {
   bind(): void {
     const c = this.client;
     if (!c) return;
+    this.seedRoomsFromClient(c);
     this.handleEvents(c);
     this.handleUnreadNotifications(c);
     this.handleReceipts(c);
-    this.backgroundSync();
   }
 
   private get client(): matrixSdk.MatrixClient | null {
     return this.opts.getClient();
+  }
+
+  private getUnreadFromRoom(room: matrixSdk.Room): number {
+    try {
+      return (
+        room.getUnreadNotificationCount(
+          (matrixSdk as any).NotificationCountType?.Total ?? undefined
+        ) as number
+      ) ?? 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  private upsertInMemoryRoom(
+    room: matrixSdk.Room,
+    overrides: Partial<DbRoom> = {},
+    persist = false
+  ): void {
+    const existing = this.inMemoryRooms.get(room.roomId);
+    const baseTs = Math.max(existing?.latestTimestamp ?? 0, room.getLastActiveTimestamp() ?? 0);
+    const latestTimestamp = overrides.latestTimestamp ?? baseTs;
+    const unreadCount = overrides.unreadCount ?? existing?.unreadCount ?? this.getUnreadFromRoom(room);
+    const avatarMxcUrl =
+      overrides.avatarMxcUrl ?? existing?.avatarMxcUrl ?? room.getMxcAvatarUrl() ?? undefined;
+    const name = overrides.name ?? existing?.name ?? room.name ?? room.roomId;
+    const hasLastEventOverride = Object.prototype.hasOwnProperty.call(overrides, 'lastEvent');
+    const lastEvent = hasLastEventOverride
+      ? overrides.lastEvent ?? null
+      : existing?.lastEvent ?? null;
+
+    const updated: DbRoom = {
+      id: room.roomId,
+      name,
+      latestTimestamp,
+      avatarMxcUrl,
+      unreadCount,
+      lastEvent,
+    };
+    this.inMemoryRooms.set(room.roomId, updated);
+    if (persist) {
+      void this.db.rooms.put(updated).catch((err) => {
+        console.warn('[MatrixDataLayer] Failed to persist room summary', err);
+      });
+    }
+  }
+
+  private seedRoomsFromClient(client: matrixSdk.MatrixClient): void {
+    for (const room of client.getRooms() || []) {
+      this.upsertInMemoryRoom(room);
+    }
   }
 
   // ------------------------------------------------------------------
@@ -199,19 +257,35 @@ export class MatrixDataLayer {
   // ------------------------------------------------------------------
 
   async getRooms() {
-    return this.db.rooms.getAll();
+    const client = this.client;
+    if (client) {
+      this.seedRoomsFromClient(client);
+    }
+    return Array.from(this.inMemoryRooms.values());
   }
 
   async getRoom(roomId: string) {
-    return this.db.rooms.get(roomId);
+    const client = this.client;
+    const room = client?.getRoom(roomId);
+    if (room) this.upsertInMemoryRoom(room);
+    return this.inMemoryRooms.get(roomId);
   }
 
   async markRoomAsRead(roomId: string) {
-    const roomRec = await this.db.rooms.get(roomId);
-    if (!roomRec) return;
-
-    // Optimistically zero unread locally
-    await this.db.rooms.put({ ...roomRec, unreadCount: 0 });
+    const client = this.client;
+    const room = client?.getRoom(roomId);
+    if (room) {
+      this.upsertInMemoryRoom(room, { unreadCount: 0 }, true);
+    } else {
+      const existing = this.inMemoryRooms.get(roomId);
+      if (existing) {
+        const updated: DbRoom = { ...existing, unreadCount: 0 };
+        this.inMemoryRooms.set(roomId, updated);
+        void this.db.rooms.put(updated).catch((err) => {
+          console.warn('[MatrixDataLayer] Failed to persist read state', err);
+        });
+      }
+    }
     this.unreadEventEmitter.emit(roomId, 0);
 
     // Try to sync read markers to the server
@@ -246,41 +320,33 @@ export class MatrixDataLayer {
   }
 
   async getRoomMembers(roomId: string) {
-    const members = await this.db.getRoomMembers(roomId);
-    if (members.length) return members;
-    // Try to fetch from SDK if not in DB
     await this.opts.waitForPrepared();
-    const c = this.client;
-    if (!c) {
+    const client = this.client;
+    if (!client) {
       console.error(`[MatrixDataLayer] getRoomMembers(${roomId}) → Matrix client not available`);
       return [];
     }
-    const room = c.getRoom(roomId);
+    const room = client.getRoom(roomId);
     if (!room) {
       console.warn(`[MatrixDataLayer] getRoomMembers(${roomId}) → room not found`);
       return [];
     }
-    const m = room.getMembers() || [];
-    if (!m || m.length === 0) {
-      console.warn(`[MatrixDataLayer] getRoomMembers(${roomId}) → no members`);
-      // Do not overwrite cached members with empty set; return what we have
-      return members;
-    }
-    const oldMembersById = members.reduce(
-      (acc, m) => {
-        acc[m.userId] = m;
-        return acc;
-      },
-      {} as Record<string, DbMember>
-    );
-    const newMembers = Array.from(m).map((m) => ({
-      ...m,
-      lastReadTs: oldMembersById[m.userId]?.lastReadTs || 0,
-    }));
-    console.log('[MatrixDataLayer] getRoomMembers', roomId, newMembers);
 
-    await this.db.setRoomMembers(roomId, newMembers);
-    return newMembers;
+    const members = room.getMembers() || [];
+    const result: DbMember[] = members.map((member) => {
+      const readUpTo = room.getEventReadUpTo?.(member.userId) as string | undefined;
+      const ts = readUpTo ? room.findEventById(readUpTo)?.getTs?.() ?? 0 : 0;
+      return {
+        key: `${roomId}|${member.userId}`,
+        roomId,
+        userId: member.userId,
+        displayName: member.rawDisplayName || member.name,
+        avatarUrl: member.getMxcAvatarUrl() || undefined,
+        membership: member.membership,
+        lastReadTs: ts || 0,
+      };
+    });
+    return result;
   }
 
   async getUser(userId: string) {
@@ -330,40 +396,18 @@ export class MatrixDataLayer {
     };
   }
 
-  /** Build RepoEvent using wire type/content (encrypted if originally encrypted). */
-  private toWireRepoEvent(ev: matrixSdk.MatrixEvent, index: number): RepoEvent {
-    return {
-      eventId: ev.getId() ?? '',
-      roomId: ev.getRoomId() ?? '',
-      type: (ev as MatrixEvent).getWireType?.() ?? ev.getType(),
-      sender: ev.getSender() ?? '',
-      originServerTs: ev.getTs(),
-      index,
-      content: (ev as MatrixEvent).getWireContent?.() ?? ev.getContent(),
-      unsigned: ev.getUnsigned(),
-    };
-  }
-
   async getLatestCachedMessages(
     roomId: string,
     beforeIndex: number | null,
     limit = this.pageSize
   ): Promise<{ events: RepoEvent[]; firstIndex: number | null }> {
-    // Try to satisfy from cache first
-    let events = await this.db.getEventsByRoom(roomId, limit, beforeIndex ?? undefined);
-    // decrypt on read (in-memory only) for any encrypted-at-rest entries
-    events = await this.tryDecryptRepoEvents(roomId, events);
-    if (events.length >= limit) {
-      // If caller allows network/SDK, and we still have encrypted entries,
-      // wait for client to be prepared and attempt decryption again before returning.
-      console.log(
-        `[MatrixDataLayer] getRoomMessages(${roomId}) → ${events.length} events from cache`
-      );
-      const firstIdx = events.length ? events[events.length - 1].index : (beforeIndex ?? null);
-      events.reverse();
-      return { events, firstIndex: firstIdx };
+    if (beforeIndex == null && limit > 0) {
+      const cached = this.inMemoryRooms.get(roomId)?.lastEvent;
+      if (cached) {
+        return { events: [cached], firstIndex: cached.index ?? null };
+      }
     }
-    return { events, firstIndex: beforeIndex };
+    return this.getRoomEventsFromSdk(roomId, beforeIndex, limit);
   }
 
   /**
@@ -376,146 +420,68 @@ export class MatrixDataLayer {
     roomId: string,
     beforeIndex: number | null,
     limit = this.pageSize,
-    dbOnly = false
+    _dbOnly = false
   ): Promise<{ events: RepoEvent[]; firstIndex: number | null }> {
-    // Try to satisfy from cache first
-    let events = await this.db.getEventsByRoom(roomId, limit, beforeIndex ?? undefined);
-    // decrypt on read (in-memory only) for any encrypted-at-rest entries
-    events = await this.tryDecryptRepoEvents(roomId, events);
-    if (events.length >= limit) {
-      // If caller allows network/SDK, and we still have encrypted entries,
-      // wait for client to be prepared and attempt decryption again before returning.
-      if (!dbOnly && events.some((e) => e.type === 'm.room.encrypted')) {
-        await this.opts.waitForPrepared();
-        events = await this.tryDecryptRepoEvents(roomId, events);
-      }
-      console.log(
-        `[MatrixDataLayer] getRoomMessages(${roomId}) → ${events.length} events from cache`
-      );
-      const firstIdx = events.length ? events[events.length - 1].index : (beforeIndex ?? null);
-      events.reverse();
-      return { events, firstIndex: firstIdx };
-    }
-    if (dbOnly) {
-      console.log(`[MatrixDataLayer] getRoomMessages(${roomId}) → DB only`);
-      return { events, firstIndex: beforeIndex };
-    }
-
-    console.log(
-      `[MatrixDataLayer] getRoomMessages(${roomId}) → ${events.length}, need ${limit} events from cache, need more...`
-    );
-
-    console.log(`[MatrixDataLayer] getRoomMessages(${roomId}) → waiting for SDK prepared`);
-    await this.opts.waitForPrepared();
-    console.log(`[MatrixDataLayer] getRoomMessages(${roomId}) → SDK prepared`);
-    const c = this.client;
-    if (!c) throw new Error('Matrix client not available');
-    const room = c.getRoom(roomId);
-    if (!room) {
-      console.log(`[MatrixDataLayer] getRoomMessages(${roomId}) → room not found`);
-      // Room not found
-      return { events, firstIndex: beforeIndex };
-    }
-
-    const token = await this.db.getBackwardToken(roomId);
-    let remoteToken: string | null;
-    const live = room.getLiveTimeline();
-    if (!token) {
-      console.log(
-        `[MatrixDataLayer] getRoomMessages(${roomId}) → no token, start paginating from live timeline`
-      );
-    } else {
-      console.log(
-        `[MatrixDataLayer] getRoomMessages(${roomId}) → have token, paginate from ${token}`
-      );
-      live.setPaginationToken(token, Direction.Backward);
-    }
-    const ok = await c.paginateEventTimeline(live, { backwards: true, limit: limit * 3 });
-    remoteToken = room.getLiveTimeline().getPaginationToken(Direction.Backward);
-    await this.db.setBackwardToken(roomId, remoteToken);
-
-    events = await this.db.getEventsByRoom(roomId, limit, beforeIndex ?? undefined);
-    // decrypt on read (in-memory only)
-    events = await this.tryDecryptRepoEvents(roomId, events);
-    const firstIndex = events.length ? events[events.length - 1].index : (beforeIndex ?? null);
-    events.reverse();
-
-    return { events, firstIndex };
+    return this.getRoomEventsFromSdk(roomId, beforeIndex, limit);
   }
-  private async ensureRoomCaughtUp(
-    room: matrixSdk.Room,
-    liveEv: matrixSdk.MatrixEvent
-  ): Promise<void> {
-    const roomId = room.roomId;
-    if (this.caughtUp.get(roomId) || this.catchingUp.has(roomId)) return;
 
-    const evId = liveEv.getId();
-    if (!evId) return;
+  private async getRoomEventsFromSdk(
+    roomId: string,
+    beforeIndex: number | null,
+    limit: number
+  ): Promise<{ events: RepoEvent[]; firstIndex: number | null }> {
+    await this.opts.waitForPrepared();
+    const client = this.client;
+    if (!client) {
+      return { events: [], firstIndex: beforeIndex };
+    }
+    const room = client.getRoom(roomId);
+    if (!room) {
+      return { events: [], firstIndex: beforeIndex };
+    }
 
-    this.catchingUp.add(roomId);
-
-    try {
-      const latest = await this.db.getEventsByRoom(roomId, 1);
-      if (!latest.length) {
-        this.caughtUp.set(roomId, true);
-        return;
-      }
-
-      await this.opts.waitForPrepared();
-      const c = this.client;
-      if (!c) return;
-
-      // APPROACH 1: Timeline-based solution
-      // Instead of getting timeline for the live event, create a new timeline set
-      // or use the room's live timeline set but handle it properly
-      const timelineSet = room.getUnfilteredTimelineSet();
-
-      // Find the event in the timeline first
-      const eventTimeline = timelineSet.getTimelineForEvent(evId);
-      if (!eventTimeline) {
-        console.warn('[MatrixDataLayer] Could not find timeline for event', evId);
-        this.caughtUp.set(roomId, true);
-        return;
-      }
-
-      // Check if we're already at the live edge
-      const liveTimeline = timelineSet.getLiveTimeline();
-      if (eventTimeline === liveTimeline) {
-        console.log('[MatrixDataLayer] Already at live edge', roomId);
-        this.caughtUp.set(roomId, true);
-        return;
-      }
-
-      // Paginate forward from the event's timeline until we reach live
-      let currentTimeline = eventTimeline;
-      while (currentTimeline !== liveTimeline) {
-        const more = await c.paginateEventTimeline(currentTimeline, {
-          backwards: false,
-          limit: this.pageSize,
+    const timeline = room.getLiveTimeline();
+    const collectEvents = () =>
+      timeline
+        .getEvents()
+        .filter((ev) => !!ev.getId())
+        .filter((ev) => {
+          const t = ev.getType();
+          return t === 'm.room.message' || t === 'm.room.encrypted';
         });
 
-        if (!more) {
-          console.log('[MatrixDataLayer] caught up', roomId);
-          break;
-        }
+    let events = collectEvents();
+    const filterByIndex = (evs: MatrixEvent[]) => {
+      if (beforeIndex == null) return evs;
+      return evs.filter((ev) => (ev.getTs() || 0) < beforeIndex);
+    };
 
-        // Move to the next timeline if we've reached the end of this one
-        const nextTimeline = currentTimeline.getNeighbouringTimeline(matrixSdk.Direction.Forward);
-        if (nextTimeline) {
-          currentTimeline = nextTimeline;
-        } else {
-          break;
-        }
-      }
+    events = filterByIndex(events);
 
-      this.caughtUp.set(roomId, true);
-    } catch (err) {
-      console.error('[MatrixDataLayer] forward pagination failed', err);
-    } finally {
-      this.catchingUp.delete(roomId);
+    while (events.length < limit) {
+      const token = timeline.getPaginationToken(Direction.Backward);
+      if (!token) break;
+      const more = await client.paginateEventTimeline(timeline, {
+        backwards: true,
+        limit: limit * 2,
+      });
+      if (!more) break;
+      events = filterByIndex(collectEvents());
     }
-  }
 
+    const selected = events.slice(-limit);
+    const repoEvents: RepoEvent[] = [];
+    for (const ev of selected) {
+      const repo = await this.toRepoEvent(ev);
+      if (!repo) continue;
+      const ts = ev.getTs() || Date.now();
+      repo.index = ts;
+      repoEvents.push(repo);
+    }
+    repoEvents.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    const firstIndex = repoEvents.length ? repoEvents[0].index ?? null : beforeIndex;
+    return { events: repoEvents, firstIndex: firstIndex ?? null };
+  }
   private handleEvents(client: matrixSdk.MatrixClient) {
     client.on(
       matrixSdk.RoomEvent.Timeline,
@@ -530,7 +496,6 @@ export class MatrixDataLayer {
           console.warn('[MatrixDataLayer] timeline event without room?');
           return;
         }
-        await this.ensureRoomCaughtUp(room, ev);
         let re = await this.toRepoEvent(ev);
         if (!re) return;
 
@@ -539,7 +504,7 @@ export class MatrixDataLayer {
           return;
         }
 
-        const eventIndex = await this.db.nextEventIndex(room.roomId);
+        const eventIndex = ev.getTs() || Date.now();
         (ev as any).mxIndex = eventIndex;
         re.index = eventIndex;
 
@@ -550,20 +515,11 @@ export class MatrixDataLayer {
         const syncState = (client as any)?.getSyncState?.();
         const isTrueLive = data?.liveEvent === true && syncState === 'SYNCING';
 
-        // Still update latestTimestamp & metadata without touching unread
-        const existing = await this.db.rooms.get(room.roomId);
-        await this.db.rooms.put({
-          id: room.roomId,
-          name: room.name || room.roomId,
-          latestTimestamp: Math.max(ev.getTs(), existing?.latestTimestamp ?? 0),
-          avatarMxcUrl: room.getMxcAvatarUrl() || undefined,
-          unreadCount: existing?.unreadCount ?? 0,
-        });
-        // Persist encrypted-at-rest: always store the wire form
-        const wireRe = this.toWireRepoEvent(ev, eventIndex);
-        await this.db.putEvents(room.roomId, [wireRe]).catch(() => {
-          console.warn('[MatrixDataLayer] failed to persist timeline event', wireRe);
-        });
+        const latestTimestamp = Math.max(
+          ev.getTs(),
+          this.inMemoryRooms.get(room.roomId)?.latestTimestamp ?? 0
+        );
+        this.upsertInMemoryRoom(room, { latestTimestamp, lastEvent: re }, true);
 
         // Emit repo event; include whether this was a true live event
         this.repoEventEmitter.emit(re, room, { isLive: isTrueLive });
@@ -572,7 +528,10 @@ export class MatrixDataLayer {
           if (ev.isDecryptionFailure()) return;
           try {
             const updated = await this.toRepoEvent(ev, eventIndex);
-            if (updated) this.repoEventEmitter.emit(updated, room, { isLive: false });
+            if (updated) {
+              this.upsertInMemoryRoom(room, { lastEvent: updated }, true);
+              this.repoEventEmitter.emit(updated, room, { isLive: false });
+            }
           } finally {
             try {
               ev.off(MatrixEventEvent.Decrypted, onDecrypted);
@@ -596,17 +555,12 @@ export class MatrixDataLayer {
       try {
         const writeUnread = async () => {
           try {
-            const total = room.getUnreadNotificationCount(
-              (matrixSdk as any).NotificationCountType?.Total ?? undefined
-            ) as number;
-            const existing = await this.db.rooms.get(room.roomId);
-            await this.db.rooms.put({
-              id: room.roomId,
-              name: room.name || room.roomId,
-              latestTimestamp: existing?.latestTimestamp ?? room.getLastActiveTimestamp(),
-              avatarMxcUrl: room.getMxcAvatarUrl() || existing?.avatarMxcUrl,
-              unreadCount: total ?? 0,
-            });
+            const total = (
+              room.getUnreadNotificationCount(
+                (matrixSdk as any).NotificationCountType?.Total ?? undefined
+              ) as number
+            ) ?? 0;
+            this.upsertInMemoryRoom(room, { unreadCount: total ?? 0 }, true);
             this.unreadEventEmitter.emit(room.roomId, total ?? 0);
           } catch (err) {
             console.warn('[MatrixDataLayer] Failed to update unread from SDK', err);
@@ -616,6 +570,7 @@ export class MatrixDataLayer {
         // Listen for future changes
         room.on(matrixSdk.RoomEvent.UnreadNotifications, writeUnread);
         // Seed initial value so first login reflects server state
+        this.upsertInMemoryRoom(room);
         void writeUnread();
       } catch (err) {
         console.error('[MatrixDataLayer] Failed to attach unread listener', err);
@@ -636,41 +591,6 @@ export class MatrixDataLayer {
       const content = ev.getContent() as any;
       if (!room || !content) return;
 
-      const updates: Record<string, number> = {};
-
-      for (const [eventId, receiptTypes] of Object.entries<any>(content)) {
-        const reads = receiptTypes?.['m.read'];
-        if (!reads) continue;
-        for (const [userId, meta] of Object.entries<any>(reads)) {
-          updates[userId] = meta.ts;
-        }
-      }
-
-      // If there are no receipts in this payload, skip to avoid accidental wipes.
-      if (Object.keys(updates).length === 0) {
-        console.warn('[MatrixDataLayer] handleReceipts: empty receipt payload');
-        return;
-      }
-
-      // Single batch write to IDB for all user updates in this payload
-      const members = await this.db.getRoomMembers(room.roomId);
-      const updated = members.map((m) => ({
-        userId: m.userId,
-        displayName: m.displayName,
-        avatarUrl: m.avatarUrl,
-        membership: m.membership,
-        lastReadTs: Math.max(m.lastReadTs || 0, updates[m.userId] || 0),
-      }));
-      // console.log('[MatrixDataLayer] handleReceipts', room.roomId, updated);
-      // Do not write if we have no members yet to merge into; seeding will happen via syncRoom.
-      if (!members.length || !updated.length) {
-        console.warn('[MatrixDataLayer] handleReceipts: no members to update', members);
-        // Proactively seed members to avoid staying empty
-        void this.syncRoom(room.roomId);
-      } else {
-        await this.db.setRoomMembers(room.roomId, updated);
-      }
-
       for (const [eventId, receiptTypes] of Object.entries<any>(content)) {
         const reads = receiptTypes?.['m.read'];
         if (!reads) continue;
@@ -683,115 +603,19 @@ export class MatrixDataLayer {
 
   /** Update a room's unread count in the local DB. */
   async setRoomUnreadCount(roomId: string, count: number): Promise<void> {
-    const existing = await this.db.rooms.get(roomId);
-    if (!existing) return;
-    await this.db.rooms.put({
-      id: roomId,
-      name: existing.name || roomId,
-      latestTimestamp: existing.latestTimestamp ?? 0,
-      avatarMxcUrl: existing.avatarMxcUrl,
-      unreadCount: count,
-    });
+    const room = this.client?.getRoom(roomId);
+    if (room) {
+      this.upsertInMemoryRoom(room, { unreadCount: count }, true);
+    } else {
+      const existing = this.inMemoryRooms.get(roomId);
+      if (!existing) return;
+      const updated: DbRoom = { ...existing, unreadCount: count };
+      this.inMemoryRooms.set(roomId, updated);
+      void this.db.rooms.put(updated).catch((err) => {
+        console.warn('[MatrixDataLayer] Failed to persist unread count', err);
+      });
+    }
     this.unreadEventEmitter.emit(roomId, count);
-  }
-
-  /** Attempt to decrypt RepoEvents in-memory using the SDK (no DB writes). */
-  private async tryDecryptRepoEvents(roomId: string, events: RepoEvent[]): Promise<RepoEvent[]> {
-    if (!events.length) return events;
-    const client = this.client;
-    if (!client) return events;
-    const room = client.getRoom(roomId);
-    if (!room) return events;
-    for (let i = 0; i < events.length; i++) {
-      const re = events[i];
-      if (re.type !== matrixSdk.EventType.RoomMessageEncrypted) continue;
-      const raw: Partial<IEvent> = {
-        event_id: re.eventId,
-        type: re.type,
-        content: re.content,
-        sender: re.sender,
-        room_id: re.roomId,
-        origin_server_ts: re.originServerTs,
-        unsigned: re.unsigned || {},
-      };
-      const mev = new MatrixEvent(raw);
-      await client.decryptEventIfNeeded(mev);
-      if (!mev.isDecryptionFailure()) {
-        // Successful decrypt: replace with clear content/type so UI has message text/media
-        events[i] = {
-          eventId: re.eventId,
-          roomId: re.roomId,
-          type: mev.getType(),
-          sender: re.sender,
-          originServerTs: re.originServerTs,
-          index: re.index,
-          content: mev.getContent(),
-          unsigned: mev.getUnsigned(),
-        };
-      } else {
-        // Decryption failed: still expose the SDK's failure clear content so UI can render reason
-        events[i] = {
-          eventId: re.eventId,
-          roomId: re.roomId,
-          // The SDK sets clear type to m.room.message with msgtype m.bad.encrypted and a human body
-          type: mev.getType(),
-          sender: re.sender,
-          originServerTs: re.originServerTs,
-          index: re.index,
-          content: mev.getContent(),
-          unsigned: mev.getUnsigned(),
-        };
-        // If the SDK knows about this event, subscribe for future decryption and re-emit
-        const sdkEv = room.findEventById(re.eventId);
-        if (sdkEv) {
-          (sdkEv as any).mxIndex = re.index;
-          const onDecrypted = async () => {
-            if (sdkEv.isDecryptionFailure()) return;
-            const updated = await this.toRepoEvent(sdkEv, re.index);
-            if (updated) this.repoEventEmitter.emit(updated, room);
-            sdkEv.off(MatrixEventEvent.Decrypted, onDecrypted);
-          };
-          sdkEv.on(MatrixEventEvent.Decrypted, onDecrypted);
-        }
-      }
-    }
-    return events;
-  }
-
-  async backgroundSync() {
-    const client = this.client;
-    if (!client) return;
-
-    setInterval(
-      () => {
-        this.syncRooms();
-      },
-      5 * 60 * 1000
-    );
-    setInterval(
-      () => {
-        this.syncRooms(0);
-      },
-      30 * 60 * 1000
-    );
-    this.syncRooms(0);
-  }
-
-  async syncRooms(limit = 30) {
-    console.log('[MatrixDataLayer] sync avatars');
-    // top 30 recent rooms
-    const rooms = (await this.db.rooms.getAll()).sort((r1, r2) => {
-      const t1 = r1.latestTimestamp ?? 0;
-      const t2 = r2.latestTimestamp ?? 0;
-      return t2 - t1;
-    });
-
-    if (!this.client) return;
-
-    if (limit === 0) limit = rooms.length;
-    for (const r of rooms.slice(0, limit)) {
-      await this.syncRoom(r.id);
-    }
   }
 
   /**
@@ -805,62 +629,8 @@ export class MatrixDataLayer {
       if (!client) return;
       const room = client.getRoom(roomId);
       if (!room) return;
-
-      // Update room record
-      const existing = await this.db.rooms.get(room.roomId);
-      await this.db.rooms.put({
-        id: room.roomId,
-        name: room.name || room.roomId,
-        latestTimestamp: room.getLastActiveTimestamp(),
-        avatarMxcUrl: room.getMxcAvatarUrl() || existing?.avatarMxcUrl,
-        unreadCount: existing?.unreadCount ?? 0,
-      });
-
-      // Persist current members
-      const members = room.getMembers()?.filter((m) => m.membership === 'join') || [];
-      if (members.length)
-        await this.db.users.putMany(
-          members.map((x) => ({
-            userId: x.userId,
-            displayName: x.rawDisplayName || x.name,
-            avatarMxcUrl: x.getMxcAvatarUrl(),
-          }))
-        );
-
-      // Persist last-read timestamps for other members (exclude self)
-      const self = this.currentUserId;
-      const readUpdates: Record<string, number> = {};
-      for (const m of members) {
-        if (!m?.userId || m.userId === self) continue;
-        const upToId = room.getEventReadUpTo?.(m.userId) as string | undefined;
-        if (!upToId) continue;
-        const cached = await this.db.getEventById(upToId);
-        let ts = cached?.originServerTs || 0;
-        if (!ts) {
-          const sdkEv = room.findEventById(upToId);
-          ts = sdkEv?.getTs?.() ?? 0;
-        }
-        if (ts) readUpdates[m.userId] = Math.max(readUpdates[m.userId] || 0, ts);
-      }
-      if (Object.keys(readUpdates).length) {
-        const curr = await this.db.getRoomMembers(room.roomId);
-        const currById = curr.reduce(
-          (acc, m) => ({
-            ...acc,
-            [m.userId]: m,
-          }),
-          {} as Record<string, DbMember>
-        );
-
-        const merged = members.map((m) => ({
-          userId: m.userId,
-          displayName: m.rawDisplayName || m.name,
-          avatarUrl: m.getMxcAvatarUrl(),
-          membership: m.membership,
-          lastReadTs: Math.max(currById[m.userId]?.lastReadTs || 0, readUpdates[m.userId] || 0),
-        }));
-        await this.db.setRoomMembers(room.roomId, merged);
-      }
+      const latestTimestamp = room.getLastActiveTimestamp() ?? Date.now();
+      this.upsertInMemoryRoom(room, { latestTimestamp }, true);
     } catch (err) {
       console.warn('[MatrixDataLayer] syncRoom failed', err);
     }

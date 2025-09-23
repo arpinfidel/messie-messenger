@@ -1,18 +1,16 @@
 // Shared IndexedDB constants and shared record types
+import type { RepoEvent } from '../TimelineRepository';
 
 export const DB_NAME = 'mx-app-store';
-// Bump DB version whenever the schema changes. Version 5 introduces a
-// monotonic index for events to avoid relying on timestamps for pagination.
-export const DB_VERSION = 5;
+// Bump DB version whenever the schema changes. Version 6 removes legacy
+// timeline/token stores now that sliding sync drives the timeline.
+export const DB_VERSION = 6;
 
 export const STORES = {
   ROOMS: 'rooms',
-  EVENTS: 'events',
-  TOKENS: 'tokens',
   META: 'meta',
   USERS: 'users',
   MEDIA: 'media',
-  MEMBERS: 'members',
 } as const;
 
 export interface DbUser {
@@ -27,9 +25,8 @@ export interface DbRoom {
   latestTimestamp?: number;
   avatarMxcUrl?: string;
   unreadCount?: number;
+  lastEvent?: RepoEvent | null;
 }
-
-export type TokenRecord = { roomId: string; backward: string | null };
 
 export type MetaRecord = { key: string; value: any };
 
