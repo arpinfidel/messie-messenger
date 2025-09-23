@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PopupMenu from '@/views/shared/PopupMenu.svelte';
   import { MatrixViewModel } from '../../../viewmodels/matrix/MatrixViewModel';
 
   export let title: string = 'Matrix Room';
@@ -9,6 +10,14 @@
   const matrixViewModel = MatrixViewModel.getInstance();
   let showInfo = false;
   let members: any[] = [];
+  let showMenu = false;
+  let menuAnchor: HTMLButtonElement | null = null;
+  let isMuted = false;
+  let isFetchingMute = false;
+  let isUpdatingMute = false;
+  let muteStateLoaded = false;
+  let lastRoomId: string | null = null;
+  let muteRequestToken = 0;
 
   async function openInfo() {
     if (!roomId) return;
@@ -23,6 +32,62 @@
 
   function closeInfo() {
     showInfo = false;
+  }
+
+  async function loadMuteState(targetRoomId: string): Promise<void> {
+    const requestId = ++muteRequestToken;
+    muteStateLoaded = false;
+    isFetchingMute = true;
+    try {
+      const muted = await matrixViewModel.refreshRoomMuteState(targetRoomId);
+      if (muteRequestToken === requestId && roomId === targetRoomId) {
+        isMuted = muted;
+        muteStateLoaded = true;
+      }
+    } catch (err) {
+      console.error('[RoomHeader] Failed to load mute state', err);
+    } finally {
+      if (muteRequestToken === requestId) {
+        isFetchingMute = false;
+      }
+    }
+  }
+
+  async function handleMuteToggle() {
+    if (!roomId || isUpdatingMute || isFetchingMute) return;
+    isUpdatingMute = true;
+    try {
+      const muted = await matrixViewModel.setRoomMuted(roomId, !isMuted);
+      isMuted = muted;
+      muteStateLoaded = true;
+      showMenu = false;
+    } catch (err) {
+      console.error('[RoomHeader] Failed to update mute rule', err);
+    } finally {
+      isUpdatingMute = false;
+    }
+  }
+
+  function toggleMenu() {
+    if (!roomId) return;
+    showMenu = !showMenu;
+    if (showMenu && !muteStateLoaded && !isFetchingMute) {
+      void loadMuteState(roomId);
+    }
+  }
+
+  $: if (roomId && roomId !== lastRoomId) {
+    lastRoomId = roomId;
+    showMenu = false;
+    void loadMuteState(roomId);
+  }
+
+  $: if (!roomId) {
+    showMenu = false;
+    isMuted = false;
+    muteStateLoaded = false;
+    isFetchingMute = false;
+    isUpdatingMute = false;
   }
 </script>
 
@@ -41,7 +106,18 @@
   <div class="flex items-center space-x-2">
     <button
       class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+      on:click={toggleMenu}
+      bind:this={menuAnchor}
+      aria-label="Room actions"
+    >
+      <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+        <path d="M10 4.5a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5zm0 6a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5zm0 6a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5z" />
+      </svg>
+    </button>
+    <button
+      class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300"
       on:click={openInfo}
+      aria-label="Room information"
     >
       <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -49,6 +125,29 @@
     </button>
   </div>
 </div>
+
+<PopupMenu anchor={menuAnchor} show={showMenu} on:close={() => (showMenu = false)}>
+  <button
+    class="flex min-w-[12rem] items-center justify-between rounded-md px-3 py-2 text-left text-sm text-gray-700 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-gray-200 dark:hover:bg-gray-700"
+    on:click={handleMuteToggle}
+    disabled={isFetchingMute || isUpdatingMute}
+  >
+    <span>{isMuted ? 'Unmute room' : 'Mute room'}</span>
+    {#if isFetchingMute || isUpdatingMute}
+      <span
+        class="ml-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-transparent dark:border-gray-600"
+      />
+    {:else if isMuted}
+      <svg class="ml-2 h-4 w-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+      </svg>
+    {:else if muteStateLoaded}
+      <span
+        class="ml-2 inline-block h-4 w-4 rounded-full border-2 border-gray-300 dark:border-gray-600"
+      />
+    {/if}
+  </button>
+</PopupMenu>
 
 {#if showInfo}
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">

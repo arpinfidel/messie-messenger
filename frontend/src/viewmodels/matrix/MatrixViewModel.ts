@@ -7,6 +7,7 @@ import { type Writable } from 'svelte/store';
 import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
 import type { TimelineItem } from '@/models/shared/TimelineItem';
 import { matrixSettings } from '@/viewmodels/matrix/MatrixSettings';
+import { PushRuleActionName, type IPushRule } from 'matrix-js-sdk/lib/@types/PushRules';
 import {
   MatrixTimelineService,
   type MatrixMessage,
@@ -61,6 +62,8 @@ export class MatrixViewModel implements IModuleViewModel {
     this.notificationSvc
   );
   private queue = new OutgoingMessageQueue(() => this.clientMgr.getClient());
+  private pushRulesInitPromise: Promise<void> | null = null;
+  private mutedRooms = new Map<string, boolean>();
 
   private constructor() {}
 
@@ -243,6 +246,15 @@ export class MatrixViewModel implements IModuleViewModel {
     console.time('[MatrixVM] waitForPrepared');
     await this.clientMgr.waitForPrepared();
     console.timeEnd('[MatrixVM] waitForPrepared');
+
+    console.time('[MatrixVM] ensurePushRulesLoaded');
+    try {
+      await this.ensurePushRulesLoaded();
+    } catch (err) {
+      console.warn('[MatrixVM] Failed to preload push rules', err);
+    } finally {
+      console.timeEnd('[MatrixVM] ensurePushRulesLoaded');
+    }
 
     await this.timelineSvc.initTimeline().catch((err) => {
       console.warn('Failed to initialize timeline:', err);
@@ -478,5 +490,76 @@ export class MatrixViewModel implements IModuleViewModel {
     }
     this.queue.enqueue(roomId, 'm.room.message', { body: messageContent, msgtype: 'm.text' });
     this.queue.process();
+  }
+
+  /* ---------- Push rules & notifications ---------- */
+
+  private async ensurePushRulesLoaded(): Promise<void> {
+    const client = this.clientMgr.getClient();
+    if (!client) {
+      throw new Error('Matrix client not initialized.');
+    }
+    if (client.pushRules) {
+      return;
+    }
+    if (!this.pushRulesInitPromise) {
+      this.pushRulesInitPromise = client
+        .getPushRules()
+        .then((rules) => {
+          client.setPushRules(rules);
+        })
+        .catch((err) => {
+          console.warn('[MatrixVM] Failed to load push rules', err);
+          throw err;
+        })
+        .finally(() => {
+          this.pushRulesInitPromise = null;
+        });
+    }
+    await this.pushRulesInitPromise;
+  }
+
+  private isMuteRule(rule: IPushRule | undefined): boolean {
+    if (!rule) return false;
+    if (rule.enabled === false) return false;
+    return rule.actions.some(
+      (action) => typeof action === 'string' && action === PushRuleActionName.DontNotify,
+    );
+  }
+
+  public async isRoomMuted(roomId: string): Promise<boolean> {
+    if (!roomId) return false;
+    if (this.mutedRooms.has(roomId)) {
+      return this.mutedRooms.get(roomId)!;
+    }
+    return this.refreshRoomMuteState(roomId);
+  }
+
+  public async refreshRoomMuteState(roomId: string): Promise<boolean> {
+    if (!roomId) return false;
+    const client = this.clientMgr.getClient();
+    if (!client) {
+      throw new Error('Matrix client not initialized.');
+    }
+    await this.ensurePushRulesLoaded();
+    const rule = client.getRoomPushRule('global', roomId);
+    const muted = this.isMuteRule(rule);
+    this.mutedRooms.set(roomId, muted);
+    return muted;
+  }
+
+  public async setRoomMuted(roomId: string, mute: boolean): Promise<boolean> {
+    if (!roomId) return false;
+    const client = this.clientMgr.getClient();
+    if (!client) {
+      throw new Error('Matrix client not initialized.');
+    }
+    await this.ensurePushRulesLoaded();
+    await client.setRoomMutePushRule('global', roomId, mute);
+    this.mutedRooms.set(roomId, mute);
+    void this.refreshRoomMuteState(roomId).catch((err) => {
+      console.warn('[MatrixVM] Failed to verify mute state after update', err);
+    });
+    return mute;
   }
 }
