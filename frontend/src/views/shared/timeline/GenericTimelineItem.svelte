@@ -5,6 +5,7 @@
   import { format, isSameDay, isSameYear } from 'date-fns';
 
   export let item: TimelineItem;
+  export let selected = false;
 
   const now = new Date();
 
@@ -24,8 +25,8 @@
 
   const dispatch = createEventDispatcher();
 
-  function selectItem(selectedItem: TimelineItem) {
-    dispatch('itemSelected', selectedItem);
+  function selectItem(event: MouseEvent | KeyboardEvent, selectedItem: TimelineItem) {
+    dispatch('itemSelected', { item: selectedItem, originalEvent: event });
   }
 
   // Type-based styling configuration
@@ -77,12 +78,16 @@
 </script>
 
 <div
-  class="timeline-item group relative overflow-hidden rounded-xl border border-gray-200 bg-white/80 backdrop-blur-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-gray-200/50 dark:border-gray-700 dark:bg-gray-800/80 dark:hover:shadow-gray-900/25"
-  on:click={() => selectItem(item)}
-  on:keydown={(e) => e.key === 'Enter' && selectItem(item)}
+  class={`timeline-item group relative overflow-hidden rounded-xl border border-gray-200 bg-white/80 backdrop-blur-sm transition-all duration-300 hover:scale-[1.02] hover:shadow-lg hover:shadow-gray-200/50 dark:border-gray-700 dark:bg-gray-800/80 dark:hover:shadow-gray-900/25 ${
+    selected
+      ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-gray-900 border-blue-300 dark:border-blue-500 bg-blue-50/70 dark:bg-blue-900/30'
+      : ''
+  }`}
+  on:click={(event) => selectItem(event, item)}
+  on:keydown={(event) => event.key === 'Enter' && selectItem(event, item)}
   role="button"
   tabindex="0"
->
+  >
   <!-- Subtle gradient overlay -->
   <div
     class="absolute inset-0 bg-gradient-to-br from-white/50 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100 dark:from-white/5"
@@ -155,7 +160,6 @@
     outline: none;
     @apply ring-2 ring-blue-500 ring-offset-2 ring-offset-gray-900;
   }
-
   /* Line clamp utility for description */
   .line-clamp-2 {
     display: -webkit-box;

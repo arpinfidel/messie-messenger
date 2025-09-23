@@ -7,6 +7,7 @@
   import GenericTimelineItem from './timeline/GenericTimelineItem.svelte';
   import PopupMenu from '@/views/shared/PopupMenu.svelte';
   import type { CreateTodoListState } from '@/viewmodels/todo/TodoViewModel';
+  import { MatrixViewModel } from '@/viewmodels/matrix/MatrixViewModel';
   import {
     TIMELINE_SOURCE_FILTERS,
     DEFAULT_TIMELINE_SOURCE_FILTER,
@@ -28,8 +29,15 @@
 
   const unifiedTimelineViewModel = new UnifiedTimelineViewModel();
   const sourceOptions = TIMELINE_SOURCE_FILTERS;
+  const matrixViewModel = MatrixViewModel.getInstance();
 
   let createButton: HTMLButtonElement;
+
+  let selectedIds = new Set<string>();
+  let selectionAnchorIndex: number | null = null;
+  let isMutingSelection = false;
+  let selectionFeedback: { type: 'success' | 'error'; message: string } | null = null;
+  let selectionFeedbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   onMount(() => {
     const unsubscribers: Array<() => void> = [];
@@ -98,13 +106,155 @@
         clearTimeout(creationToastTimer);
         creationToastTimer = null;
       }
+      if (selectionFeedbackTimer) {
+        clearTimeout(selectionFeedbackTimer);
+        selectionFeedbackTimer = null;
+      }
     };
   });
 
+  $: visibleIdSet = new Set(items.map((item) => item.id));
+  $: {
+    const filteredSelection = new Set(Array.from(selectedIds).filter((id) => visibleIdSet.has(id)));
+    if (filteredSelection.size !== selectedIds.size) {
+      selectedIds = filteredSelection;
+      if (selectionAnchorIndex !== null) {
+        const anchorItem = items[selectionAnchorIndex];
+        if (!anchorItem || !filteredSelection.has(anchorItem.id)) {
+          const fallbackIndex = items.findIndex((it) => filteredSelection.has(it.id));
+          selectionAnchorIndex = fallbackIndex >= 0 ? fallbackIndex : null;
+        }
+      }
+    }
+  }
+  $: selectedItems = items.filter((item) => selectedIds.has(item.id));
+  $: selectedMatrixItems = selectedItems.filter((item) => item.type === 'matrix');
+  $: selectionCount = selectedItems.length;
+  $: matrixSelectionCount = selectedMatrixItems.length;
+
   $: loadingText = loadingModuleNames.length > 0 ? `Loading: ${loadingModuleNames.join(', ')}` : '';
 
-  function selectItem(event: CustomEvent<TimelineItem>) {
-    dispatch('itemSelected', event.detail);
+  function handleItemInteraction(
+    event: CustomEvent<{ item: TimelineItem; originalEvent: MouseEvent | KeyboardEvent }>
+  ) {
+    const { item, originalEvent } = event.detail;
+    const index = items.findIndex((it) => it.id === item.id);
+
+    if (!(originalEvent instanceof MouseEvent)) {
+      selectedIds = new Set([item.id]);
+      selectionAnchorIndex = index >= 0 ? index : null;
+      dispatch('itemSelected', item);
+      return;
+    }
+
+    if (index === -1) {
+      dispatch('itemSelected', item);
+      return;
+    }
+
+    if (originalEvent.shiftKey) {
+      const anchor = selectionAnchorIndex ?? index;
+      const start = Math.min(anchor, index);
+      const end = Math.max(anchor, index);
+      const rangeIds = items.slice(start, end + 1).map((it) => it.id);
+      selectedIds = new Set(rangeIds);
+      selectionAnchorIndex = anchor;
+    } else if (originalEvent.metaKey || originalEvent.ctrlKey) {
+      const next = new Set(selectedIds);
+      if (next.has(item.id)) {
+        next.delete(item.id);
+      } else {
+        next.add(item.id);
+      }
+      selectedIds = next;
+      selectionAnchorIndex = next.size > 0 ? index : null;
+    } else {
+      const alreadyOnlySelected = selectedIds.size === 1 && selectedIds.has(item.id);
+      if (!alreadyOnlySelected) {
+        selectedIds = new Set([item.id]);
+      }
+      selectionAnchorIndex = index;
+      dispatch('itemSelected', item);
+    }
+
+    if (selectedIds.size === 0) {
+      selectionAnchorIndex = null;
+    }
+  }
+
+  function selectAllVisible(): void {
+    if (items.length === 0) return;
+    selectedIds = new Set(items.map((item) => item.id));
+    selectionAnchorIndex = items.length > 0 ? 0 : null;
+  }
+
+  function clearSelection(): void {
+    selectedIds = new Set();
+    selectionAnchorIndex = null;
+  }
+
+  function clearSelectionFeedbackTimer() {
+    if (selectionFeedbackTimer) {
+      clearTimeout(selectionFeedbackTimer);
+      selectionFeedbackTimer = null;
+    }
+  }
+
+  async function muteSelectedRooms(): Promise<void> {
+    if (isMutingSelection) return;
+    const matrixItems = [...selectedMatrixItems];
+    if (matrixItems.length === 0) return;
+
+    isMutingSelection = true;
+    clearSelectionFeedbackTimer();
+
+    try {
+      const results = await Promise.allSettled(
+        matrixItems.map((matrixItem) => matrixViewModel.setRoomMuted(matrixItem.id, true))
+      );
+      const failedCount = results.reduce(
+        (count, result) => (result.status === 'rejected' ? count + 1 : count),
+        0
+      );
+
+      if (failedCount === 0) {
+        selectionFeedback = {
+          type: 'success',
+          message: `Muted ${matrixItems.length} room${matrixItems.length === 1 ? '' : 's'}.`,
+        };
+      } else {
+        if (failedCount === matrixItems.length) {
+          selectionFeedback = {
+            type: 'error',
+            message: 'Failed to mute selected rooms. Please try again.',
+          };
+        } else {
+          const successfulCount = matrixItems.length - failedCount;
+          selectionFeedback = {
+            type: 'error',
+            message: `Muted ${successfulCount} room${successfulCount === 1 ? '' : 's'}, but ${failedCount} failed.`,
+          };
+        }
+        results.forEach((result, idx) => {
+          if (result.status === 'rejected') {
+            const roomId = matrixItems[idx]?.id;
+            console.error('[UnifiedTimeline] Failed to mute room', roomId, result.reason);
+          }
+        });
+      }
+    } catch (err) {
+      console.error('[UnifiedTimeline] Unexpected error while muting rooms', err);
+      selectionFeedback = {
+        type: 'error',
+        message: 'Failed to mute selected rooms. Please try again.',
+      };
+    } finally {
+      isMutingSelection = false;
+      selectionFeedbackTimer = setTimeout(() => {
+        selectionFeedback = null;
+        selectionFeedbackTimer = null;
+      }, 3000);
+    }
   }
 
   async function createTodoList() {
@@ -259,6 +409,60 @@
       </div>
     </div>
 
+    {#if selectionCount > 0}
+      <div
+        class="mb-4 rounded-xl border border-blue-200 bg-blue-50/60 px-4 py-3 text-sm text-blue-900 shadow-sm dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-100"
+      >
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="font-semibold">{selectionCount} selected</span>
+            {#if matrixSelectionCount > 0}
+              <span class="rounded-full bg-blue-100/80 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-800/60 dark:text-blue-100">
+                {matrixSelectionCount} Matrix {matrixSelectionCount === 1 ? 'room' : 'rooms'}
+              </span>
+            {:else}
+              <span class="text-xs text-blue-600/80 dark:text-blue-300/70">No Matrix rooms selected</span>
+            {/if}
+            {#if selectionFeedback}
+              <span
+                class={`text-xs ${
+                  selectionFeedback.type === 'success'
+                    ? 'text-emerald-600 dark:text-emerald-300'
+                    : 'text-red-600 dark:text-red-300'
+                }`}
+              >
+                {selectionFeedback.message}
+              </span>
+            {/if}
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button
+              class="rounded-lg px-3 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-blue-200 dark:hover:bg-blue-800/40"
+              on:click={selectAllVisible}
+            >
+              Select all
+            </button>
+            <button
+              class="rounded-lg px-3 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-blue-200 dark:hover:bg-blue-800/40"
+              on:click={clearSelection}
+            >
+              Clear
+            </button>
+            <button
+              class="flex items-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-blue-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus:ring-offset-gray-900"
+              on:click={muteSelectedRooms}
+              disabled={matrixSelectionCount === 0 || isMutingSelection}
+            >
+              {#if isMutingSelection}
+                <span class="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-transparent" />
+              {/if}
+              <span>{isMutingSelection ? 'Muting…' : 'Mute selected'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
+
     {#if creationToast}
       <div
         class={`mb-4 flex items-start justify-between rounded-lg border px-4 py-3 text-sm ${
@@ -318,7 +522,11 @@
       <!-- Timeline Items -->
       <div class="space-y-4">
         {#each items as item (item.id)}
-          <GenericTimelineItem {item} on:itemSelected={selectItem} />
+          <GenericTimelineItem
+            {item}
+            selected={selectedIds.has(item.id)}
+            on:itemSelected={handleItemInteraction}
+          />
         {/each}
       </div>
     {/if}
