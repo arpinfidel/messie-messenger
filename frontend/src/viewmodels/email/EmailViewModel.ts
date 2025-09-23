@@ -250,6 +250,7 @@ export class EmailViewModel implements IModuleViewModel {
       timestamp: now,
       type: 'email',
       unreadCount: 0,
+      source: 'email',
     });
     this.baseItems.set(IMPORTANT_ID, {
       id: IMPORTANT_ID,
@@ -258,6 +259,7 @@ export class EmailViewModel implements IModuleViewModel {
       timestamp: now - 1,
       type: 'email',
       unreadCount: 0,
+      source: 'email',
     });
     this.emitTimeline();
   }
@@ -497,6 +499,7 @@ export class EmailViewModel implements IModuleViewModel {
         timestamp: latestTs,
         type: 'email',
         unreadCount: 0,
+        source: 'email',
       });
 
       cache.set(threadId, {

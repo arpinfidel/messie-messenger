@@ -4,11 +4,17 @@ import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
 import { TodoViewModel, type CreateTodoListState } from '@/viewmodels/todo/TodoViewModel';
 import { MatrixViewModel } from '@/viewmodels/matrix/MatrixViewModel';
 import { EmailViewModel } from '@/viewmodels/email/EmailViewModel';
+import {
+  DEFAULT_TIMELINE_SOURCE_FILTER,
+  TIMELINE_SOURCE_FILTERS,
+} from '@/config/timelineSources';
 
 export class UnifiedTimelineViewModel {
   private modules: IModuleViewModel[] = [];
   private todoViewModel: TodoViewModel;
   private _loadingModuleNames = writable<string[]>([]);
+  private searchTerm = writable<string>('');
+  private sourceFilter = writable<string>(DEFAULT_TIMELINE_SOURCE_FILTER);
   public loadingModuleNames: Readable<string[]> = readable([], (set: (value: string[]) => void) =>
     this._loadingModuleNames.subscribe(set)
   );
@@ -84,11 +90,46 @@ export class UnifiedTimelineViewModel {
    */
   public getSortedTimelineStore(): Readable<TimelineItem[]> {
     const aggregated = this.getAggregatedTimelineStore();
-    return derived(aggregated, ($items) => {
-      const sorted = $items.slice().sort((a, b) => b.timestamp - a.timestamp);
-      // console.log('UnifiedTimelineViewModel: Derived sorted count:', sorted.length);
-      return sorted;
+    return derived([aggregated, this.searchTerm, this.sourceFilter], ([$items, $search, $filter]) => {
+      const normalizedSearch = ($search || '').trim().toLowerCase();
+      const selectedOption =
+        TIMELINE_SOURCE_FILTERS.find((option) => option.id === $filter) ||
+        TIMELINE_SOURCE_FILTERS.find((option) => option.id === DEFAULT_TIMELINE_SOURCE_FILTER) ||
+        TIMELINE_SOURCE_FILTERS[0];
+      const allowedSources = (selectedOption?.sources ?? []).map((s) => s.toLowerCase());
+
+      const filtered = $items.filter((item) => {
+        const itemSource = (item.source ?? item.type ?? '').toLowerCase();
+        const matchesSource =
+          allowedSources.length === 0 || allowedSources.includes(itemSource);
+        const matchesSearch =
+          normalizedSearch.length === 0
+            ? true
+            : (item.title || '').toLowerCase().includes(normalizedSearch);
+        return matchesSource && matchesSearch;
+      });
+
+      return filtered.sort((a, b) => b.timestamp - a.timestamp);
     });
+  }
+
+  public getSearchTermStore(): Readable<string> {
+    return this.searchTerm;
+  }
+
+  public setSearchTerm(term: string): void {
+    this.searchTerm.set(term ?? '');
+  }
+
+  public getSourceFilterStore(): Readable<string> {
+    return this.sourceFilter;
+  }
+
+  public setSourceFilter(filterId: string): void {
+    const nextFilter = TIMELINE_SOURCE_FILTERS.some((option) => option.id === filterId)
+      ? filterId
+      : DEFAULT_TIMELINE_SOURCE_FILTER;
+    this.sourceFilter.set(nextFilter);
   }
 
   public getTodoCreationState(): Readable<CreateTodoListState> {

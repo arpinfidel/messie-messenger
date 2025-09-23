@@ -7,6 +7,10 @@
   import GenericTimelineItem from './timeline/GenericTimelineItem.svelte';
   import PopupMenu from '@/views/shared/PopupMenu.svelte';
   import type { CreateTodoListState } from '@/viewmodels/todo/TodoViewModel';
+  import {
+    TIMELINE_SOURCE_FILTERS,
+    DEFAULT_TIMELINE_SOURCE_FILTER,
+  } from '@/config/timelineSources';
 
   const dispatch = createEventDispatcher();
 
@@ -19,8 +23,11 @@
   let todoCreationState: CreateTodoListState = { status: 'idle' };
   let creationToast: { type: 'success' | 'error'; message: string } | null = null;
   let creationToastTimer: ReturnType<typeof setTimeout> | null = null;
+  let searchTerm = '';
+  let selectedSourceFilter = DEFAULT_TIMELINE_SOURCE_FILTER;
 
   const unifiedTimelineViewModel = new UnifiedTimelineViewModel();
+  const sourceOptions = TIMELINE_SOURCE_FILTERS;
 
   let createButton: HTMLButtonElement;
 
@@ -36,6 +43,18 @@
     unsubscribers.push(
       unifiedTimelineViewModel.loadingModuleNames.subscribe((value) => {
         loadingModuleNames = value;
+      })
+    );
+
+    unsubscribers.push(
+      unifiedTimelineViewModel.getSearchTermStore().subscribe((value) => {
+        searchTerm = value;
+      })
+    );
+
+    unsubscribers.push(
+      unifiedTimelineViewModel.getSourceFilterStore().subscribe((value) => {
+        selectedSourceFilter = value;
       })
     );
 
@@ -100,6 +119,16 @@
   function dismissCreationToast() {
     creationToast = null;
     unifiedTimelineViewModel.resetTodoCreationState();
+  }
+
+  function handleSearchInput(event: Event) {
+    const target = event.currentTarget as HTMLInputElement;
+    unifiedTimelineViewModel.setSearchTerm(target.value ?? '');
+  }
+
+  function handleSourceFilterChange(event: Event) {
+    const target = event.currentTarget as HTMLSelectElement;
+    unifiedTimelineViewModel.setSourceFilter(target.value ?? DEFAULT_TIMELINE_SOURCE_FILTER);
   }
 </script>
 
@@ -180,6 +209,56 @@
 
   <!-- Content Area -->
   <div class="px-6 py-6">
+    <div class="mb-6 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+      <div class="relative">
+        <label class="sr-only" for="timeline-search">Search timeline</label>
+        <input
+          id="timeline-search"
+          type="search"
+          class="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:focus:border-blue-400 dark:focus:ring-blue-400"
+          placeholder="Search by title..."
+          bind:value={searchTerm}
+          on:input={handleSearchInput}
+        />
+        <svg
+          class="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 1015 15l4.35 4.35z"
+          />
+        </svg>
+      </div>
+      <div>
+        <label class="sr-only" for="timeline-source-filter">Filter by source</label>
+        <div class="relative">
+          <select
+            id="timeline-source-filter"
+            class="w-full appearance-none rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:focus:border-blue-400 dark:focus:ring-blue-400"
+            bind:value={selectedSourceFilter}
+            on:change={handleSourceFilterChange}
+          >
+            {#each sourceOptions as option}
+              <option value={option.id}>{option.label}</option>
+            {/each}
+          </select>
+          <svg
+            class="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+          </svg>
+        </div>
+      </div>
+    </div>
+
     {#if creationToast}
       <div
         class={`mb-4 flex items-start justify-between rounded-lg border px-4 py-3 text-sm ${

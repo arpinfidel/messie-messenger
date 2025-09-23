@@ -10,6 +10,7 @@ import { AvatarService } from './core/AvatarService';
 import type { INotificationService } from '@/notifications/NotificationService';
 import { matrixSettings } from './MatrixSettings';
 import type { DbRoom } from './core/idb/constants';
+import { MATRIX_BRIDGE_USER_ID_TO_SOURCE } from '@/config/timelineSources';
 
 export interface MatrixMessageVersion {
   body: string;
@@ -49,6 +50,8 @@ export class MatrixTimelineService {
   private notifications?: INotificationService;
   private lastNotifyByRoom = new Map<string, number>();
   private messageCache = new Map<string, MatrixMessage>();
+  private readonly bridgeUserIdToSource: ReadonlyMap<string, string> =
+    MATRIX_BRIDGE_USER_ID_TO_SOURCE;
 
   constructor(
     private readonly ctx: {
@@ -118,7 +121,14 @@ export class MatrixTimelineService {
           timestamp = lastEvent.originServerTs || timestamp || 0;
         }
         // get previous avatar if available
-        const avatarUrl: string | undefined = currentItemsByID.get(room.id)?.avatarUrl;
+        const existingItem = currentItemsByID.get(room.id);
+        const avatarUrl: string | undefined = existingItem?.avatarUrl;
+        const mxRoom = this.client?.getRoom(room.id) ?? null;
+        const computedSource = this.computeRoomSource(mxRoom);
+        const source =
+          computedSource === 'matrix' && existingItem?.source && existingItem.source !== 'matrix'
+            ? existingItem.source
+            : computedSource;
 
         const item: TimelineItem = {
           id: room.id,
@@ -128,6 +138,7 @@ export class MatrixTimelineService {
           avatarUrl,
           timestamp,
           unreadCount: room.unreadCount || 0,
+          source,
         };
         return item;
       })
@@ -196,18 +207,24 @@ export class MatrixTimelineService {
         method: 'crop' as const,
       });
 
+      const previousItem =
+        this.nextTimeline.get(id) ||
+        (get(this._timelineItems).find((it) => it.id === id) as TimelineItem | undefined);
+      const computedSource = this.computeRoomSource(room);
+      const source =
+        computedSource === 'matrix' && previousItem?.source && previousItem.source !== 'matrix'
+          ? previousItem.source
+          : computedSource;
       const updated: TimelineItem = {
         id,
         type: 'matrix',
         title,
         description,
         // Keep previous avatar if resolve failed
-        avatarUrl:
-          avatarUrl ||
-          (get(this._timelineItems).find((it) => it.id === id) as TimelineItem | undefined)
-            ?.avatarUrl,
+        avatarUrl: avatarUrl || previousItem?.avatarUrl,
         timestamp,
         unreadCount,
+        source,
       };
 
       // Apply buffered update before scheduling a flush
@@ -289,9 +306,28 @@ export class MatrixTimelineService {
       rawData: existing.rawData,
       sender: existing.sender,
       unreadCount,
+      source: existing.source,
     };
     this.bufferTimelineUpdate(updated);
     this.scheduleFlush();
+  }
+
+  private computeRoomSource(room: matrixSdk.Room | null): string {
+    if (!room) {
+      return 'matrix';
+    }
+    const bridgeSource = this.resolveBridgeSource(room);
+    return bridgeSource ?? 'matrix';
+  }
+
+  private resolveBridgeSource(room: matrixSdk.Room): string | null {
+    for (const [userId, sourceId] of this.bridgeUserIdToSource) {
+      const member = room.getMember(userId);
+      if (member?.membership === 'join') {
+        return sourceId;
+      }
+    }
+    return null;
   }
 
   async scheduleFlush() {

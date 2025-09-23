@@ -159,6 +159,7 @@ export class TodoViewModel implements IModuleViewModel {
               ? list.createdAt.getTime()
               : 0,
           listId: list.id,
+          source: 'todo',
         });
       }
       allTimelineItems.sort((a, b) => b.timestamp - a.timestamp);
