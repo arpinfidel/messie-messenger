@@ -28,6 +28,7 @@
   "dependencies": {
     "@openapitools/openapi-generator-cli": "^2.23.1",
     "date-fns": "^4.1.0",
+    "lucide-svelte": "^0.544.0",
     "matrix-js-sdk": "^37.13.0",
     "quick-lru": "^7.1.0"
   }

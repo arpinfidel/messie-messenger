@@ -12,6 +12,16 @@
     TIMELINE_SOURCE_FILTERS,
     DEFAULT_TIMELINE_SOURCE_FILTER,
   } from '@/config/timelineSources';
+  import {
+    AlertCircle,
+    BellOff,
+    CheckCircle2,
+    CheckSquare,
+    ListChecks,
+    Loader2,
+    MessageSquare,
+    XCircle,
+  } from 'lucide-svelte';
 
   const dispatch = createEventDispatcher();
 
@@ -137,6 +147,9 @@
   $: selectedMatrixItems = selectedItems.filter((item) => item.type === 'matrix');
   $: selectionCount = selectedItems.length;
   $: matrixSelectionCount = selectedMatrixItems.length;
+  $: if (selectionCount > 0) {
+    showCreateMenu = false;
+  }
 
   $: loadingText = loadingModuleNames.length > 0 ? `Loading: ${loadingModuleNames.join(', ')}` : '';
 
@@ -304,74 +317,145 @@
   <!-- Enhanced Header -->
   <div class="sticky top-0 z-20 border-b border-gray-200/80 dark:border-gray-700/80">
     <div class="px-6 py-4">
-      <div class="flex items-center justify-between">
-        <!-- App Title -->
-        <div class="flex items-center space-x-3">
-          <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 shadow-lg">
-            <img src="/messie-logo.svg" alt="Messie Logo" class="h-12 w-12 text-gray-600 dark:text-gray-300" />
-          </div>
-          <h1 class="text-3xl font-bold text-gray-600 dark:text-gray-300">
-            Messie
-          </h1>
-        </div>
-
-        <!-- Action Buttons -->
-        <div class="flex items-center space-x-3">
-          <!-- Create Button with Dropdown -->
-          <div>
-            <button
-              bind:this={createButton}
-              class="group flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl hover:from-emerald-400 hover:to-green-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
-              on:click={() => (showCreateMenu = !showCreateMenu)}
-              aria-haspopup="true"
-              aria-expanded={showCreateMenu}
-              title="Create new item"
+      {#if selectionCount > 0}
+        <div class="flex min-h-[4rem] items-center justify-between gap-4">
+          <div class="flex flex-1 flex-wrap items-center gap-3 text-blue-900 dark:text-blue-100">
+            <div
+              class="flex items-center gap-2 rounded-lg bg-blue-100/80 px-3 py-1.5 text-sm font-semibold text-blue-700 dark:bg-blue-900/60 dark:text-blue-100"
+              aria-label={`${selectionCount} items selected`}
             >
-              <svg
-                class="h-5 w-5 transition-transform duration-300 {showCreateMenu ? 'rotate-45' : ''}"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+              <CheckSquare class="h-4 w-4" aria-hidden="true" />
+              <span>{selectionCount} selected</span>
+            </div>
+            <div
+              class="flex items-center gap-1 rounded-full bg-blue-50/80 px-2.5 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/40 dark:text-blue-100"
+              aria-label={`${matrixSelectionCount} Matrix rooms selected`}
+              title={`${matrixSelectionCount} Matrix rooms selected`}
+            >
+              <MessageSquare class="h-4 w-4" aria-hidden="true" />
+              <span>{matrixSelectionCount}</span>
+            </div>
+            {#if selectionFeedback}
+              <div
+                class={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
+                  selectionFeedback.type === 'success'
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200'
+                    : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200'
+                }`}
+                title={selectionFeedback.message}
+                aria-live="polite"
               >
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                {#if selectionFeedback.type === 'success'}
+                  <CheckCircle2 class="h-4 w-4" aria-hidden="true" />
+                {:else}
+                  <AlertCircle class="h-4 w-4" aria-hidden="true" />
+                {/if}
+                <span class="max-w-[12rem] truncate">{selectionFeedback.message}</span>
+              </div>
+            {/if}
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-700 transition-colors hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-blue-900/50 dark:text-blue-100 dark:hover:bg-blue-800"
+              on:click={selectAllVisible}
+              aria-label="Select all visible"
+              title="Select all visible"
+            >
+              <ListChecks class="h-5 w-5" aria-hidden="true" />
+            </button>
+            <button
+              class="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white shadow transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-blue-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus:ring-offset-gray-900"
+              on:click={muteSelectedRooms}
+              aria-label="Mute selected rooms"
+              title="Mute selected rooms"
+              disabled={matrixSelectionCount === 0 || isMutingSelection}
+            >
+              {#if isMutingSelection}
+                <Loader2 class="h-5 w-5 animate-spin" aria-hidden="true" />
+              {:else}
+                <BellOff class="h-5 w-5" aria-hidden="true" />
+              {/if}
+            </button>
+            <button
+              class="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 text-gray-600 transition-colors hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700"
+              on:click={clearSelection}
+              aria-label="Clear selection"
+              title="Clear selection"
+            >
+              <XCircle class="h-5 w-5" aria-hidden="true" />
+            </button>
+          </div>
+        </div>
+      {:else}
+        <div class="flex min-h-[4rem] items-center justify-between">
+          <!-- App Title -->
+          <div class="flex items-center space-x-3">
+            <div class="flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800 shadow-lg">
+              <img src="/messie-logo.svg" alt="Messie Logo" class="h-12 w-12 text-gray-600 dark:text-gray-300" />
+            </div>
+            <h1 class="text-3xl font-bold text-gray-600 dark:text-gray-300">
+              Messie
+            </h1>
+          </div>
+
+          <!-- Action Buttons -->
+          <div class="flex items-center space-x-3">
+            <!-- Create Button with Dropdown -->
+            <div>
+              <button
+                bind:this={createButton}
+                class="group flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 text-white shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl hover:from-emerald-400 hover:to-green-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 dark:focus:ring-offset-gray-900"
+                on:click={() => (showCreateMenu = !showCreateMenu)}
+                aria-haspopup="true"
+                aria-expanded={showCreateMenu}
+                title="Create new item"
+              >
+                <svg
+                  class="h-5 w-5 transition-transform duration-300 {showCreateMenu ? 'rotate-45' : ''}"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+              </button>
+
+              <PopupMenu anchor={createButton} show={showCreateMenu} on:close={() => (showCreateMenu = false)}>
+                <button
+                  class="flex w-full items-center px-4 py-3 text-left text-gray-700 transition-colors hover:bg-gray-100/80 disabled:cursor-not-allowed disabled:opacity-60 dark:text-gray-300 dark:hover:bg-gray-700/80"
+                  on:click={createTodoList}
+                  disabled={todoCreationState.status === 'creating'}
+                >
+                  <div class="mr-3 flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/50">
+                    <span class="text-sm">✅</span>
+                  </div>
+                  <div>
+                    <div class="font-medium">
+                      {todoCreationState.status === 'creating' ? 'Creating...' : 'Create todo list'}
+                    </div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                      {todoCreationState.status === 'creating'
+                        ? 'Hang tight while we set things up'
+                        : 'Add a new task list'}
+                    </div>
+                  </div>
+                </button>
+              </PopupMenu>
+            </div>
+
+            <!-- Settings Button -->
+            <button
+              class="flex h-11 items-center space-x-2 rounded-xl bg-white px-4 py-2 font-medium text-gray-700 shadow-md ring-1 ring-gray-200 transition-all duration-300 hover:bg-gray-50 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-700 dark:hover:bg-gray-700 dark:focus:ring-offset-gray-900"
+              on:click={() => dispatch('openSettings')}
+            >
+              <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </button>
-
-            <PopupMenu anchor={createButton} show={showCreateMenu} on:close={() => (showCreateMenu = false)}>
-              <button
-                class="flex w-full items-center px-4 py-3 text-left text-gray-700 transition-colors hover:bg-gray-100/80 disabled:cursor-not-allowed disabled:opacity-60 dark:text-gray-300 dark:hover:bg-gray-700/80"
-                on:click={createTodoList}
-                disabled={todoCreationState.status === 'creating'}
-              >
-                <div class="mr-3 flex h-8 w-8 items-center justify-center rounded-lg bg-purple-100 dark:bg-purple-900/50">
-                  <span class="text-sm">✅</span>
-                </div>
-                <div>
-                  <div class="font-medium">
-                    {todoCreationState.status === 'creating' ? 'Creating...' : 'Create todo list'}
-                  </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
-                    {todoCreationState.status === 'creating'
-                      ? 'Hang tight while we set things up'
-                      : 'Add a new task list'}
-                  </div>
-                </div>
-              </button>
-            </PopupMenu>
           </div>
-
-          <!-- Settings Button -->
-          <button
-            class="flex h-11 items-center space-x-2 rounded-xl bg-white px-4 py-2 font-medium text-gray-700 shadow-md ring-1 ring-gray-200 transition-all duration-300 hover:bg-gray-50 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-700 dark:hover:bg-gray-700 dark:focus:ring-offset-gray-900"
-            on:click={() => dispatch('openSettings')}
-          >
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
         </div>
-      </div>
+      {/if}
     </div>
   </div>
 
@@ -426,60 +510,6 @@
         </div>
       </div>
     </div>
-
-    {#if selectionCount > 0}
-      <div
-        class="mb-4 rounded-xl border border-blue-200 bg-blue-50/60 px-4 py-3 text-sm text-blue-900 shadow-sm dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-100"
-      >
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="font-semibold">{selectionCount} selected</span>
-            {#if matrixSelectionCount > 0}
-              <span class="rounded-full bg-blue-100/80 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-800/60 dark:text-blue-100">
-                {matrixSelectionCount} Matrix {matrixSelectionCount === 1 ? 'room' : 'rooms'}
-              </span>
-            {:else}
-              <span class="text-xs text-blue-600/80 dark:text-blue-300/70">No Matrix rooms selected</span>
-            {/if}
-            {#if selectionFeedback}
-              <span
-                class={`text-xs ${
-                  selectionFeedback.type === 'success'
-                    ? 'text-emerald-600 dark:text-emerald-300'
-                    : 'text-red-600 dark:text-red-300'
-                }`}
-              >
-                {selectionFeedback.message}
-              </span>
-            {/if}
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <button
-              class="rounded-lg px-3 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-blue-200 dark:hover:bg-blue-800/40"
-              on:click={selectAllVisible}
-            >
-              Select all
-            </button>
-            <button
-              class="rounded-lg px-3 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-blue-200 dark:hover:bg-blue-800/40"
-              on:click={clearSelection}
-            >
-              Clear
-            </button>
-            <button
-              class="flex items-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow transition-colors hover:bg-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-blue-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-blue-500 dark:hover:bg-blue-400 dark:focus:ring-offset-gray-900"
-              on:click={muteSelectedRooms}
-              disabled={matrixSelectionCount === 0 || isMutingSelection}
-            >
-              {#if isMutingSelection}
-                <span class="mr-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-transparent" />
-              {/if}
-              <span>{isMutingSelection ? 'Muting…' : 'Mute selected'}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
 
     {#if creationToast}
       <div
