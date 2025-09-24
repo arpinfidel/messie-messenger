@@ -1,7 +1,7 @@
 <!-- GenericTimelineItem.svelte -->
 <script lang="ts">
   import type { TimelineItem } from '@/models/shared/TimelineItem';
-  import { createEventDispatcher } from 'svelte';
+  import { createEventDispatcher, onDestroy } from 'svelte';
   import { format, isSameDay, isSameYear } from 'date-fns';
 
   export let item: TimelineItem;
@@ -23,11 +23,82 @@
     }
   }
 
+  type InteractionType = 'click' | 'keyboard' | 'long-press';
+
   const dispatch = createEventDispatcher();
 
-  function selectItem(event: MouseEvent | KeyboardEvent, selectedItem: TimelineItem) {
-    dispatch('itemSelected', { item: selectedItem, originalEvent: event });
+  function selectItem(
+    event: MouseEvent | KeyboardEvent | PointerEvent,
+    selectedItem: TimelineItem,
+    interactionType: InteractionType = 'click'
+  ) {
+    dispatch('itemSelected', { item: selectedItem, originalEvent: event, interactionType });
   }
+
+  let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  let longPressTriggered = false;
+  let activePointerId: number | null = null;
+
+  function clearLongPressTimer() {
+    if (longPressTimer) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+  }
+
+  function handlePointerDown(event: PointerEvent) {
+    if (event.pointerType !== 'touch') {
+      clearLongPressTimer();
+      longPressTriggered = false;
+      return;
+    }
+
+    clearLongPressTimer();
+    longPressTriggered = false;
+    activePointerId = event.pointerId;
+    longPressTimer = setTimeout(() => {
+      longPressTriggered = true;
+      selectItem(event, item, 'long-press');
+    }, 450);
+  }
+
+  function handlePointerUp(event: PointerEvent) {
+    if (activePointerId !== null && event.pointerId === activePointerId) {
+      activePointerId = null;
+    }
+    clearLongPressTimer();
+  }
+
+  function handlePointerCancel(event: PointerEvent) {
+    if (activePointerId !== null && event.pointerId === activePointerId) {
+      activePointerId = null;
+    }
+    clearLongPressTimer();
+  }
+
+  function handlePointerLeave(event: PointerEvent) {
+    if (event.pointerType === 'touch') {
+      clearLongPressTimer();
+    }
+  }
+
+  function handleClick(event: MouseEvent) {
+    if (longPressTriggered) {
+      event.preventDefault();
+      event.stopPropagation();
+      longPressTriggered = false;
+      return;
+    }
+    selectItem(event, item, 'click');
+  }
+
+  function handleKeyDown(event: KeyboardEvent) {
+    if (event.key === 'Enter') {
+      selectItem(event, item, 'keyboard');
+    }
+  }
+
+  onDestroy(clearLongPressTimer);
 
   // Type-based styling configuration
   const typeConfig = {
@@ -83,8 +154,12 @@
       ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-gray-900 border-blue-300 dark:border-blue-500 bg-blue-50/70 dark:bg-blue-900/30'
       : ''
   }`}
-  on:click={(event) => selectItem(event, item)}
-  on:keydown={(event) => event.key === 'Enter' && selectItem(event, item)}
+  on:pointerdown={handlePointerDown}
+  on:pointerup={handlePointerUp}
+  on:pointerleave={handlePointerLeave}
+  on:pointercancel={handlePointerCancel}
+  on:click={handleClick}
+  on:keydown={handleKeyDown}
   role="button"
   tabindex="0"
   >
@@ -169,4 +244,5 @@
     /* Standard property for compatibility */
     line-clamp: 2;
   }
+
 </style>

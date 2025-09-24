@@ -15,6 +15,12 @@
 
   const dispatch = createEventDispatcher();
 
+  type ItemInteractionDetail = {
+    item: TimelineItem;
+    originalEvent: MouseEvent | KeyboardEvent | PointerEvent;
+    interactionType?: 'click' | 'keyboard' | 'long-press';
+  };
+
   let items: TimelineItem[] = [];
   let isLoading = true;
   let error: string | null = null;
@@ -134,15 +140,28 @@
 
   $: loadingText = loadingModuleNames.length > 0 ? `Loading: ${loadingModuleNames.join(', ')}` : '';
 
-  function handleItemInteraction(
-    event: CustomEvent<{ item: TimelineItem; originalEvent: MouseEvent | KeyboardEvent }>
-  ) {
-    const { item, originalEvent } = event.detail;
-    const index = items.findIndex((it) => it.id === item.id);
-    const isShiftSelection = originalEvent.shiftKey;
-    const isModifierSelection = originalEvent.metaKey || originalEvent.ctrlKey;
+  function handleItemInteraction(event: CustomEvent<ItemInteractionDetail>) {
+    const { item, originalEvent, interactionType = 'click' } = event.detail;
 
-    if (!isShiftSelection && !isModifierSelection) {
+    if (!item) {
+      return;
+    }
+
+    if (interactionType === 'keyboard') {
+      dispatch('itemSelected', item);
+      return;
+    }
+
+    const index = items.findIndex((it) => it.id === item.id);
+    const pointerEvent = originalEvent as MouseEvent;
+    const isShiftSelection = Boolean(pointerEvent?.shiftKey);
+    const isModifierSelection = Boolean(pointerEvent?.metaKey || pointerEvent?.ctrlKey);
+    const isLongPress = interactionType === 'long-press';
+    const selectionModeActive = selectedIds.size > 0;
+    const shouldToggleSelection =
+      isLongPress || isModifierSelection || (selectionModeActive && !isShiftSelection);
+
+    if (!isShiftSelection && !shouldToggleSelection) {
       dispatch('itemSelected', item);
       if (selectedIds.size === 0) {
         selectionAnchorIndex = null;
@@ -162,20 +181,23 @@
       const rangeIds = items.slice(start, end + 1).map((it) => it.id);
       selectedIds = new Set(rangeIds);
       selectionAnchorIndex = anchor;
-    } else if (isModifierSelection) {
-      const next = new Set(selectedIds);
-      if (next.has(item.id)) {
-        next.delete(item.id);
-      } else {
-        next.add(item.id);
-      }
-      selectedIds = next;
-      selectionAnchorIndex = next.size > 0 ? index : null;
+      return;
     }
 
-    if (selectedIds.size === 0) {
-      selectionAnchorIndex = null;
+    const next = new Set(selectedIds);
+    if (next.has(item.id)) {
+      next.delete(item.id);
+      if (next.size === 0) {
+        selectionAnchorIndex = null;
+      } else if (selectionAnchorIndex === index) {
+        const fallbackIndex = items.findIndex((it) => next.has(it.id));
+        selectionAnchorIndex = fallbackIndex >= 0 ? fallbackIndex : null;
+      }
+    } else {
+      next.add(item.id);
+      selectionAnchorIndex = index;
     }
+    selectedIds = next;
   }
 
   function selectAllVisible(): void {
