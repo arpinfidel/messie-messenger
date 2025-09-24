@@ -103,7 +103,7 @@
       bind:this={textareaEl}
       bind:value={text}
       on:keydown={handleKeydown}
-      placeholder="Type your message... (Shift+Enter for new line)"
+      placeholder="Type your message"
       class="message-input"
       rows="1"
       disabled={isSending}

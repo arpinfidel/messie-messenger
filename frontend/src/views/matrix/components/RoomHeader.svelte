@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
   import PopupMenu from '@/views/shared/PopupMenu.svelte';
+  import Modal from '@/views/shared/Modal.svelte';
   import { MatrixViewModel } from '../../../viewmodels/matrix/MatrixViewModel';
 
   export let title: string = 'Matrix Room';
@@ -167,21 +168,19 @@
   </button>
 </PopupMenu>
 
-{#if showInfo}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-    <div class="max-h-[80vh] w-full max-w-lg overflow-auto rounded-lg bg-white p-4 shadow-lg dark:bg-gray-800">
-      <h3 class="mb-2 text-lg font-semibold">Debug Info</h3>
-      <p class="mb-2 text-sm">Room ID: {roomId}</p>
-      <pre class="max-h-[60vh] overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-900">{JSON.stringify(members, null, 2)}</pre>
-      <button
-        class="mt-4 rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600"
-        on:click={closeInfo}
-      >
-        Close
-      </button>
-    </div>
-  </div>
-{/if}
+<Modal
+  show={showInfo}
+  on:close={closeInfo}
+  ariaLabelledby="room-debug-info-title"
+  containerClass="relative w-full max-w-lg max-h-[80vh] overflow-auto rounded-lg bg-white p-4 shadow-lg outline-none focus:outline-none dark:bg-gray-800"
+>
+  <h3 id="room-debug-info-title" class="mb-2 text-lg font-semibold">Debug Info</h3>
+  <p class="mb-2 text-sm">Room ID: {roomId}</p>
+  <pre class="max-h-[60vh] overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-900">{JSON.stringify(members, null, 2)}</pre>
+  <button class="mt-4 rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600" on:click={closeInfo}>
+    Close
+  </button>
+</Modal>
 
 <style>
   .room-header {
