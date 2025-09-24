@@ -1,13 +1,9 @@
-import { type CryptoCallbacks } from 'matrix-js-sdk/lib/crypto-api';
 import * as matrixSdk from 'matrix-js-sdk';
-import { decodeRecoveryKey } from 'matrix-js-sdk/lib/crypto-api/recovery-key';
-import { logger } from 'matrix-js-sdk/lib/logger.js';
 import loglevel from 'loglevel';
 import { type Writable } from 'svelte/store';
 import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
 import type { TimelineItem } from '@/models/shared/TimelineItem';
 import { matrixSettings } from '@/viewmodels/matrix/MatrixSettings';
-import { PushRuleActionName, type IPushRule } from 'matrix-js-sdk/lib/@types/PushRules';
 import {
   MatrixTimelineService,
   type MatrixMessage,
@@ -16,12 +12,11 @@ import { AvatarService } from './core/AvatarService';
 import type { RepoEvent } from './core/TimelineRepository';
 import { MatrixSessionStore, type MatrixSessionData } from './core/MatrixSessionStore';
 import { MatrixClientManager } from './core/MatrixClientManager';
-import { OutgoingMessageQueue } from './core/OutgoingMessageQueue';
 import { MatrixCryptoManager } from './core/MatrixCryptoManager';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
 import { BrowserNotificationService } from '@/notifications/NotificationService';
-import { BrowserMediaService } from './core/MediaService';
-import type { EncryptedFile } from 'matrix-js-sdk/lib/@types/media';
+import { MatrixMessagingService } from './core/MatrixMessagingService';
+import { MatrixPushRuleService } from './core/MatrixPushRuleService';
 
 export class MatrixViewModel implements IModuleViewModel {
   private static instance: MatrixViewModel;
@@ -50,7 +45,7 @@ export class MatrixViewModel implements IModuleViewModel {
     { maxMemEntries: 200, maxDbEntries: 5000 }
   );
   private notificationSvc = new BrowserNotificationService();
-  private mediaSvc = new BrowserMediaService();
+  private messagingSvc = new MatrixMessagingService(() => this.clientMgr.getClient());
   private timelineSvc = new MatrixTimelineService(
     {
       getClient: () => this.clientMgr.getClient(),
@@ -61,9 +56,7 @@ export class MatrixViewModel implements IModuleViewModel {
     this.avatarSvc,
     this.notificationSvc
   );
-  private queue = new OutgoingMessageQueue(() => this.clientMgr.getClient());
-  private pushRulesInitPromise: Promise<void> | null = null;
-  private mutedRooms = new Map<string, boolean>();
+  private pushRuleSvc = new MatrixPushRuleService(() => this.clientMgr.getClient());
 
   private constructor() {}
 
@@ -249,7 +242,7 @@ export class MatrixViewModel implements IModuleViewModel {
 
     console.time('[MatrixVM] ensurePushRulesLoaded');
     try {
-      await this.ensurePushRulesLoaded();
+      await this.pushRuleSvc.ensurePushRulesLoaded();
     } catch (err) {
       console.warn('[MatrixVM] Failed to preload push rules', err);
     } finally {
@@ -350,216 +343,40 @@ export class MatrixViewModel implements IModuleViewModel {
   /* ---------- Messaging ---------- */
 
   async pickMedia(): Promise<File | undefined> {
-    return this.mediaSvc.pickMedia();
+    return this.messagingSvc.pickMedia();
   }
 
   async pickFile(): Promise<File | undefined> {
-    return this.mediaSvc.pickFile();
+    return this.messagingSvc.pickFile();
   }
 
   async sendMedia(roomId: string): Promise<void> {
-    const file = await this.mediaSvc.pickMedia();
-    if (!file) return;
-    const caption =
-      typeof window !== 'undefined'
-        ? window.prompt('Add a caption (optional):') || undefined
-        : undefined;
-    await this.sendAttachment(roomId, file, caption);
+    await this.messagingSvc.sendMedia(roomId);
   }
 
   async sendFile(roomId: string): Promise<void> {
-    const file = await this.mediaSvc.pickFile();
-    if (!file) return;
-    const caption =
-      typeof window !== 'undefined'
-        ? window.prompt('Add a caption (optional):') || undefined
-        : undefined;
-    await this.sendAttachment(roomId, file, caption);
+    await this.messagingSvc.sendFile(roomId);
   }
 
   async sendAttachment(roomId: string, file: File, caption?: string): Promise<void> {
-    const client = this.clientMgr.getClient();
-    if (!client) {
-      console.error('Cannot send media: Matrix client not initialized.');
-      return;
-    }
-
-    const isEncryptedRoom = client.isRoomEncrypted(roomId);
-    const msgtype = file.type.startsWith('image/')
-      ? matrixSdk.MsgType.Image
-      : file.type.startsWith('video/')
-        ? matrixSdk.MsgType.Video
-        : matrixSdk.MsgType.File;
-
-    const content: any = {
-      body: caption ?? '',
-      filename: file.name || 'file',
-      msgtype,
-      info: { mimetype: file.type || 'application/octet-stream', size: file.size },
-    };
-
-    if (msgtype === matrixSdk.MsgType.Image) {
-      const dims = await this.getImageSize(file).catch(() => undefined);
-      if (dims) {
-        content.info.w = dims.width;
-        content.info.h = dims.height;
-      }
-    }
-
-    try {
-      if (isEncryptedRoom) {
-        const enc = await this.encryptAttachment(file);
-        const res = await client.uploadContent(new Blob([enc.data]), {
-          type: 'application/octet-stream',
-        });
-        content.file = { ...enc.file, url: res.content_uri } as EncryptedFile;
-      } else {
-        const res = await client.uploadContent(file, { type: file.type });
-        content.url = res.content_uri;
-      }
-
-      this.queue.enqueue(roomId, 'm.room.message', content);
-      this.queue.process();
-    } catch (e) {
-      console.error('Failed to send media message', e);
-    }
-  }
-
-  private async getImageSize(file: File): Promise<{ width: number; height: number }> {
-    return new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
-        resolve({ width: img.width, height: img.height });
-        URL.revokeObjectURL(url);
-      };
-      img.onerror = (err) => {
-        URL.revokeObjectURL(url);
-        reject(err);
-      };
-      img.src = url;
-    });
-  }
-
-  private async encryptAttachment(
-    file: File
-  ): Promise<{ data: ArrayBuffer; file: Omit<EncryptedFile, 'url'> }> {
-    const data = await file.arrayBuffer();
-    const iv = crypto.getRandomValues(new Uint8Array(16));
-    const keyBytes = crypto.getRandomValues(new Uint8Array(32));
-    const key = await crypto.subtle.importKey('raw', keyBytes, 'AES-CTR', true, [
-      'encrypt',
-      'decrypt',
-    ]);
-    const cipher = await crypto.subtle.encrypt(
-      { name: 'AES-CTR', counter: iv, length: 64 },
-      key,
-      data
-    );
-    const hashBuf = await crypto.subtle.digest('SHA-256', cipher);
-    const keyJwk = (await crypto.subtle.exportKey('jwk', key)) as EncryptedFile['key'];
-    // Ensure required fields for Matrix spec
-    keyJwk.alg = 'A256CTR';
-    keyJwk.key_ops = ['encrypt', 'decrypt'];
-    keyJwk.ext = true;
-
-    // Standard base64 (alphabet +/) without padding, per EncryptedFile spec.
-    const toBase64Unpadded = (buf: ArrayBuffer | Uint8Array) => {
-      const bytes = buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf;
-      let binary = '';
-      for (const b of bytes) binary += String.fromCharCode(b);
-      return btoa(binary).replace(/=+$/, '');
-    };
-
-    return {
-      data: cipher,
-      file: {
-        v: 'v2',
-        key: keyJwk,
-        iv: toBase64Unpadded(iv),
-        hashes: { sha256: toBase64Unpadded(hashBuf) },
-      },
-    };
+    await this.messagingSvc.sendAttachment(roomId, file, caption);
   }
 
   async sendMessage(roomId: string, messageContent: string): Promise<void> {
-    const client = this.clientMgr.getClient();
-    if (!client) {
-      console.error('Cannot send message: Matrix client not initialized.');
-      return;
-    }
-    this.queue.enqueue(roomId, 'm.room.message', { body: messageContent, msgtype: 'm.text' });
-    this.queue.process();
+    await this.messagingSvc.sendMessage(roomId, messageContent);
   }
 
   /* ---------- Push rules & notifications ---------- */
 
-  private async ensurePushRulesLoaded(): Promise<void> {
-    const client = this.clientMgr.getClient();
-    if (!client) {
-      throw new Error('Matrix client not initialized.');
-    }
-    if (client.pushRules) {
-      return;
-    }
-    if (!this.pushRulesInitPromise) {
-      this.pushRulesInitPromise = client
-        .getPushRules()
-        .then((rules) => {
-          client.setPushRules(rules);
-        })
-        .catch((err) => {
-          console.warn('[MatrixVM] Failed to load push rules', err);
-          throw err;
-        })
-        .finally(() => {
-          this.pushRulesInitPromise = null;
-        });
-    }
-    await this.pushRulesInitPromise;
-  }
-
-  private isMuteRule(rule: IPushRule | undefined): boolean {
-    if (!rule) return false;
-    if (rule.enabled === false) return false;
-    return rule.actions.some(
-      (action) => typeof action === 'string' && action === PushRuleActionName.DontNotify,
-    );
-  }
-
   public async isRoomMuted(roomId: string): Promise<boolean> {
-    if (!roomId) return false;
-    if (this.mutedRooms.has(roomId)) {
-      return this.mutedRooms.get(roomId)!;
-    }
-    return this.refreshRoomMuteState(roomId);
+    return this.pushRuleSvc.isRoomMuted(roomId);
   }
 
   public async refreshRoomMuteState(roomId: string): Promise<boolean> {
-    if (!roomId) return false;
-    const client = this.clientMgr.getClient();
-    if (!client) {
-      throw new Error('Matrix client not initialized.');
-    }
-    await this.ensurePushRulesLoaded();
-    const rule = client.getRoomPushRule('global', roomId);
-    const muted = this.isMuteRule(rule);
-    this.mutedRooms.set(roomId, muted);
-    return muted;
+    return this.pushRuleSvc.refreshRoomMuteState(roomId);
   }
 
   public async setRoomMuted(roomId: string, mute: boolean): Promise<boolean> {
-    if (!roomId) return false;
-    const client = this.clientMgr.getClient();
-    if (!client) {
-      throw new Error('Matrix client not initialized.');
-    }
-    await this.ensurePushRulesLoaded();
-    await client.setRoomMutePushRule('global', roomId, mute);
-    this.mutedRooms.set(roomId, mute);
-    void this.refreshRoomMuteState(roomId).catch((err) => {
-      console.warn('[MatrixVM] Failed to verify mute state after update', err);
-    });
-    return mute;
+    return this.pushRuleSvc.setRoomMuted(roomId, mute);
   }
 }
