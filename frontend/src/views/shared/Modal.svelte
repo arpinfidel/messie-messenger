@@ -1,6 +1,7 @@
 <script lang="ts">
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { tick } from 'svelte';
+  import ModalCloseButton from './ModalCloseButton.svelte';
 
   export let show = false;
   export let closeOnEscape = true;
@@ -9,15 +10,29 @@
     'relative w-full max-w-lg rounded-lg bg-white p-6 shadow-lg outline-none focus:outline-none dark:bg-gray-800';
   export let ariaLabel: string | null = null;
   export let ariaLabelledby: string | null = null;
+  export let title: string | null = null;
+  export let showCloseButton = false;
+  export let headerClass =
+    'flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700';
+  export let titleClass = 'text-xl font-semibold text-gray-900 dark:text-gray-100';
+  export let closeButtonVariant: 'light' | 'dark' = 'dark';
+  export let closeButtonLabel = 'Close dialog';
   export let role: 'dialog' | 'alertdialog' = 'dialog';
   export let autoFocus = true;
 
   const dispatch = createEventDispatcher<{ close: void }>();
+  const internalHeadingId = `modal-${Math.random().toString(36).slice(2, 9)}-title`;
 
   let modalEl: HTMLDivElement | null = null;
   let previouslyFocused: Element | null = null;
   let previousBodyOverflow: string | null = null;
   let keyListenerAttached = false;
+  let computedHeadingId = internalHeadingId;
+  let computedAriaLabelledby: string | null = null;
+  $: hasTitle = typeof title === 'string' && title.trim().length > 0;
+  $: shouldRenderFallbackHeader = hasTitle || showCloseButton;
+  $: computedHeadingId = ariaLabelledby ?? internalHeadingId;
+  $: computedAriaLabelledby = ariaLabelledby ?? (hasTitle ? computedHeadingId : null);
 
   function close() {
     dispatch('close');
@@ -97,9 +112,26 @@
       role={role}
       aria-modal="true"
       aria-label={ariaLabel ?? undefined}
-      aria-labelledby={ariaLabelledby ?? undefined}
+      aria-labelledby={computedAriaLabelledby ?? undefined}
     >
-      <slot name="header" {close} />
+      <slot name="header" {close}>
+        {#if shouldRenderFallbackHeader}
+          <header class={headerClass}>
+            {#if hasTitle}
+              <h2 id={computedHeadingId} class={titleClass}>
+                {title}
+              </h2>
+            {/if}
+            {#if showCloseButton}
+              <ModalCloseButton
+                ariaLabel={closeButtonLabel}
+                variant={closeButtonVariant}
+                on:click={close}
+              />
+            {/if}
+          </header>
+        {/if}
+      </slot>
       <slot {close} />
       <slot name="footer" {close} />
     </div>

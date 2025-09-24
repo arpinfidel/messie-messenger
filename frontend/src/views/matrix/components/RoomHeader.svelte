@@ -171,15 +171,15 @@
 <Modal
   show={showInfo}
   on:close={closeInfo}
-  ariaLabelledby="room-debug-info-title"
   containerClass="relative w-full max-w-lg max-h-[80vh] overflow-auto rounded-lg bg-white p-4 shadow-lg outline-none focus:outline-none dark:bg-gray-800"
+  title="Debug Info"
+  showCloseButton
+  closeButtonVariant="light"
+  headerClass="mb-2 flex items-center justify-between"
+  titleClass="text-lg font-semibold text-gray-900 dark:text-gray-100"
 >
-  <h3 id="room-debug-info-title" class="mb-2 text-lg font-semibold">Debug Info</h3>
   <p class="mb-2 text-sm">Room ID: {roomId}</p>
   <pre class="max-h-[60vh] overflow-auto rounded bg-gray-100 p-2 text-xs dark:bg-gray-900">{JSON.stringify(members, null, 2)}</pre>
-  <button class="mt-4 rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600" on:click={closeInfo}>
-    Close
-  </button>
 </Modal>
 
 <style>

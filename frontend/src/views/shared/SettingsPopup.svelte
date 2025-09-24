@@ -28,22 +28,10 @@
   on:close={closePopup}
   ariaLabelledby="settings-modal-title"
   containerClass="relative flex max-h-[90vh] w-11/12 flex-col rounded-xl border border-gray-700 bg-gray-900 text-gray-100 shadow-2xl md:w-2/3 lg:w-1/2"
+  title="Settings"
+  showCloseButton
+  closeButtonLabel="Close settings"
 >
-  <div class="flex items-center justify-between border-b border-gray-700 px-6 py-4">
-    <h2 id="settings-modal-title" class="text-xl font-semibold">Settings</h2>
-    <button on:click={closePopup} class="text-gray-400 hover:text-gray-200">
-      <svg
-        xmlns="http://www.w3.org/2000/svg"
-        class="h-6 w-6"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-      >
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-      </svg>
-    </button>
-  </div>
-
   <div class="flex flex-grow overflow-hidden">
     <nav class="flex flex-col space-y-2 border-r border-gray-700 bg-gray-800 p-4">
       {#each tabs as tab}
