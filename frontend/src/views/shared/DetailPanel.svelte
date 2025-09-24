@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte';
   import MatrixDetail from '../matrix/MatrixDetail.svelte';
   import CalendarDetail from '../CalendarDetail.svelte';
   import EmailView from '../email/EmailView.svelte';
@@ -7,19 +8,21 @@
 
   export let selectedItem: TimelineItem | null = null;
 
+  const dispatch = createEventDispatcher();
+
   function closeDetail() {
-    selectedItem = null;
+    dispatch('close');
   }
 </script>
 
 <div class="flex-grow overflow-y-auto bg-gray-900 text-gray-100">
   {#if selectedItem}
     {#if selectedItem.type === 'matrix'}
-      <MatrixDetail item={selectedItem} className="h-full" />
+      <MatrixDetail item={selectedItem} className="h-full" on:close={closeDetail} />
     {:else if selectedItem.type === 'email'}
-      <EmailView item={selectedItem} />
+      <EmailView item={selectedItem} on:close={closeDetail} />
     {:else if selectedItem.type === 'calendar' || selectedItem.type === 'Call'}
-      <CalendarDetail item={selectedItem} />
+      <CalendarDetail item={selectedItem} on:close={closeDetail} />
     {:else if selectedItem.type === 'todo'}
       {#if selectedItem.listId}
         <TodoDetail listId={selectedItem.listId} on:close={closeDetail} />

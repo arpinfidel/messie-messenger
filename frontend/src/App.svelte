@@ -25,56 +25,155 @@
   let loggedIn = false;
   let loginStateChecked = false; // avoid showing overlay until init completes
   let showForgotPassword = false;
+  let isMobile = false;
+  let detailHistoryActive = false;
+  let mediaQuery: MediaQueryList | null = null;
+
+  function ensureDetailHistory() {
+    if (typeof window === 'undefined' || detailHistoryActive) return;
+    const baseState = window.history.state;
+    const nextState =
+      baseState && typeof baseState === 'object'
+        ? { ...baseState, messieDetail: true }
+        : { messieDetail: true };
+    window.history.pushState(nextState, '', window.location.href);
+    detailHistoryActive = true;
+  }
+
+  function selectTimelineItem(
+    item: any,
+    options: {
+      fromHistory?: boolean;
+    } = {}
+  ) {
+    const fromHistory = options.fromHistory ?? false;
+    selectedTimelineItem = item;
+    if (item?.type === 'email') {
+      void emailViewModel.handleTimelineSelection(item);
+    }
+
+    if (item) {
+      if (!fromHistory && isMobile) {
+        ensureDetailHistory();
+      }
+    } else {
+      detailHistoryActive = false;
+    }
+  }
+
+  function handleDetailClose() {
+    if (typeof window !== 'undefined' && detailHistoryActive) {
+      window.history.back();
+      return;
+    }
+    selectTimelineItem(null);
+  }
 
   // Matrix login handled via MatrixLogin component now
 
-  onMount(async () => {
+  onMount(() => {
     matrixViewModel = MatrixViewModel.getInstance(); // Use the singleton instance
-    await matrixViewModel.initialize();
-    loggedIn = matrixViewModel.isLoggedIn();
-    loginStateChecked = true;
 
-    const params = new URLSearchParams(window.location.search);
-    // If redirected back with a sid from the homeserver, show reset UI
-    if (params.get('sid')) {
-      showForgotPassword = true;
-    }
+    void (async () => {
+      await matrixViewModel.initialize();
+      loggedIn = matrixViewModel.isLoggedIn();
+      loginStateChecked = true;
 
-    window.addEventListener('messie-open-room', (e: Event) => {
+      const params = new URLSearchParams(window.location.search);
+      // If redirected back with a sid from the homeserver, show reset UI
+      if (params.get('sid')) {
+        showForgotPassword = true;
+      }
+    })();
+
+    const openRoomHandler = (e: Event) => {
       const roomId = (e as CustomEvent<string>).detail;
       const items = get(matrixViewModel.getTimelineItems());
       const item = items.find((it) => it.id === roomId);
       if (item) {
-        selectedTimelineItem = item;
+        selectTimelineItem(item);
       }
-    });
+    };
+
+    window.addEventListener('messie-open-room', openRoomHandler);
+
+    const applyIsMobile = (matches: boolean) => {
+      isMobile = matches;
+      if (matches && selectedTimelineItem) {
+        ensureDetailHistory();
+      }
+    };
+
+    const mediaChangeHandler = (event: MediaQueryListEvent) => {
+      applyIsMobile(event.matches);
+    };
+
+    if (typeof window !== 'undefined') {
+      mediaQuery = window.matchMedia('(max-width: 768px)');
+      applyIsMobile(mediaQuery.matches);
+      mediaQuery.addEventListener('change', mediaChangeHandler);
+
+      const popStateHandler = () => {
+        if (detailHistoryActive) {
+          selectTimelineItem(null, { fromHistory: true });
+        }
+      };
+
+      window.addEventListener('popstate', popStateHandler);
+
+      return () => {
+        window.removeEventListener('messie-open-room', openRoomHandler);
+        mediaQuery?.removeEventListener('change', mediaChangeHandler);
+        window.removeEventListener('popstate', popStateHandler);
+      };
+    }
+
+    return () => {
+      window.removeEventListener('messie-open-room', openRoomHandler);
+    };
   });
 
   $: if (timelineContainer) {
     timelineLeft = timelineContainer.offsetLeft;
   }
   function handleTimelineItemSelected(event: CustomEvent) {
-    selectedTimelineItem = event.detail;
-    if (selectedTimelineItem?.type === 'email') {
-      void emailViewModel.handleTimelineSelection(selectedTimelineItem);
-    }
+    selectTimelineItem(event.detail);
   }
 </script>
 
-<main class="grid h-screen grid-cols-[1fr_2fr] bg-gray-900">
-  <div
-    class="overflow-y-auto overflow-x-hidden border-r border-gray-800"
-    bind:clientWidth={timelineWidth}
-    bind:this={timelineContainer}
-  >
-    <UnifiedTimeline
-      on:itemSelected={handleTimelineItemSelected}
-      on:openSettings={() => (showSettingsPopup = true)}
-    />
-  </div>
-  <div class="flex h-full flex-col overflow-auto">
-    <DetailPanel selectedItem={selectedTimelineItem} />
-  </div>
+<main class={`h-screen bg-gray-900 ${isMobile ? 'flex flex-col' : 'grid grid-cols-[1fr_2fr]'}`}>
+  {#if !isMobile}
+    <div
+      class="overflow-y-auto overflow-x-hidden border-r border-gray-800"
+      bind:clientWidth={timelineWidth}
+      bind:this={timelineContainer}
+    >
+      <UnifiedTimeline
+        on:itemSelected={handleTimelineItemSelected}
+        on:openSettings={() => (showSettingsPopup = true)}
+      />
+    </div>
+    <div class="flex h-full flex-col overflow-auto">
+      <DetailPanel selectedItem={selectedTimelineItem} on:close={handleDetailClose} />
+    </div>
+  {:else}
+    {#if !selectedTimelineItem}
+      <div
+        class="flex-1 overflow-y-auto overflow-x-hidden"
+        bind:clientWidth={timelineWidth}
+        bind:this={timelineContainer}
+      >
+        <UnifiedTimeline
+          on:itemSelected={handleTimelineItemSelected}
+          on:openSettings={() => (showSettingsPopup = true)}
+        />
+      </div>
+    {:else}
+      <div class="flex h-full flex-col overflow-auto">
+        <DetailPanel selectedItem={selectedTimelineItem} on:close={handleDetailClose} />
+      </div>
+    {/if}
+  {/if}
 </main>
 
 <SettingsPopup

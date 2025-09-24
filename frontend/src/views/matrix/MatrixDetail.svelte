@@ -1,6 +1,6 @@
 <!-- MatrixDetail.svelte -->
 <script lang="ts">
-  import { onMount, onDestroy, tick } from 'svelte';
+  import { createEventDispatcher, onMount, onDestroy, tick } from 'svelte';
   import { MatrixViewModel } from '../../viewmodels/matrix/MatrixViewModel';
   import type { TimelineItem } from '../../models/shared/TimelineItem';
   import { writable, get } from 'svelte/store';
@@ -15,6 +15,11 @@
   export let className: string = '';
 
   const matrixViewModel = MatrixViewModel.getInstance();
+  const dispatch = createEventDispatcher();
+
+  function closePanel() {
+    dispatch('close');
+  }
 
   const messages = writable<MatrixMessage[]>([]);
   let isLoadingOlderMessages = false;
@@ -426,7 +431,13 @@
 </script>
 
 <div class="matrix-detail-panel {className}">
-  <RoomHeader title={formattedRoomName} messageCount={$messages.length} roomId={item.id} />
+  <RoomHeader
+    title={formattedRoomName}
+    messageCount={$messages.length}
+    roomId={item.id}
+    showClose={true}
+    on:close={closePanel}
+  />
 
   <!-- Messages Container -->
   <div class="messages-container" bind:this={messagesContainer}>

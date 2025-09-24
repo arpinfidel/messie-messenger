@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte';
   import type { TimelineItem } from '../../models/shared/TimelineItem';
   import { EmailViewModel } from '@/viewmodels/email/EmailViewModel';
 
@@ -9,17 +10,39 @@
   const detailErrorStore = emailVM.getDetailError();
   const mailboxStatus = emailVM.getMailboxStatus();
   const mailboxError = emailVM.getMailboxError();
+  const dispatch = createEventDispatcher();
+
+  function closePanel() {
+    dispatch('close');
+  }
 </script>
 
 <div class="flex h-full flex-col">
   <div class="border-b border-gray-800 p-4">
-    <div class="text-sm text-gray-400">
-      {item.id === 'email-inbox' ? 'All Mail' : item.id === 'email-important' ? 'Important' : 'Email Thread'}
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0 flex-1">
+        <div class="text-sm text-gray-400">
+          {item.id === 'email-inbox'
+            ? 'All Mail'
+            : item.id === 'email-important'
+              ? 'Important'
+              : 'Email Thread'}
+        </div>
+        <h2 class="truncate text-xl font-semibold text-gray-100">{item.title}</h2>
+        {#if item.description}
+          <div class="truncate text-sm text-gray-400">{item.description}</div>
+        {/if}
+      </div>
+      <button
+        class="shrink-0 rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-800 hover:text-gray-200"
+        on:click={closePanel}
+        aria-label="Close email details"
+      >
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>
-    <h2 class="truncate text-xl font-semibold text-gray-100">{item.title}</h2>
-    {#if item.description}
-      <div class="truncate text-sm text-gray-400">{item.description}</div>
-    {/if}
   </div>
 
   {#if $mailboxStatus === 'refreshing'}

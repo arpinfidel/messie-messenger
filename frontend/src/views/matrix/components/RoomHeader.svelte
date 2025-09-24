@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte';
   import PopupMenu from '@/views/shared/PopupMenu.svelte';
   import { MatrixViewModel } from '../../../viewmodels/matrix/MatrixViewModel';
 
@@ -6,8 +7,14 @@
   export let messageCount: number = 0;
   export let className: string = '';
   export let roomId: string = '';
+  export let showClose = false;
 
   const matrixViewModel = MatrixViewModel.getInstance();
+  const dispatch = createEventDispatcher();
+
+  function handleCloseClick() {
+    dispatch('close');
+  }
   let showInfo = false;
   let members: any[] = [];
   let showMenu = false;
@@ -104,6 +111,17 @@
     </div>
   </div>
   <div class="flex items-center space-x-2">
+    {#if showClose}
+      <button
+        class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+        on:click={handleCloseClick}
+        aria-label="Close details"
+      >
+        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    {/if}
     <button
       class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300"
       on:click={toggleMenu}
@@ -178,4 +196,3 @@
     z-index: 10;
   }
 </style>
-
