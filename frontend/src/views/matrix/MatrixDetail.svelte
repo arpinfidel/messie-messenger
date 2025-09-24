@@ -69,6 +69,8 @@
   // Max read timestamp among other members; used to render status
   let minOtherReadTs = 0;
   let replyTo: MatrixReplyContext | null = null;
+  let editingMessage: MatrixMessage | null = null;
+  let draft = '';
 
   // Pending attachment state
   let pendingFile: File | null = null;
@@ -119,6 +121,7 @@
   }
 
   function startReply(message: MatrixMessage) {
+    cancelEdit();
     replyTo = {
       eventId: message.id,
       sender: message.sender,
@@ -131,6 +134,20 @@
 
   function clearReply() {
     replyTo = null;
+  }
+
+  function startEdit(message: MatrixMessage) {
+    if (!message?.id) return;
+    clearReply();
+    clearAttachment();
+    editingMessage = message;
+    draft = message.body ?? '';
+    messageInputRef?.focus();
+  }
+
+  function cancelEdit() {
+    editingMessage = null;
+    draft = '';
   }
 
   async function fetchMessages(roomId: string) {
@@ -269,6 +286,7 @@
   }
 
   $: if (item?.type === 'matrix' && item.id) {
+    cancelEdit();
     replyTo = null;
     console.time(`[MatrixDetail][fetchMessages] room=${item.id}`);
     fetchMessages(item.id);
@@ -420,6 +438,32 @@
 
   async function sendMessage(content: string, replyContext: MatrixReplyContext | null) {
     const trimmedContent = content.trim();
+
+    if (editingMessage) {
+      if (!trimmedContent || !item?.id || isSending) {
+        return;
+      }
+
+      isSending = true;
+      try {
+        await matrixViewModel.editMessage(
+          item.id,
+          editingMessage.id,
+          trimmedContent,
+          editingMessage.replyTo?.eventId,
+          editingMessage.msgtype
+        );
+        cancelEdit();
+      } catch (e) {
+        console.error('[MatrixDetail][sendMessage] Failed to edit message:', e);
+      } finally {
+        isSending = false;
+        await tick();
+        messageInputRef?.focus();
+      }
+      return;
+    }
+
     if ((!trimmedContent && !pendingFile) || !item?.id || isSending) {
       return;
     }
@@ -529,6 +573,7 @@
         {nextIsUnread}
         on:openImage={openLightbox}
         on:reply={(e) => startReply(e.detail.message)}
+        on:edit={(e) => startEdit(e.detail.message)}
       />
     {/each}
 
@@ -559,11 +604,17 @@
     bind:this={messageInputRef}
     {isSending}
     {replyTo}
+    {editingMessage}
     hasAttachment={!!pendingFile}
+    bind:value={draft}
     on:send={(e) => sendMessage(e.detail.content, e.detail.replyTo)}
     on:sendMedia={() => sendMedia()}
     on:sendFile={() => sendFile()}
     on:cancelReply={clearReply}
+    on:cancelEdit={() => {
+      cancelEdit();
+      messageInputRef?.focus();
+    }}
   />
 
   {#if lightboxUrl}

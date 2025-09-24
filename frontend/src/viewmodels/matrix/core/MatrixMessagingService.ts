@@ -118,6 +118,52 @@ export class MatrixMessagingService {
     this.queue.process();
   }
 
+  async editMessage(
+    roomId: string,
+    targetEventId: string,
+    messageContent: string,
+    replyToEventId?: string,
+    msgtype?: string
+  ): Promise<void> {
+    if (!this.resolveClient()) {
+      console.error('Cannot edit message: Matrix client not initialized.');
+      return;
+    }
+
+    const trimmed = messageContent.trim();
+    if (!trimmed.length) {
+      console.warn('[MatrixMessagingService] Ignoring empty edit payload');
+      return;
+    }
+
+    const finalMsgtype = msgtype ?? 'm.text';
+    const newContent: any = {
+      body: trimmed,
+      msgtype: finalMsgtype,
+    };
+
+    if (replyToEventId) {
+      newContent['m.relates_to'] = { 'm.in_reply_to': { event_id: replyToEventId } };
+    }
+
+    const content: any = {
+      msgtype: finalMsgtype,
+      body: `* ${trimmed}`,
+      'm.new_content': newContent,
+      'm.relates_to': {
+        rel_type: 'm.replace',
+        event_id: targetEventId,
+      },
+    };
+
+    if (replyToEventId) {
+      content['m.relates_to']['m.in_reply_to'] = { event_id: replyToEventId };
+    }
+
+    this.queue.enqueue(roomId, 'm.room.message', content);
+    this.queue.process();
+  }
+
   private buildReplyEnvelope(
     messageContent: string,
     replyTo?: MatrixReplyContext

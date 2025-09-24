@@ -16,6 +16,7 @@
   const dispatch = createEventDispatcher<{
     openImage: { url: string; description?: string };
     reply: { message: MatrixMessage };
+    edit: { message: MatrixMessage };
   }>();
 
   let container: HTMLDivElement | undefined;
@@ -29,6 +30,7 @@
   let timestampEl: HTMLDivElement | null = null;
   let timestampSpacer: string | null = null;
   let menuButton: HTMLButtonElement | null = null;
+  let canEdit = false;
 
   function onImageClick() {
     if (message.imageUrl) {
@@ -49,6 +51,13 @@
     showMenu = false;
     showHistory = false;
     dispatch('reply', { message });
+  }
+
+  function handleEditClick(event: MouseEvent) {
+    event.stopPropagation();
+    showMenu = false;
+    showHistory = false;
+    dispatch('edit', { message });
   }
 
   function toggleHistory(event: MouseEvent) {
@@ -139,6 +148,13 @@
   $: if (!hasEditHistory) {
     showHistory = false;
   }
+  $:
+    canEdit =
+      !!message?.isSelf &&
+      (!message?.msgtype ||
+        message.msgtype === 'm.text' ||
+        message.msgtype === 'm.notice' ||
+        message.msgtype === 'm.emote');
 
   $:
     editedTooltip =
@@ -314,10 +330,21 @@
         <Reply size={16} aria-hidden="true" />
         <span>Reply</span>
       </button>
-      <button class="message-actions-item" type="button" disabled>
-        <Pencil size={16} aria-hidden="true" />
-        <span>Edit (coming soon)</span>
-      </button>
+      {#if canEdit}
+        <button
+          class="message-actions-item"
+          type="button"
+          on:click|stopPropagation={handleEditClick}
+        >
+          <Pencil size={16} aria-hidden="true" />
+          <span>Edit</span>
+        </button>
+      {:else}
+        <button class="message-actions-item" type="button" disabled>
+          <Pencil size={16} aria-hidden="true" />
+          <span>Edit unavailable</span>
+        </button>
+      {/if}
       {#if hasEditHistory}
         <button class="message-actions-item" type="button" on:click|stopPropagation={toggleHistory}>
           🕓 {showHistory ? 'Hide edit history' : 'View edit history'}

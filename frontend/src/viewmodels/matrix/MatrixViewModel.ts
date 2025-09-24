@@ -376,6 +376,22 @@ export class MatrixViewModel implements IModuleViewModel {
     await this.messagingSvc.sendMessage(roomId, messageContent, replyTo);
   }
 
+  async editMessage(
+    roomId: string,
+    targetEventId: string,
+    messageContent: string,
+    replyToEventId?: string,
+    msgtype?: string
+  ): Promise<void> {
+    await this.messagingSvc.editMessage(
+      roomId,
+      targetEventId,
+      messageContent,
+      replyToEventId,
+      msgtype
+    );
+  }
+
   /* ---------- Push rules & notifications ---------- */
 
   public async isRoomMuted(roomId: string): Promise<boolean> {

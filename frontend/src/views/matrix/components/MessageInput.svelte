@@ -1,12 +1,15 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
-  import { Paperclip, Send, SendHorizonal, SendHorizontal } from 'lucide-svelte';
+  import { Paperclip, Pencil, SendHorizontal } from 'lucide-svelte';
   import type { MatrixReplyContext } from '@/viewmodels/matrix/types';
+  import type { MatrixMessage } from '@/viewmodels/matrix/MatrixTimelineService';
 
   export let isSending: boolean = false;
   export let className: string = '';
   export let hasAttachment: boolean = false;
   export let replyTo: MatrixReplyContext | null = null;
+  export let editingMessage: MatrixMessage | null = null;
+  export let value: string = '';
 
   import PopupMenu from '@/views/shared/PopupMenu.svelte';
 
@@ -15,18 +18,26 @@
     sendMedia: void;
     sendFile: void;
     cancelReply: void;
+    cancelEdit: void;
   }>();
 
-  let text = '';
   let textareaEl: HTMLTextAreaElement;
   let canSend: boolean;
-  $: canSend = (text.trim().length > 0 || hasAttachment) && !isSending;
+  let isEditing = false;
+  $: isEditing = !!editingMessage;
+  $: if (isEditing) {
+    showMenu = false;
+  }
+  $:
+    canSend = isEditing
+      ? value.trim().length > 0 && !isSending
+      : (value.trim().length > 0 || hasAttachment) && !isSending;
 
   let showMenu = false;
   let attachButton: HTMLButtonElement;
 
   function handleAttachClick() {
-    if (isSending) return;
+    if (isSending || isEditing) return;
     showMenu = !showMenu;
   }
 
@@ -80,14 +91,27 @@
     return truncate(source.replace(/\s+/g, ' ').trim());
   }
 
+  function getEditSnippet(message: MatrixMessage | null): string {
+    if (!message) return '';
+    const normalized = (message.body ?? '').replace(/\s+/g, ' ').trim();
+    return truncate(normalized);
+  }
+
   function trySend() {
-    const content = text.trim();
+    const content = value.trim();
     if ((!content && !hasAttachment) || isSending) return;
     dispatch('send', { content, replyTo });
-    text = '';
+    if (!isEditing) {
+      value = '';
+    }
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Escape' && editingMessage) {
+      e.preventDefault();
+      dispatch('cancelEdit');
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       trySend();
@@ -110,7 +134,24 @@
 </script>
 
   <div class="message-input-container {className}">
-    {#if replyTo}
+    {#if editingMessage}
+      <div class="edit-banner">
+        <div class="edit-text">
+          <span class="edit-label">
+            <Pencil class="h-4 w-4" aria-hidden="true" /> Editing message
+          </span>
+          <span class="edit-snippet">{getEditSnippet(editingMessage)}</span>
+        </div>
+        <button
+          class="edit-cancel"
+          type="button"
+          aria-label="Cancel edit"
+          on:click={() => dispatch('cancelEdit')}
+        >
+          ×
+        </button>
+      </div>
+    {:else if replyTo}
       <div class="reply-banner">
         <div class="reply-text">
           <span class="reply-label">Replying to {getReplyAuthor(replyTo)}</span>
@@ -132,7 +173,7 @@
       on:click={handleAttachClick}
       class="media-button"
       title="Attach"
-      disabled={isSending}
+      disabled={isSending || isEditing}
     >
       <Paperclip class="h-5 w-5"  aria-hidden="true" />
     </button>
@@ -154,7 +195,7 @@
     </PopupMenu>
     <textarea
       bind:this={textareaEl}
-      bind:value={text}
+      bind:value={value}
       on:keydown={handleKeydown}
       placeholder="Type your message"
       class="message-input"
@@ -183,6 +224,60 @@
     /* background: var(--color-panel); */
     /* background: rgba(0,0,0,0); */
     /* border-top: 1px solid var(--color-panel-border); */
+  }
+  .edit-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+    border-radius: 0.75rem;
+    background: var(--color-input-bg);
+    border-left: 3px solid var(--color-bubble-self);
+  }
+  .edit-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    font-size: 0.75rem;
+  }
+  .edit-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-weight: 600;
+    color: var(--color-text);
+  }
+  .edit-snippet {
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 28ch;
+  }
+  .edit-cancel {
+    flex-shrink: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 9999px;
+    border: none;
+    background: transparent;
+    color: var(--color-text);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1.1rem;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .edit-cancel:hover,
+  .edit-cancel:focus-visible {
+    background: rgba(255,255,255,0.1);
+    color: var(--color-text);
+    outline: none;
   }
   .reply-banner {
     display: flex;
