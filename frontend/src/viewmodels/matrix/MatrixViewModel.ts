@@ -17,6 +17,7 @@ import { MatrixDataLayer } from './core/MatrixDataLayer';
 import { BrowserNotificationService } from '@/notifications/NotificationService';
 import { MatrixMessagingService } from './core/MatrixMessagingService';
 import { MatrixPushRuleService } from './core/MatrixPushRuleService';
+import type { MatrixReplyContext } from './types';
 
 export class MatrixViewModel implements IModuleViewModel {
   private static instance: MatrixViewModel;
@@ -358,12 +359,21 @@ export class MatrixViewModel implements IModuleViewModel {
     await this.messagingSvc.sendFile(roomId);
   }
 
-  async sendAttachment(roomId: string, file: File, caption?: string): Promise<void> {
-    await this.messagingSvc.sendAttachment(roomId, file, caption);
+  async sendAttachment(
+    roomId: string,
+    file: File,
+    caption?: string,
+    replyTo?: MatrixReplyContext
+  ): Promise<void> {
+    await this.messagingSvc.sendAttachment(roomId, file, caption, replyTo);
   }
 
-  async sendMessage(roomId: string, messageContent: string): Promise<void> {
-    await this.messagingSvc.sendMessage(roomId, messageContent);
+  async sendMessage(
+    roomId: string,
+    messageContent: string,
+    replyTo?: MatrixReplyContext
+  ): Promise<void> {
+    await this.messagingSvc.sendMessage(roomId, messageContent, replyTo);
   }
 
   /* ---------- Push rules & notifications ---------- */

@@ -5,6 +5,7 @@
   import type { TimelineItem } from '../../models/shared/TimelineItem';
   import { writable, get } from 'svelte/store';
   import type { MatrixMessage } from '@/viewmodels/matrix/MatrixTimelineService';
+  import type { MatrixReplyContext } from '@/viewmodels/matrix/types';
   import RoomHeader from './components/RoomHeader.svelte';
   import MessageItem from './components/MessageItem.svelte';
   import MessageInput from './components/MessageInput.svelte';
@@ -67,6 +68,7 @@
   let onScroll: (() => void) | undefined;
   // Max read timestamp among other members; used to render status
   let minOtherReadTs = 0;
+  let replyTo: MatrixReplyContext | null = null;
 
   // Pending attachment state
   let pendingFile: File | null = null;
@@ -91,6 +93,44 @@
   function closeLightbox() {
     lightboxUrl = null;
     lightboxDesc = undefined;
+  }
+
+  function getReplyPreview(message: MatrixMessage): string {
+    const body = message.body?.replace(/\s+/g, ' ').trim();
+    if (body) {
+      return body;
+    }
+    const fileName = message.fileName?.trim();
+    if (fileName) {
+      return fileName;
+    }
+    switch (message.msgtype) {
+      case 'm.image':
+        return 'Image';
+      case 'm.video':
+        return 'Video';
+      case 'm.audio':
+        return 'Audio';
+      case 'm.file':
+        return message.fileName ?? 'File';
+      default:
+        return 'Message';
+    }
+  }
+
+  function startReply(message: MatrixMessage) {
+    replyTo = {
+      eventId: message.id,
+      sender: message.sender,
+      senderDisplayName: message.senderDisplayName,
+      body: getReplyPreview(message),
+      msgtype: message.msgtype,
+    };
+    messageInputRef?.focus();
+  }
+
+  function clearReply() {
+    replyTo = null;
   }
 
   async function fetchMessages(roomId: string) {
@@ -229,6 +269,7 @@
   }
 
   $: if (item?.type === 'matrix' && item.id) {
+    replyTo = null;
     console.time(`[MatrixDetail][fetchMessages] room=${item.id}`);
     fetchMessages(item.id);
     console.timeEnd(`[MatrixDetail][fetchMessages] room=${item.id}`);
@@ -377,21 +418,29 @@
 
   let isSending = false;
 
-  async function sendMessage(content: string) {
-    if ((!content.trim() && !pendingFile) || !item?.id || isSending) {
+  async function sendMessage(content: string, replyContext: MatrixReplyContext | null) {
+    const trimmedContent = content.trim();
+    if ((!trimmedContent && !pendingFile) || !item?.id || isSending) {
       return;
     }
 
     const roomId = item.id;
+    const effectiveReply = replyContext ?? replyTo ?? undefined;
     isSending = true;
 
     try {
       if (pendingFile) {
-        await matrixViewModel.sendAttachment(roomId, pendingFile, content.trim() || undefined);
+        await matrixViewModel.sendAttachment(
+          roomId,
+          pendingFile,
+          trimmedContent || undefined,
+          effectiveReply
+        );
         clearAttachment();
       } else {
-        await matrixViewModel.sendMessage(roomId, content);
+        await matrixViewModel.sendMessage(roomId, trimmedContent, effectiveReply);
       }
+      clearReply();
     } catch (e) {
       console.error('[MatrixDetail][sendMessage] Failed to send message:', e);
     } finally {
@@ -479,6 +528,7 @@
         {minOtherReadTs}
         {nextIsUnread}
         on:openImage={openLightbox}
+        on:reply={(e) => startReply(e.detail.message)}
       />
     {/each}
 
@@ -508,10 +558,12 @@
   <MessageInput
     bind:this={messageInputRef}
     {isSending}
-    on:send={(e) => sendMessage(e.detail)}
+    {replyTo}
+    hasAttachment={!!pendingFile}
+    on:send={(e) => sendMessage(e.detail.content, e.detail.replyTo)}
     on:sendMedia={() => sendMedia()}
     on:sendFile={() => sendFile()}
-    hasAttachment={!!pendingFile}
+    on:cancelReply={clearReply}
   />
 
   {#if lightboxUrl}

@@ -2,7 +2,8 @@
   import type { MatrixMessage, MatrixMessageVersion } from '@/viewmodels/matrix/MatrixTimelineService';
   import { createEventDispatcher, onMount, afterUpdate, tick } from 'svelte';
   import PopupMenu from '@/views/shared/PopupMenu.svelte';
-  import { Check, CheckCheck } from 'lucide-svelte';
+  import { Check, CheckCheck, Pencil, Reply } from 'lucide-svelte';
+  import type { MatrixReplyContext } from '@/viewmodels/matrix/types';
 
   export let message: MatrixMessage;
   export let isFirstInGroup: boolean;
@@ -12,7 +13,10 @@
   export let minOtherReadTs: number = 0;
   export let nextIsUnread: boolean = false;
 
-  const dispatch = createEventDispatcher<{ openImage: { url: string; description?: string } }>();
+  const dispatch = createEventDispatcher<{
+    openImage: { url: string; description?: string };
+    reply: { message: MatrixMessage };
+  }>();
 
   let container: HTMLDivElement | undefined;
   let showMenu = false;
@@ -40,6 +44,13 @@
     }
   }
 
+  function handleReplyClick(event: MouseEvent) {
+    event.stopPropagation();
+    showMenu = false;
+    showHistory = false;
+    dispatch('reply', { message });
+  }
+
   function toggleHistory(event: MouseEvent) {
     event.stopPropagation();
     if (!hasEditHistory) return;
@@ -56,6 +67,46 @@
   function closeOverlays() {
     showMenu = false;
     showHistory = false;
+  }
+
+  function describeReplyMsgtype(msgtype?: string): string {
+    switch (msgtype) {
+      case 'm.image':
+        return 'Image';
+      case 'm.video':
+        return 'Video';
+      case 'm.audio':
+        return 'Audio';
+      case 'm.file':
+        return 'File';
+      default:
+        return 'Message';
+    }
+  }
+
+  function truncate(value: string, max = 120): string {
+    if (value.length <= max) return value;
+    return `${value.slice(0, max - 1)}…`;
+  }
+
+  function getReplyAuthor(context?: MatrixReplyContext | null): string {
+    if (!context) return '';
+    return (
+      context.senderDisplayName?.trim() ||
+      context.sender?.trim() ||
+      context.fallbackSender?.trim() ||
+      'Unknown user'
+    );
+  }
+
+  function getReplySnippet(context?: MatrixReplyContext | null): string {
+    if (!context) return '';
+    const source =
+      context.body?.trim() ||
+      context.fallbackBody?.trim() ||
+      describeReplyMsgtype(context.msgtype);
+    if (!source) return '';
+    return truncate(source.replace(/\s+/g, ' ').trim());
   }
 
   async function updateTimestampSpacer() {
@@ -193,6 +244,12 @@
         {/key}
       </div>
     {/if}
+    {#if message.replyTo}
+      <div class="reply-preview {message.isSelf ? 'self' : 'other'}">
+        <span class="reply-preview-author">{getReplyAuthor(message.replyTo)}</span>
+        <span class="reply-preview-body">{getReplySnippet(message.replyTo)}</span>
+      </div>
+    {/if}
     <div class="message-content">{message.body}</div>
 
     {#if message.isEdited && !showTimestampMeta}
@@ -249,8 +306,17 @@
       menuClass={`message-actions-menu ${message.isSelf ? 'self' : 'other'}`}
       on:close={() => (showMenu = false)}
     >
+      <button
+        class="message-actions-item"
+        type="button"
+        on:click|stopPropagation={handleReplyClick}
+      >
+        <Reply size={16} aria-hidden="true" />
+        <span>Reply</span>
+      </button>
       <button class="message-actions-item" type="button" disabled>
-        ✏️ Edit (coming soon)
+        <Pencil size={16} aria-hidden="true" />
+        <span>Edit (coming soon)</span>
       </button>
       {#if hasEditHistory}
         <button class="message-actions-item" type="button" on:click|stopPropagation={toggleHistory}>
@@ -354,6 +420,37 @@
 
   .sender-name { font-size: 0.75rem; font-weight: 600; color: #60a5fa; margin-bottom: 0.25rem; }
   .message-content { white-space: pre-wrap; line-height: 1.4; display: block; }
+
+  .reply-preview {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    margin-bottom: 0.35rem;
+    padding: 0.35rem 0.55rem;
+    border-radius: 0.5rem;
+    border-left: 3px solid rgba(59,130,246,0.4);
+    background: rgba(59,130,246,0.12);
+  }
+  .reply-preview.self {
+    border-color: rgba(255,255,255,0.65);
+    background: rgba(255,255,255,0.15);
+  }
+  .reply-preview-author {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--color-text);
+  }
+  .reply-preview-body {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .reply-preview.self .reply-preview-author,
+  .reply-preview.self .reply-preview-body {
+    color: rgba(255,255,255,0.9);
+  }
 
   .message-image { max-width: 100%; max-height: 100%; object-fit: contain; display: block; border-radius: 0.5rem; }
   .message-image.clickable { cursor: zoom-in; }

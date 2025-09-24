@@ -477,7 +477,7 @@
             id="timeline-search"
             type="search"
             class="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:focus:border-blue-400 dark:focus:ring-blue-400"
-            placeholder="Search by title..."
+            placeholder="Search by title"
             bind:value={searchTerm}
             on:input={handleSearchInput}
           />

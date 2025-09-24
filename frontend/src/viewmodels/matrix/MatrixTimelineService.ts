@@ -6,6 +6,7 @@ import type { TimelineItem } from '@/models/shared/TimelineItem';
 import type { RepoEvent } from './core/TimelineRepository';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
 import type { ImageContent } from 'matrix-js-sdk/lib/@types/media';
+import type { MatrixReplyContext } from './types';
 import { AvatarService } from './core/AvatarService';
 import type { INotificationService } from '@/notifications/NotificationService';
 import { matrixSettings } from './MatrixSettings';
@@ -38,6 +39,7 @@ export interface MatrixMessage {
   lastEditedTimestamp?: number;
   lastEditEventId?: string;
   editHistory?: MatrixMessageVersion[];
+  replyTo?: MatrixReplyContext;
 }
 
 export class MatrixTimelineService {
@@ -50,6 +52,7 @@ export class MatrixTimelineService {
   private notifications?: INotificationService;
   private lastNotifyByRoom = new Map<string, number>();
   private messageCache = new Map<string, MatrixMessage>();
+  private pendingReplyLookups = new Map<string, Set<string>>();
   private readonly bridgeUserIdToSource: ReadonlyMap<string, string> =
     MATRIX_BRIDGE_USER_ID_TO_SOURCE;
 
@@ -441,7 +444,21 @@ export class MatrixTimelineService {
         continue;
       }
 
-      const body = typeof c?.body === 'string' ? (c.body as string) : undefined;
+      let body = typeof c?.body === 'string' ? (c.body as string) : undefined;
+      const inReplyTo = relates?.['m.in_reply_to'];
+      let replyContext: MatrixReplyContext | undefined;
+      if (inReplyTo && typeof inReplyTo?.event_id === 'string') {
+        const parsed = this.parseReplyFallback(body);
+        if (parsed.strippedBody !== undefined) {
+          body = parsed.strippedBody;
+        }
+        replyContext = {
+          eventId: inReplyTo.event_id as string,
+          fallbackSender: parsed.fallbackSender,
+          fallbackBody: parsed.fallbackBody,
+        };
+      }
+      const normalizedBody = body ?? '';
       const isSelf = re.sender === currentUserId;
       // Prefer cached display name from store, then SDK membership, else MXID
       let senderDisplayName =
@@ -457,7 +474,7 @@ export class MatrixTimelineService {
           sender: re.sender || 'unknown sender',
           senderDisplayName,
           senderAvatarUrl: undefined,
-          body: body ?? '',
+          body: normalizedBody,
           timestamp: re.originServerTs || 0,
           isSelf,
           msgtype,
@@ -469,6 +486,7 @@ export class MatrixTimelineService {
           lastEditedTimestamp: undefined,
           lastEditEventId: undefined,
           editHistory: [],
+          replyTo: undefined,
         };
         this.messageCache.set(re.eventId, msg);
       } else {
@@ -476,9 +494,7 @@ export class MatrixTimelineService {
         msg.senderDisplayName = senderDisplayName || msg.senderDisplayName;
         msg.timestamp = re.originServerTs || msg.timestamp;
         msg.isSelf = isSelf;
-        if (typeof body === 'string') {
-          msg.body = body;
-        }
+        msg.body = normalizedBody;
         if (msgtype) {
           msg.msgtype = msgtype;
         }
@@ -500,6 +516,40 @@ export class MatrixTimelineService {
             console.warn('[MatrixTimelineService] resolveUserAvatar failed', err);
           });
         resolvers.push(pAvatar);
+      }
+
+      if (replyContext) {
+        const target = this.messageCache.get(replyContext.eventId);
+        if (target) {
+          const preview = this.buildReplyPreview(target) ?? replyContext.fallbackBody;
+          msg.replyTo = {
+            eventId: replyContext.eventId,
+            sender: target.sender,
+            senderDisplayName: target.senderDisplayName,
+            body: preview,
+            msgtype: target.msgtype,
+            fallbackSender: replyContext.fallbackSender ?? target.senderDisplayName,
+            fallbackBody: replyContext.fallbackBody,
+          };
+          const waiting = this.pendingReplyLookups.get(replyContext.eventId);
+          if (waiting) {
+            waiting.delete(msg.id);
+            if (waiting.size === 0) {
+              this.pendingReplyLookups.delete(replyContext.eventId);
+            }
+          }
+        } else {
+          msg.replyTo = {
+            eventId: replyContext.eventId,
+            fallbackSender: replyContext.fallbackSender,
+            fallbackBody: replyContext.fallbackBody,
+          };
+          const waiting = this.pendingReplyLookups.get(replyContext.eventId) ?? new Set<string>();
+          waiting.add(msg.id);
+          this.pendingReplyLookups.set(replyContext.eventId, waiting);
+        }
+      } else if (msg.replyTo) {
+        msg.replyTo = undefined;
       }
 
       console.time(`[MatrixTimelineService] resolveMedia(${re.eventId})`);
@@ -566,6 +616,7 @@ export class MatrixTimelineService {
       }
 
       flushPendingEdits(msg);
+      this.resolvePendingReplyWaiters(msg, updates);
       updates.set(msg.id, msg);
     }
 
@@ -589,6 +640,114 @@ export class MatrixTimelineService {
 
   // Media cache management
   clearMediaCache(): void {}
+
+  private parseReplyFallback(body?: string): {
+    strippedBody?: string;
+    fallbackSender?: string;
+    fallbackBody?: string;
+  } {
+    if (typeof body !== 'string') {
+      return { strippedBody: body };
+    }
+
+    const lines = body.split('\n');
+    const fallbackLines: string[] = [];
+    let idx = 0;
+
+    while (idx < lines.length && lines[idx].startsWith('>')) {
+      fallbackLines.push(lines[idx].replace(/^>\s?/, ''));
+      idx += 1;
+    }
+
+    if (!fallbackLines.length) {
+      return { strippedBody: body };
+    }
+
+    while (idx < lines.length && lines[idx].trim() === '') {
+      idx += 1;
+    }
+
+    const strippedBody = lines.slice(idx).join('\n');
+
+    let fallbackSender: string | undefined;
+    let fallbackBody: string | undefined;
+
+    if (fallbackLines.length) {
+      const first = fallbackLines[0];
+      const match = first.match(/^<([^>]+)>\s?(.*)$/);
+      if (match) {
+        fallbackSender = match[1];
+        const remainder = [match[2] ?? '', ...fallbackLines.slice(1)];
+        fallbackBody = remainder.join('\n').trim();
+      } else {
+        fallbackBody = fallbackLines.join('\n').trim();
+      }
+    }
+
+    return {
+      strippedBody,
+      fallbackSender,
+      fallbackBody,
+    };
+  }
+
+  private buildReplyPreview(message: MatrixMessage): string | undefined {
+    const body = message.body?.replace(/\s+/g, ' ').trim();
+    if (body) {
+      return body;
+    }
+
+    const fileName = message.fileName?.trim();
+    if (fileName) {
+      return fileName;
+    }
+
+    switch (message.msgtype) {
+      case matrixSdk.MsgType.Image:
+        return 'Image';
+      case matrixSdk.MsgType.Video:
+        return 'Video';
+      case matrixSdk.MsgType.Audio:
+        return 'Audio';
+      case matrixSdk.MsgType.File:
+        return message.fileName ?? 'File';
+      default:
+        return message.msgtype;
+    }
+  }
+
+  private resolvePendingReplyWaiters(
+    target: MatrixMessage,
+    updates: Map<string, MatrixMessage>
+  ) {
+    const waitingIds = this.pendingReplyLookups.get(target.id);
+    if (!waitingIds || waitingIds.size === 0) {
+      return;
+    }
+
+    const preview = this.buildReplyPreview(target);
+
+    for (const messageId of waitingIds) {
+      const replying = this.messageCache.get(messageId);
+      if (!replying || !replying.replyTo || replying.replyTo.eventId !== target.id) {
+        continue;
+      }
+
+      replying.replyTo = {
+        eventId: target.id,
+        sender: target.sender,
+        senderDisplayName: target.senderDisplayName,
+        body: preview ?? replying.replyTo.fallbackBody,
+        msgtype: target.msgtype,
+        fallbackSender: replying.replyTo.fallbackSender ?? target.senderDisplayName,
+        fallbackBody: replying.replyTo.fallbackBody,
+      };
+
+      updates.set(replying.id, replying);
+    }
+
+    this.pendingReplyLookups.delete(target.id);
+  }
 
   /** Create a human preview from RepoEvent content (clear or failure content). */
   private repoEventToPreview(re: RepoEvent): string {

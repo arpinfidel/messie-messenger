@@ -3,6 +3,7 @@ import type { EncryptedFile } from 'matrix-js-sdk/lib/@types/media';
 import type { ClientGetter } from './MatrixClientManager';
 import { BrowserMediaService } from './MediaService';
 import { OutgoingMessageQueue } from './OutgoingMessageQueue';
+import type { MatrixReplyContext } from '../types';
 
 export class MatrixMessagingService {
   private readonly queue: OutgoingMessageQueue;
@@ -21,27 +22,32 @@ export class MatrixMessagingService {
     return this.mediaService.pickFile();
   }
 
-  async sendMedia(roomId: string): Promise<void> {
+  async sendMedia(roomId: string, replyTo?: MatrixReplyContext): Promise<void> {
     const file = await this.mediaService.pickMedia();
     if (!file) return;
     const caption =
       typeof window !== 'undefined'
         ? window.prompt('Add a caption (optional):') || undefined
         : undefined;
-    await this.sendAttachment(roomId, file, caption);
+    await this.sendAttachment(roomId, file, caption, replyTo);
   }
 
-  async sendFile(roomId: string): Promise<void> {
+  async sendFile(roomId: string, replyTo?: MatrixReplyContext): Promise<void> {
     const file = await this.mediaService.pickFile();
     if (!file) return;
     const caption =
       typeof window !== 'undefined'
         ? window.prompt('Add a caption (optional):') || undefined
         : undefined;
-    await this.sendAttachment(roomId, file, caption);
+    await this.sendAttachment(roomId, file, caption, replyTo);
   }
 
-  async sendAttachment(roomId: string, file: File, caption?: string): Promise<void> {
+  async sendAttachment(
+    roomId: string,
+    file: File,
+    caption?: string,
+    replyTo?: MatrixReplyContext
+  ): Promise<void> {
     const client = this.resolveClient();
     if (!client) {
       console.error('Cannot send media: Matrix client not initialized.');
@@ -60,6 +66,12 @@ export class MatrixMessagingService {
       msgtype,
       info: { mimetype: file.type || 'application/octet-stream', size: file.size },
     };
+
+    const prepared = this.buildReplyEnvelope(caption ?? '', replyTo);
+    content.body = prepared.body;
+    if (prepared.relatesTo) {
+      content['m.relates_to'] = prepared.relatesTo;
+    }
 
     if (msgtype === matrixSdk.MsgType.Image) {
       const dims = await this.getImageSize(file).catch(() => undefined);
@@ -88,13 +100,80 @@ export class MatrixMessagingService {
     }
   }
 
-  async sendMessage(roomId: string, messageContent: string): Promise<void> {
+  async sendMessage(
+    roomId: string,
+    messageContent: string,
+    replyTo?: MatrixReplyContext
+  ): Promise<void> {
     if (!this.resolveClient()) {
       console.error('Cannot send message: Matrix client not initialized.');
       return;
     }
-    this.queue.enqueue(roomId, 'm.room.message', { body: messageContent, msgtype: 'm.text' });
+    const prepared = this.buildReplyEnvelope(messageContent, replyTo);
+    const content: any = { body: prepared.body, msgtype: 'm.text' };
+    if (prepared.relatesTo) {
+      content['m.relates_to'] = prepared.relatesTo;
+    }
+    this.queue.enqueue(roomId, 'm.room.message', content);
     this.queue.process();
+  }
+
+  private buildReplyEnvelope(
+    messageContent: string,
+    replyTo?: MatrixReplyContext
+  ): {
+    body: string;
+    relatesTo?: { 'm.in_reply_to': { event_id: string } };
+  } {
+    if (!replyTo?.eventId) {
+      return { body: messageContent };
+    }
+
+    const senderLabel =
+      replyTo.senderDisplayName?.trim() ||
+      replyTo.sender?.trim() ||
+      replyTo.fallbackSender?.trim() ||
+      'Unknown';
+
+    const snippetCandidate =
+      replyTo.body?.trim() ||
+      replyTo.fallbackBody?.trim() ||
+      this.describeMsgtype(replyTo.msgtype);
+
+    const normalizedSnippet = snippetCandidate
+      ? snippetCandidate.replace(/\s+/g, ' ').trim()
+      : '';
+    const truncatedSnippet =
+      normalizedSnippet.length > 200
+        ? `${normalizedSnippet.slice(0, 197)}…`
+        : normalizedSnippet;
+    const fallbackLine = truncatedSnippet
+      ? `> <${senderLabel}> ${truncatedSnippet}`
+      : `> <${senderLabel}>`;
+
+    const finalBody = messageContent.length
+      ? `${fallbackLine}\n\n${messageContent}`
+      : `${fallbackLine}\n\n`;
+
+    return {
+      body: finalBody,
+      relatesTo: { 'm.in_reply_to': { event_id: replyTo.eventId } },
+    };
+  }
+
+  private describeMsgtype(msgtype?: string): string {
+    switch (msgtype) {
+      case matrixSdk.MsgType.Image:
+        return 'Image';
+      case matrixSdk.MsgType.Video:
+        return 'Video';
+      case matrixSdk.MsgType.File:
+        return 'File';
+      case matrixSdk.MsgType.Audio:
+        return 'Audio';
+      default:
+        return msgtype?.trim() || 'message';
+    }
   }
 
   private resolveClient(): matrixSdk.MatrixClient | null {
