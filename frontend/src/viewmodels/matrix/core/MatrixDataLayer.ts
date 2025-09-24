@@ -179,10 +179,10 @@ export class MatrixDataLayer {
   private getUnreadFromRoom(room: matrixSdk.Room): number {
     try {
       return (
-        room.getUnreadNotificationCount(
+        (room.getUnreadNotificationCount(
           (matrixSdk as any).NotificationCountType?.Total ?? undefined
-        ) as number
-      ) ?? 0;
+        ) as number) ?? 0
+      );
     } catch {
       return 0;
     }
@@ -196,14 +196,15 @@ export class MatrixDataLayer {
     const existing = this.inMemoryRooms.get(room.roomId);
     const baseTs = Math.max(existing?.latestTimestamp ?? 0, room.getLastActiveTimestamp() ?? 0);
     const latestTimestamp = overrides.latestTimestamp ?? baseTs;
-    const unreadCount = overrides.unreadCount ?? existing?.unreadCount ?? this.getUnreadFromRoom(room);
+    const unreadCount =
+      overrides.unreadCount ?? existing?.unreadCount ?? this.getUnreadFromRoom(room);
     const avatarMxcUrl =
       overrides.avatarMxcUrl ?? existing?.avatarMxcUrl ?? room.getMxcAvatarUrl() ?? undefined;
     const name = overrides.name ?? existing?.name ?? room.name ?? room.roomId;
     const hasLastEventOverride = Object.prototype.hasOwnProperty.call(overrides, 'lastEvent');
     const lastEvent = hasLastEventOverride
-      ? overrides.lastEvent ?? null
-      : existing?.lastEvent ?? null;
+      ? (overrides.lastEvent ?? null)
+      : (existing?.lastEvent ?? null);
 
     const updated: DbRoom = {
       id: room.roomId,
@@ -335,7 +336,7 @@ export class MatrixDataLayer {
     const members = room.getMembers() || [];
     const result: DbMember[] = members.map((member) => {
       const readUpTo = room.getEventReadUpTo?.(member.userId) as string | undefined;
-      const ts = readUpTo ? room.findEventById(readUpTo)?.getTs?.() ?? 0 : 0;
+      const ts = readUpTo ? (room.findEventById(readUpTo)?.getTs?.() ?? 0) : 0;
       return {
         key: `${roomId}|${member.userId}`,
         roomId,
@@ -350,14 +351,14 @@ export class MatrixDataLayer {
   }
 
   async getUser(userId: string) {
-    const u = this.db.users.get(userId);
+    const u = await this.db.users.get(userId);
     if (u) return u;
     // Try to fetch from SDK if not in DB
     const c = this.client;
     if (!c) return undefined;
     const m = c.getUser(userId);
     if (!m) return undefined;
-    const display = m.displayName || m.rawDisplayName;
+    const display = m.rawDisplayName;
     const mxc = m.avatarUrl;
     const user: DbUser = { userId, displayName: display, avatarMxcUrl: mxc };
     try {
@@ -479,7 +480,7 @@ export class MatrixDataLayer {
       repoEvents.push(repo);
     }
     repoEvents.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
-    const firstIndex = repoEvents.length ? repoEvents[0].index ?? null : beforeIndex;
+    const firstIndex = repoEvents.length ? (repoEvents[0].index ?? null) : beforeIndex;
     return { events: repoEvents, firstIndex: firstIndex ?? null };
   }
   private handleEvents(client: matrixSdk.MatrixClient) {
@@ -555,11 +556,10 @@ export class MatrixDataLayer {
       try {
         const writeUnread = async () => {
           try {
-            const total = (
-              room.getUnreadNotificationCount(
+            const total =
+              (room.getUnreadNotificationCount(
                 (matrixSdk as any).NotificationCountType?.Total ?? undefined
-              ) as number
-            ) ?? 0;
+              ) as number) ?? 0;
             this.upsertInMemoryRoom(room, { unreadCount: total ?? 0 }, true);
             this.unreadEventEmitter.emit(room.roomId, total ?? 0);
           } catch (err) {
@@ -658,7 +658,14 @@ export class MatrixDataLayer {
       if (cached.status === 200) {
         const objectUrl = URL.createObjectURL(cached.blob);
         const url = this.tagUrl(objectUrl, this.buildAvatarFragment(tag, mxc, 'cache'));
-        return { status: 200, url, bytes: cached.bytes, mime: cached.mime, blob: cached.blob, objectUrl };
+        return {
+          status: 200,
+          url,
+          bytes: cached.bytes,
+          mime: cached.mime,
+          blob: cached.blob,
+          objectUrl,
+        };
       }
       return { status: cached.status };
     }
@@ -724,7 +731,11 @@ export class MatrixDataLayer {
     }
   }
 
-  private buildAvatarFragment(tag: string | undefined, mxc: string, source: 'cache' | 'fresh'): string {
+  private buildAvatarFragment(
+    tag: string | undefined,
+    mxc: string,
+    source: 'cache' | 'fresh'
+  ): string {
     const parts: string[] = [];
     if (tag) parts.push(tag);
     parts.push(`src=${source}`);
