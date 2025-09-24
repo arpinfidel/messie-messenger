@@ -1,4 +1,5 @@
 import * as matrixSdk from 'matrix-js-sdk';
+import type { IEvent } from 'matrix-js-sdk';
 import { MatrixEvent, MatrixEventEvent } from 'matrix-js-sdk/lib/models/event';
 import type { RepoEvent } from './TimelineRepository';
 import { Direction } from 'matrix-js-sdk/lib/models/event-timeline';
@@ -68,6 +69,13 @@ class ReadReceiptEventEmitter {
     }
   }
 }
+
+type MessagesResponse = {
+  chunk?: IEvent[];
+  start?: string;
+  end?: string;
+  state?: IEvent[];
+};
 
 export interface MatrixDataLayerOptions {
   getClient: () => matrixSdk.MatrixClient | null;
@@ -407,6 +415,10 @@ export class MatrixDataLayer {
       if (cached) {
         return { events: [cached], firstIndex: cached.index ?? null };
       }
+      const latest = await this.getLatestMessagesFromServer(roomId, limit);
+      if (latest) {
+        return latest;
+      }
     }
     return this.getRoomEventsFromSdk(roomId, beforeIndex, limit);
   }
@@ -424,6 +436,94 @@ export class MatrixDataLayer {
     _dbOnly = false
   ): Promise<{ events: RepoEvent[]; firstIndex: number | null }> {
     return this.getRoomEventsFromSdk(roomId, beforeIndex, limit);
+  }
+
+  private async getLatestMessagesFromServer(
+    roomId: string,
+    limit: number
+  ): Promise<{ events: RepoEvent[]; firstIndex: number | null } | null> {
+    if (limit <= 0) {
+      return { events: [], firstIndex: null };
+    }
+
+    await this.opts.waitForPrepared();
+    const client = this.client;
+    if (!client) {
+      return null;
+    }
+
+    const collected: RepoEvent[] = [];
+    const seenIds = new Set<string>();
+    const fetchSize = Math.max(limit, this.pageSize);
+    let fromToken: string | undefined;
+    let attempts = 0;
+
+    while (collected.length < limit && attempts < 3) {
+      attempts += 1;
+      const params: Record<string, string> = {
+        dir: Direction.Backward,
+        limit: fetchSize.toString(),
+      };
+      if (fromToken) {
+        params.from = fromToken;
+      }
+
+      let response: MessagesResponse;
+      try {
+        response = await client.http.authedRequest<MessagesResponse>(
+          matrixSdk.Method.Get,
+          `/rooms/${encodeURIComponent(roomId)}/messages`,
+          params
+        );
+      } catch (err) {
+        console.warn(`[MatrixDataLayer] Failed to fetch /messages for room ${roomId}`, err);
+        return null;
+      }
+
+      const chunk = Array.isArray(response?.chunk) ? response.chunk : [];
+      if (!chunk.length) {
+        break;
+      }
+
+      for (const raw of chunk) {
+        const mxEvent = new matrixSdk.MatrixEvent(raw as IEvent);
+        const repoEvent = await this.toRepoEvent(mxEvent);
+        if (!repoEvent) continue;
+        if (repoEvent.eventId && seenIds.has(repoEvent.eventId)) continue;
+        if (repoEvent.eventId) {
+          seenIds.add(repoEvent.eventId);
+        }
+        const ts = mxEvent.getTs() || Date.now();
+        repoEvent.index = ts;
+        collected.push(repoEvent);
+        if (collected.length >= limit) break;
+      }
+
+      if (collected.length >= limit) {
+        break;
+      }
+
+      const nextToken = response?.end ?? null;
+      if (!nextToken || nextToken === fromToken) {
+        break;
+      }
+      fromToken = nextToken;
+    }
+
+    if (!collected.length) {
+      return { events: [], firstIndex: null };
+    }
+
+    collected.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    const selected = collected.slice(-limit);
+    const firstIndex = selected.length ? selected[0].index ?? null : null;
+
+    const room = client.getRoom(roomId);
+    if (room && selected.length) {
+      this.upsertInMemoryRoom(room, { lastEvent: selected[selected.length - 1] });
+    }
+
+    return { events: selected, firstIndex };
   }
 
   private async getRoomEventsFromSdk(
