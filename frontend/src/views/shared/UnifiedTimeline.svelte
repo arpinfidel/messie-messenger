@@ -139,11 +139,14 @@
   ) {
     const { item, originalEvent } = event.detail;
     const index = items.findIndex((it) => it.id === item.id);
+    const isShiftSelection = originalEvent.shiftKey;
+    const isModifierSelection = originalEvent.metaKey || originalEvent.ctrlKey;
 
-    if (!(originalEvent instanceof MouseEvent)) {
-      selectedIds = new Set([item.id]);
-      selectionAnchorIndex = index >= 0 ? index : null;
+    if (!isShiftSelection && !isModifierSelection) {
       dispatch('itemSelected', item);
+      if (selectedIds.size === 0) {
+        selectionAnchorIndex = null;
+      }
       return;
     }
 
@@ -152,14 +155,14 @@
       return;
     }
 
-    if (originalEvent.shiftKey) {
+    if (isShiftSelection) {
       const anchor = selectionAnchorIndex ?? index;
       const start = Math.min(anchor, index);
       const end = Math.max(anchor, index);
       const rangeIds = items.slice(start, end + 1).map((it) => it.id);
       selectedIds = new Set(rangeIds);
       selectionAnchorIndex = anchor;
-    } else if (originalEvent.metaKey || originalEvent.ctrlKey) {
+    } else if (isModifierSelection) {
       const next = new Set(selectedIds);
       if (next.has(item.id)) {
         next.delete(item.id);
@@ -168,13 +171,6 @@
       }
       selectedIds = next;
       selectionAnchorIndex = next.size > 0 ? index : null;
-    } else {
-      const alreadyOnlySelected = selectedIds.size === 1 && selectedIds.has(item.id);
-      if (!alreadyOnlySelected) {
-        selectedIds = new Set([item.id]);
-      }
-      selectionAnchorIndex = index;
-      dispatch('itemSelected', item);
     }
 
     if (selectedIds.size === 0) {
