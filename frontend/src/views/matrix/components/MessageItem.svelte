@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { MatrixMessage, MatrixMessageVersion } from '@/viewmodels/matrix/MatrixTimelineService';
   import { createEventDispatcher, onMount, afterUpdate, tick } from 'svelte';
+  import PopupMenu from '@/views/shared/PopupMenu.svelte';
 
   export let message: MatrixMessage;
   export let isFirstInGroup: boolean;
@@ -22,6 +23,7 @@
   let showTimestampMeta = false;
   let timestampEl: HTMLDivElement | null = null;
   let timestampSpacer: string | null = null;
+  let menuButton: HTMLButtonElement | null = null;
 
   function onImageClick() {
     if (message.imageUrl) {
@@ -234,6 +236,7 @@
     class:open={showMenu || showHistory}
   >
     <button
+      bind:this={menuButton}
       class="context-menu-button"
       type="button"
       aria-haspopup="true"
@@ -243,22 +246,24 @@
     >
       ⋯
     </button>
-    {#if showMenu}
-      <div
-        class="context-menu {message.isSelf ? 'self' : 'other'}"
-        role="menu"
-        tabindex="-1"
-      >
-        <button class="menu-item" type="button" disabled>
-          ✏️ Edit (coming soon)
+    <PopupMenu
+      anchor={menuButton}
+      show={showMenu}
+      placement={message.isSelf ? 'left' : 'right'}
+      align="start"
+      offset={8}
+      menuClass={`message-actions-menu ${message.isSelf ? 'self' : 'other'}`}
+      on:close={() => (showMenu = false)}
+    >
+      <button class="message-actions-item" type="button" disabled>
+        ✏️ Edit (coming soon)
+      </button>
+      {#if hasEditHistory}
+        <button class="message-actions-item" type="button" on:click|stopPropagation={toggleHistory}>
+          🕓 {showHistory ? 'Hide edit history' : 'View edit history'}
         </button>
-        {#if hasEditHistory}
-          <button class="menu-item" type="button" on:click|stopPropagation={toggleHistory}>
-            🕓 {showHistory ? 'Hide edit history' : 'View edit history'}
-          </button>
-        {/if}
-      </div>
-    {/if}
+      {/if}
+    </PopupMenu>
   </div>
 
   {#if showHistory && hasEditHistory}
@@ -456,21 +461,22 @@
     outline: none;
   }
 
-  .context-menu {
-    position: absolute;
-    top: -0.25rem;
+  :global(.message-actions-menu) {
     background: var(--color-panel);
-    border-radius: 0.5rem;
+    border: 1px solid var(--color-panel-border, rgba(255,255,255,0.08));
     box-shadow: 0 10px 30px rgba(0,0,0,0.35);
     min-width: 180px;
     padding: 0.35rem 0;
-    z-index: 20;
-    border: 1px solid var(--color-panel-border, rgba(255,255,255,0.08));
+    color: inherit;
   }
-  .context-menu.self { right: calc(100% + 0.35rem); }
-  .context-menu.other { left: calc(100% + 0.35rem); }
+  :global(.message-actions-menu.self) {
+    transform-origin: top right;
+  }
+  :global(.message-actions-menu.other) {
+    transform-origin: top left;
+  }
 
-  .menu-item {
+  :global(.message-actions-item) {
     display: flex;
     align-items: center;
     gap: 0.5rem;
@@ -483,12 +489,12 @@
     cursor: pointer;
     text-align: left;
   }
-  .menu-item:hover:not(:disabled),
-  .menu-item:focus-visible:not(:disabled) {
+  :global(.message-actions-item:hover:not(:disabled)),
+  :global(.message-actions-item:focus-visible:not(:disabled)) {
     background: rgba(255,255,255,0.08);
     outline: none;
   }
-  .menu-item:disabled {
+  :global(.message-actions-item:disabled) {
     opacity: 0.5;
     cursor: not-allowed;
   }
