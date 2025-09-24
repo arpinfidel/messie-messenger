@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { X } from 'lucide-svelte';
 
   export let ariaLabel = 'Close dialog';
   export let variant: 'light' | 'dark' = 'dark';
@@ -30,17 +31,5 @@
   on:click={handleClick}
   {...restProps}
 >
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    class={iconClass}
-    aria-hidden="true"
-  >
-    <path d="M6 18L18 6M6 6l12 12" />
-  </svg>
+  <X class={iconClass} aria-hidden="true" />
 </button>

@@ -3,6 +3,7 @@
   import PopupMenu from '@/views/shared/PopupMenu.svelte';
   import Modal from '@/views/shared/Modal.svelte';
   import { MatrixViewModel } from '../../../viewmodels/matrix/MatrixViewModel';
+  import { Check, Info, MessageSquare, MoreVertical, X } from 'lucide-svelte';
 
   export let title: string = 'Matrix Room';
   export let messageCount: number = 0;
@@ -102,9 +103,7 @@
 <div class="room-header {className}">
   <div class="flex items-center space-x-3">
     <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-lg">
-      <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-      </svg>
+      <MessageSquare class="h-5 w-5 text-white" aria-hidden="true" />
     </div>
     <div>
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{title}</h2>
@@ -118,9 +117,7 @@
         on:click={handleCloseClick}
         aria-label="Close details"
       >
-        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-        </svg>
+        <X class="h-5 w-5" aria-hidden="true" />
       </button>
     {/if}
     <button
@@ -129,18 +126,14 @@
       bind:this={menuAnchor}
       aria-label="Room actions"
     >
-      <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
-        <path d="M10 4.5a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5zm0 6a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5zm0 6a1.25 1.25 0 110-2.5 1.25 1.25 0 010 2.5z" />
-      </svg>
+      <MoreVertical class="h-5 w-5" aria-hidden="true" />
     </button>
     <button
       class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300"
       on:click={openInfo}
       aria-label="Room information"
     >
-      <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-      </svg>
+      <Info class="h-5 w-5" aria-hidden="true" />
     </button>
   </div>
 </div>
@@ -157,9 +150,7 @@
         class="ml-2 inline-block h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-t-transparent dark:border-gray-600"
       />
     {:else if isMuted}
-      <svg class="ml-2 h-4 w-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-      </svg>
+      <Check class="ml-2 h-4 w-4 text-emerald-500" aria-hidden="true" />
     {:else if muteStateLoaded}
       <span
         class="ml-2 inline-block h-4 w-4 rounded-full border-2 border-gray-300 dark:border-gray-600"

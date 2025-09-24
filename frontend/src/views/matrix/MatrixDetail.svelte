@@ -8,6 +8,7 @@
   import RoomHeader from './components/RoomHeader.svelte';
   import MessageItem from './components/MessageItem.svelte';
   import MessageInput from './components/MessageInput.svelte';
+  import { ArrowDownToLine } from 'lucide-svelte';
 
   const scrollThreshold = 0.25;
 
@@ -484,9 +485,7 @@
     {#if showJumpToBottom}
       <div class="jump-to-bottom-wrap">
         <button class="jump-to-bottom" on:click={scrollToBottom} aria-label="Jump to latest">
-          <svg viewBox="0 0 24 24" class="icon" aria-hidden="true">
-            <path d="M12 16l-6-6h12l-6 6z"></path>
-          </svg>
+          <ArrowDownToLine size={20} aria-hidden="true" />
           {#if unreadCount > 0}
             <span class="badge">{unreadCount > 99 ? '99+' : unreadCount}</span>
           {/if}
@@ -613,12 +612,6 @@
   }
   .jump-to-bottom:active {
     transform: translateY(0);
-  }
-
-  .jump-to-bottom .icon {
-    width: 20px;
-    height: 20px;
-    fill: currentColor;
   }
 
   .jump-to-bottom .badge {

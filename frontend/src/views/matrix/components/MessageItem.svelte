@@ -2,6 +2,7 @@
   import type { MatrixMessage, MatrixMessageVersion } from '@/viewmodels/matrix/MatrixTimelineService';
   import { createEventDispatcher, onMount, afterUpdate, tick } from 'svelte';
   import PopupMenu from '@/views/shared/PopupMenu.svelte';
+  import { Check, CheckCheck } from 'lucide-svelte';
 
   export let message: MatrixMessage;
   export let isFirstInGroup: boolean;
@@ -211,19 +212,12 @@
           {#if minOtherReadTs > 0 && message.timestamp <= minOtherReadTs}
           <!-- Considered read: render double colored -->
           <span class="tick-icon double colored" aria-label="Read by others">
-            <svg viewBox="0 0 32 24" aria-hidden="true">
-              <path d="M5 13l4 4L19 7" vector-effect="non-scaling-stroke" />
-              <g transform="translate(7,0)">
-                <path d="M5 13l4 4L19 7" vector-effect="non-scaling-stroke" />
-              </g>
-            </svg>
+            <CheckCheck size={18} aria-hidden="true" />
           </span>
           {:else}
             <!-- Sent: single check -->
             <span class="tick-icon single" aria-label="Sent">
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 13l4 4L19 7" />
-              </svg>
+              <Check size={18} aria-hidden="true" />
             </span>
           {/if}
         {/if}
@@ -408,9 +402,6 @@
 
   /* Ticks: overlapping SVG checks with subtle shadow for contrast */
   .tick-icon { margin-left: 0.35rem; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; filter: drop-shadow(0 0 1px rgba(0,0,0,0.6)); }
-  .tick-icon svg { width: 18px; height: 18px; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
-  .tick-icon.single svg { width: 18px; height: 18px; }
-  .tick-icon.double svg { width: 18px; height: 18px; }
   /* Default ticks inherit bubble text color; make them slightly brighter for legibility */
   .message-bubble.self .tick-icon { color: rgba(255,255,255,0.95); }
   /* Ensure colored state overrides the self-bubble default */

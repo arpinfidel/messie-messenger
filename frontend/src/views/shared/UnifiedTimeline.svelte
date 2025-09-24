@@ -14,12 +14,18 @@
   } from '@/config/timelineSources';
   import {
     AlertCircle,
+    AlertTriangle,
     BellOff,
     CheckCircle2,
     CheckSquare,
+    ChevronDown,
+    Inbox,
     ListChecks,
     Loader2,
     MessageSquare,
+    Plus,
+    Search,
+    Settings,
     XCircle,
   } from 'lucide-svelte';
 
@@ -410,14 +416,10 @@
                 aria-expanded={showCreateMenu}
                 title="Create new item"
               >
-                <svg
+                <Plus
                   class="h-5 w-5 transition-transform duration-300 {showCreateMenu ? 'rotate-45' : ''}"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
+                  aria-hidden="true"
+                />
               </button>
 
               <PopupMenu anchor={createButton} show={showCreateMenu} on:close={() => (showCreateMenu = false)}>
@@ -448,10 +450,7 @@
               class="flex h-11 items-center space-x-2 rounded-xl bg-white px-4 py-2 font-medium text-gray-700 shadow-md ring-1 ring-gray-200 transition-all duration-300 hover:bg-gray-50 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:bg-gray-800 dark:text-gray-300 dark:ring-gray-700 dark:hover:bg-gray-700 dark:focus:ring-offset-gray-900"
               on:click={() => dispatch('openSettings')}
             >
-              <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
+              <Settings class="h-5 w-5" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -472,19 +471,10 @@
           bind:value={searchTerm}
           on:input={handleSearchInput}
         />
-        <svg
+        <Search
           class="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 1015 15l4.35 4.35z"
-          />
-        </svg>
+          aria-hidden="true"
+        />
       </div>
       <div>
         <label class="sr-only" for="timeline-source-filter">Filter by source</label>
@@ -499,14 +489,10 @@
               <option value={option.id}>{option.label}</option>
             {/each}
           </select>
-          <svg
+          <ChevronDown
             class="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
-          </svg>
+            aria-hidden="true"
+          />
         </div>
       </div>
     </div>
@@ -534,9 +520,7 @@
       <div class="rounded-xl border border-red-200 bg-red-50 p-6 dark:border-red-800 dark:bg-red-900/20">
         <div class="flex items-center">
           <div class="flex h-10 w-10 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/50">
-            <svg class="h-5 w-5 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
-            </svg>
+          <AlertTriangle class="h-5 w-5 text-red-600 dark:text-red-400" aria-hidden="true" />
           </div>
           <div class="ml-4">
             <h3 class="font-medium text-red-800 dark:text-red-200">Error Loading Timeline</h3>
@@ -548,9 +532,7 @@
       <!-- Enhanced Empty State -->
       <div class="flex flex-col items-center justify-center py-16 text-center">
         <div class="mb-6 flex h-24 w-24 items-center justify-center rounded-full bg-gradient-to-br from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700">
-          <svg class="h-12 w-12 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
-          </svg>
+          <Inbox class="h-12 w-12 text-gray-400 dark:text-gray-500" aria-hidden="true" />
         </div>
         <h3 class="mb-2 text-xl font-semibold text-gray-900 dark:text-gray-100">No timeline items yet</h3>
         <p class="mb-6 max-w-md text-gray-600 dark:text-gray-400">
@@ -560,9 +542,7 @@
           class="flex items-center space-x-2 rounded-xl bg-gradient-to-r from-blue-500 to-purple-600 px-6 py-3 font-medium text-white shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl"
           on:click={() => (showCreateMenu = !showCreateMenu)}
         >
-          <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-          </svg>
+          <Plus class="h-5 w-5" aria-hidden="true" />
           <span>Create your first item</span>
         </button>
       </div>

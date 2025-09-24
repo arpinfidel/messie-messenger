@@ -1,5 +1,6 @@
 <script lang="ts">
   import { createEventDispatcher } from 'svelte';
+  import { Paperclip, Send, SendHorizonal, SendHorizontal } from 'lucide-svelte';
 
   export let isSending: boolean = false;
   export let className: string = '';
@@ -74,14 +75,7 @@
       title="Attach"
       disabled={isSending}
     >
-      <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M21.44 11.05l-8.486 8.486a5 5 0 11-7.071-7.071l8.486-8.486a3 3 0 114.243 4.243l-8.486 8.486a1 1 0 11-1.414-1.414l8.486-8.486"
-        />
-      </svg>
+      <Paperclip class="h-5 w-5"  aria-hidden="true" />
     </button>
     <PopupMenu anchor={attachButton} show={showMenu} on:close={() => (showMenu = false)}>
       <div class="flex flex-col">
@@ -118,9 +112,7 @@
       {#if isSending}
         <div class="loading-spinner small"></div>
       {:else}
-        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-        </svg>
+        <SendHorizontal class="h-5 w-5" aria-hidden="true" />
       {/if}
     </button>
   </div>
@@ -138,7 +130,7 @@
   .message-input:focus { outline: none; border-color: var(--color-bubble-self); box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2); }
   .message-input:disabled { opacity: 0.6; cursor: not-allowed; }
 
-  .send-button { flex-shrink: 0; width: 2.5rem; height: 2.5rem; border: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; cursor: pointer; transition: all 0.2s ease; position: relative; rotate: 90deg;}
+  .send-button { flex-shrink: 0; width: 2.5rem; height: 2.5rem; border: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 600; cursor: pointer; transition: all 0.2s ease; position: relative; }
   .send-button.enabled { background: var(--color-bubble-self); color: white; }
   .send-button.enabled:hover { background: var(--color-bubble-self-hover); }
   .send-button.enabled:active { transform: scale(0.95); }
