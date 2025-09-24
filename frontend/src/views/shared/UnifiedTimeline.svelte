@@ -6,6 +6,7 @@
   import LoadingIndicator from './LoadingIndicator.svelte';
   import GenericTimelineItem from './timeline/GenericTimelineItem.svelte';
   import PopupMenu from '@/views/shared/PopupMenu.svelte';
+  import Modal from '@/views/shared/Modal.svelte';
   import type { CreateTodoListState } from '@/viewmodels/todo/TodoViewModel';
   import { MatrixViewModel } from '@/viewmodels/matrix/MatrixViewModel';
   import {
@@ -19,6 +20,8 @@
     CheckCircle2,
     CheckSquare,
     ChevronDown,
+    Filter,
+    Funnel,
     Inbox,
     ListChecks,
     Loader2,
@@ -43,6 +46,7 @@
   let loadingModuleNames: string[] = [];
   let loadingText = 'Loading timeline items...';
   let showCreateMenu = false;
+  let showFilterModal = false;
   let todoCreationState: CreateTodoListState = { status: 'idle' };
   let creationToast: { type: 'success' | 'error'; message: string } | null = null;
   let creationToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -52,6 +56,11 @@
   const unifiedTimelineViewModel = new UnifiedTimelineViewModel();
   const sourceOptions = TIMELINE_SOURCE_FILTERS;
   const matrixViewModel = MatrixViewModel.getInstance();
+
+  $: activeSourceOption =
+    sourceOptions.find((option) => option.id === selectedSourceFilter) ?? sourceOptions[0];
+  $: selectedSourceLabel =
+    activeSourceOption?.label ?? sourceOptions[0]?.label ?? 'All sources';
 
   let createButton: HTMLButtonElement;
 
@@ -460,42 +469,86 @@
 
   <!-- Content Area -->
   <div class="px-6 py-6">
-    <div class="mb-6 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
-      <div class="relative">
-        <label class="sr-only" for="timeline-search">Search timeline</label>
-        <input
-          id="timeline-search"
-          type="search"
-          class="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:focus:border-blue-400 dark:focus:ring-blue-400"
-          placeholder="Search by title..."
-          bind:value={searchTerm}
-          on:input={handleSearchInput}
-        />
-        <Search
-          class="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
-          aria-hidden="true"
-        />
-      </div>
-      <div>
-        <label class="sr-only" for="timeline-source-filter">Filter by source</label>
-        <div class="relative">
-          <select
-            id="timeline-source-filter"
-            class="w-full appearance-none rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:focus:border-blue-400 dark:focus:ring-blue-400"
-            bind:value={selectedSourceFilter}
-            on:change={handleSourceFilterChange}
-          >
-            {#each sourceOptions as option}
-              <option value={option.id}>{option.label}</option>
-            {/each}
-          </select>
-          <ChevronDown
+    <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div class="flex w-full items-center gap-3 md:max-w-xl">
+        <div class="relative flex-1">
+          <label class="sr-only" for="timeline-search">Search timeline</label>
+          <input
+            id="timeline-search"
+            type="search"
+            class="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:focus:border-blue-400 dark:focus:ring-blue-400"
+            placeholder="Search by title..."
+            bind:value={searchTerm}
+            on:input={handleSearchInput}
+          />
+          <Search
             class="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
             aria-hidden="true"
           />
         </div>
+        <button
+          type="button"
+          class="flex h-11 w-11 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-600 shadow-sm transition-all hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-white dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 dark:focus:ring-offset-gray-900"
+          on:click={() => (showFilterModal = true)}
+          aria-haspopup="dialog"
+          aria-expanded={showFilterModal}
+          aria-label={`Open timeline filters (current: ${selectedSourceLabel})`}
+          title={`Filter timeline (current: ${selectedSourceLabel})`}
+        >
+          <Funnel class="h-5 w-5" aria-hidden="true" />
+        </button>
       </div>
     </div>
+
+    <Modal
+      show={showFilterModal}
+      on:close={() => (showFilterModal = false)}
+      title="Timeline filters"
+      showCloseButton
+      closeButtonVariant="light"
+      containerClass="relative w-full max-w-md rounded-2xl bg-white p-0 shadow-xl outline-none focus:outline-none dark:bg-gray-900"
+      headerClass="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-6 py-4 dark:border-gray-700 dark:bg-gray-900/40"
+      titleClass="text-lg font-semibold text-gray-900 dark:text-gray-100"
+      let:close
+    >
+      <div class="px-6 py-6">
+        <section class="space-y-4">
+          <div>
+            <h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+              Source
+            </h3>
+            <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">
+              Choose which sources appear in your unified timeline.
+            </p>
+          </div>
+          <div>
+            <label class="sr-only" for="modal-timeline-source-filter">Filter by source</label>
+            <select
+              id="modal-timeline-source-filter"
+              class="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-700 shadow-sm transition-all focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:focus:border-blue-400 dark:focus:ring-blue-400"
+              bind:value={selectedSourceFilter}
+              on:change={handleSourceFilterChange}
+            >
+              {#each sourceOptions as option}
+                <option value={option.id}>{option.label}</option>
+              {/each}
+            </select>
+          </div>
+        </section>
+      </div>
+      <div
+        slot="footer"
+        class="flex justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700"
+      >
+        <button
+          type="button"
+          class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+          on:click={close}
+        >
+          Done
+        </button>
+      </div>
+    </Modal>
 
     {#if creationToast}
       <div
