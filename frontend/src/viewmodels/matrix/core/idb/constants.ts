@@ -4,13 +4,14 @@ import type { RepoEvent } from '../TimelineRepository';
 export const DB_NAME = 'mx-app-store';
 // Bump DB version whenever the schema changes. Version 6 removes legacy
 // timeline/token stores now that sliding sync drives the timeline.
-export const DB_VERSION = 6;
+export const DB_VERSION = 7;
 
 export const STORES = {
   ROOMS: 'rooms',
   META: 'meta',
   USERS: 'users',
   MEDIA: 'media',
+  TIMELINE_EVENTS: 'timelineEvents',
 } as const;
 
 export interface DbUser {
@@ -40,3 +41,5 @@ export interface DbMember {
   // Last known read receipt timestamp for this user in this room
   lastReadTs: number;
 }
+
+export interface DbTimelineEvent extends RepoEvent {}

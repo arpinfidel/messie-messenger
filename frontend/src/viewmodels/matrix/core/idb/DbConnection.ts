@@ -30,6 +30,11 @@ export class DbConnection {
           const media = db.createObjectStore(STORES.MEDIA, { keyPath: 'key' });
           media.createIndex('byTs', 'ts');
         }
+        if (!db.objectStoreNames.contains(STORES.TIMELINE_EVENTS)) {
+          const timeline = db.createObjectStore(STORES.TIMELINE_EVENTS, { keyPath: 'eventId' });
+          timeline.createIndex('byRoomId', 'roomId');
+          timeline.createIndex('byRoomAndIndex', ['roomId', 'index']);
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);

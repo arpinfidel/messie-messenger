@@ -123,6 +123,35 @@ export class MatrixDataLayer {
   private readReceiptEmitter = new ReadReceiptEventEmitter();
   private latestEventIdByRoom = new Map<string, string>();
 
+  private async cacheTimelineEvents(events: RepoEvent[]): Promise<void> {
+    if (!events.length) return;
+    const payload = events
+      .filter((ev) => ev?.eventId && ev.roomId)
+      .map((ev) => ({ ...ev }));
+    if (!payload.length) return;
+    try {
+      await this.db.timelines.putEvents(payload);
+    } catch (err) {
+      console.warn('[MatrixDataLayer] Failed to cache timeline events', err);
+    }
+  }
+
+  private async loadCachedTimelineEvents(
+    roomId: string,
+    beforeIndex: number | null,
+    limit: number
+  ): Promise<{ events: RepoEvent[]; firstIndex: number | null }> {
+    try {
+      const cached = await this.db.timelines.getEvents(roomId, beforeIndex, limit);
+      const events = cached.map((ev) => ({ ...ev }));
+      const firstIndex = events.length ? events[0].index ?? null : beforeIndex;
+      return { events, firstIndex: firstIndex ?? null };
+    } catch (err) {
+      console.warn('[MatrixDataLayer] Failed to load cached timeline events', err);
+      return { events: [], firstIndex: beforeIndex };
+    }
+  }
+
   constructor(private readonly opts: MatrixDataLayerOptions) {
     this.pageSize = opts.pageSize ?? 20;
     this.avatarResolver = new AvatarResolver(opts.getClient, {
@@ -240,6 +269,7 @@ export class MatrixDataLayer {
     const room = client?.getRoom(roomId) ?? null;
     const isInitial = opts?.isInitial ?? false;
     let lastIndexed = this.inMemoryRooms.get(roomId)?.lastEvent?.index ?? 0;
+    const toPersist: RepoEvent[] = [];
 
     // Timeline events are usually ordered oldest->newest; emit sequentially.
     for (const raw of timelineEvents) {
@@ -279,7 +309,12 @@ export class MatrixDataLayer {
         this.latestEventIdByRoom.set(roomId, eventId);
       }
 
+      toPersist.push(repoEvent);
       this.repoEventEmitter.emit(repoEvent, room, { isLive: !isInitial });
+    }
+
+    if (toPersist.length) {
+      await this.cacheTimelineEvents(toPersist);
     }
   }
 
@@ -545,7 +580,11 @@ export class MatrixDataLayer {
     if (this.opts.tryDecryptEvent) {
       await this.opts.tryDecryptEvent(ev);
     }
-    const idx = index ?? (ev as any).mxIndex ?? 0;
+    const idx =
+      index ??
+      (ev as any).mxIndex ??
+      ev.getTs() ??
+      Date.now();
     return {
       eventId: ev.getId() ?? '',
       roomId: ev.getRoomId() ?? '',
@@ -563,6 +602,12 @@ export class MatrixDataLayer {
     beforeIndex: number | null,
     limit = this.pageSize
   ): Promise<{ events: RepoEvent[]; firstIndex: number | null }> {
+    if (limit > 0) {
+      const cachedBatch = await this.loadCachedTimelineEvents(roomId, beforeIndex, limit);
+      if (cachedBatch.events.length) {
+        return cachedBatch;
+      }
+    }
     if (beforeIndex == null && limit > 0) {
       const cached = this.inMemoryRooms.get(roomId)?.lastEvent;
       if (cached) {
@@ -588,7 +633,48 @@ export class MatrixDataLayer {
     limit = this.pageSize,
     _dbOnly = false
   ): Promise<{ events: RepoEvent[]; firstIndex: number | null }> {
-    return this.getRoomEventsFromSdk(roomId, beforeIndex, limit);
+    if (limit <= 0) {
+      return { events: [], firstIndex: beforeIndex };
+    }
+
+    const cachedBatch = await this.loadCachedTimelineEvents(roomId, beforeIndex, limit);
+    let events = cachedBatch.events;
+
+    if (events.length >= limit) {
+      return { events, firstIndex: cachedBatch.firstIndex };
+    }
+
+    const remaining = limit - events.length;
+    const fetchBefore = events.length
+      ? events[0].index ?? beforeIndex
+      : beforeIndex;
+    const sdkBatch = await this.getRoomEventsFromSdk(roomId, fetchBefore, remaining);
+
+    const mergedMap = new Map<string, RepoEvent>();
+    const addEvent = (ev: RepoEvent) => {
+      if (!ev) return;
+      const key = ev.eventId || `${ev.roomId}|${ev.index || 0}`;
+      if (!mergedMap.has(key)) {
+        mergedMap.set(key, ev);
+      }
+    };
+
+    for (const ev of events) addEvent(ev);
+    for (const ev of sdkBatch.events) addEvent(ev);
+
+    const merged = Array.from(mergedMap.values()).sort(
+      (a, b) => (a.index ?? 0) - (b.index ?? 0)
+    );
+
+    const limited = merged.slice(-limit);
+    const firstIndex = limited.length
+      ? limited[0].index ?? null
+      : sdkBatch.firstIndex ?? cachedBatch.firstIndex ?? beforeIndex;
+
+    return {
+      events: limited,
+      firstIndex,
+    };
   }
 
   private async getLatestMessagesFromServer(
@@ -676,6 +762,10 @@ export class MatrixDataLayer {
       this.upsertInMemoryRoom(room, { lastEvent: selected[selected.length - 1] });
     }
 
+    if (selected.length) {
+      await this.cacheTimelineEvents(selected);
+    }
+
     return { events: selected, firstIndex };
   }
 
@@ -732,6 +822,9 @@ export class MatrixDataLayer {
       repo.index = ts;
       repoEvents.push(repo);
     }
+    if (repoEvents.length) {
+      await this.cacheTimelineEvents(repoEvents);
+    }
     repoEvents.sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
     const firstIndex = repoEvents.length ? (repoEvents[0].index ?? null) : beforeIndex;
     return { events: repoEvents, firstIndex: firstIndex ?? null };
@@ -774,6 +867,7 @@ export class MatrixDataLayer {
           this.inMemoryRooms.get(room.roomId)?.latestTimestamp ?? 0
         );
         this.upsertInMemoryRoom(room, { latestTimestamp, lastEvent: re }, true);
+        void this.cacheTimelineEvents([re]);
 
         // Emit repo event; include whether this was a true live event
         this.repoEventEmitter.emit(re, room, { isLive: isTrueLive });
@@ -785,6 +879,7 @@ export class MatrixDataLayer {
             if (updated) {
               this.upsertInMemoryRoom(room, { lastEvent: updated }, true);
               this.repoEventEmitter.emit(updated, room, { isLive: false });
+              void this.cacheTimelineEvents([updated]);
             }
           } finally {
             try {
