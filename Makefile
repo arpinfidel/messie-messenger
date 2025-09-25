@@ -2,6 +2,9 @@ DATABASE_URL = postgres://user:password@localhost:5432/todo_db?sslmode=disable
 
 ARGS = $(filter-out $@,$(MAKECMDGOALS))
 
+MATRIX_SERVER_URL ?= http://localhost:8008
+MATRIX_REGISTRATION_SHARED_SECRET ?= dev_matrix_shared_secret
+
 STACK ?= dev
 COMPOSE = docker compose -f docker-compose.$(STACK).yml
 
@@ -45,7 +48,7 @@ jira-push:
 	@echo "Pushing local YAML changes to Jira (then refreshing YAML)..."
 	cd backend && go run ./cmd/jira-sync push
 
-.PHONY: mobile-assets mobile-sync mobile-run-android mobile-run-ios mobile-open-android mobile-open-ios mobile-add-android mobile-add-ios
+.PHONY: mobile-assets mobile-sync mobile-run-android mobile-run-ios mobile-open-android mobile-open-ios mobile-add-android mobile-add-ios test-e2e-codegen matrix-init matrix-up matrix-down matrix-register
 
 mobile-assets:
 	cd frontend && npm run mobile:assets
@@ -73,6 +76,25 @@ mobile-add-android:
 
 mobile-add-ios:
 	cd frontend && npm run mobile:add:ios
+
+test-e2e-codegen:
+	cd frontend && npm run test:e2e:codegen
+
+matrix-init:
+	COMPOSE_PROFILES=matrix $(COMPOSE) run --rm matrix generate
+
+matrix-up:
+	COMPOSE_PROFILES=matrix $(COMPOSE) up -d $(if $(ARGS),$(ARGS),matrix)
+
+matrix-down:
+	COMPOSE_PROFILES=matrix $(COMPOSE) stop $(if $(ARGS),$(ARGS),matrix)
+
+matrix-register:
+	@if [ -z "$(ARGS)" ]; then \
+		echo "Usage: make matrix-register ARGS='-u user-a -p passw0rd --admin'"; \
+		exit 1; \
+	fi
+	COMPOSE_PROFILES=matrix $(COMPOSE) exec matrix register_new_matrix_user $(ARGS) -k $(MATRIX_REGISTRATION_SHARED_SECRET) $(MATRIX_SERVER_URL)
 
 
 # swallow extra targets so make doesn’t complain or rerun them

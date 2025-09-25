@@ -61,7 +61,25 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  matrix:
+    image: matrixdotorg/synapse:latest
+    profiles: ["matrix"]
+    environment:
+      SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME:-messie.localhost}
+      SYNAPSE_REPORT_STATS: ${MATRIX_REPORT_STATS:-no}
+      SYNAPSE_NO_TLS: "true"
+      SYNAPSE_ENABLE_REGISTRATION: ${MATRIX_ENABLE_REGISTRATION:-true}
+      SYNAPSE_REGISTRATION_SHARED_SECRET: ${MATRIX_REGISTRATION_SHARED_SECRET:-dev_matrix_shared_secret}
+      UID: "991"
+      GID: "991"
+    volumes:
+      - matrix_data:/data
+    ports:
+      - "${MATRIX_PORT:-8008}:8008"
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   go-mod-cache:
   go-build-cache:
+  matrix_data:
