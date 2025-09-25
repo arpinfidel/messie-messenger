@@ -45,7 +45,10 @@ export class AvatarService {
     const cached = this.compositeAvatarCache.get(key);
     if (cached) return cached;
 
-    const members = await this.data.getRoomMembers(roomId);
+    let members = await this.data.getRoomMembersSnapshot(roomId);
+    if (!members.length) {
+      members = await this.data.getRoomMembers(roomId);
+    }
     const candidateMembers = this.pickRoomAvatarMembers(members, currentUserId);
     if (!candidateMembers.length) return this.createRoomInitialsAvatar(roomId, dims);
 

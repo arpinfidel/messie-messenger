@@ -529,8 +529,41 @@ export class MatrixDataLayer {
       return [];
     }
 
+    const members = this.mapRoomMembers(room, roomId);
+    if (members.length) {
+      void this.persistRoomMembers(roomId, members);
+    }
+    return members;
+  }
+
+  async getRoomMembersSnapshot(roomId: string): Promise<DbMember[]> {
+    const client = this.client;
+    if (client) {
+      const room = client.getRoom(roomId);
+      if (room) {
+        const members = this.mapRoomMembers(room, roomId);
+        if (members.length) {
+          void this.persistRoomMembers(roomId, members);
+          return members;
+        }
+      }
+    }
+
+    try {
+      const cached = await this.db.members.getRoomMembers(roomId);
+      if (cached.length) {
+        return cached;
+      }
+    } catch (err) {
+      console.warn('[MatrixDataLayer] Failed to read cached members', err);
+    }
+
+    return [];
+  }
+
+  private mapRoomMembers(room: matrixSdk.Room, roomId: string): DbMember[] {
     const members = room.getMembers() || [];
-    const result: DbMember[] = members.map((member) => {
+    return members.map((member) => {
       const readUpTo = room.getEventReadUpTo?.(member.userId) as string | undefined;
       const ts = readUpTo ? (room.findEventById(readUpTo)?.getTs?.() ?? 0) : 0;
       return {
@@ -543,7 +576,19 @@ export class MatrixDataLayer {
         lastReadTs: ts || 0,
       };
     });
-    return result;
+  }
+
+  private async persistRoomMembers(roomId: string, members: DbMember[]): Promise<void> {
+    try {
+      const normalized = members.map((member) => ({
+        ...member,
+        key: member.key || `${roomId}|${member.userId}`,
+        roomId,
+      }));
+      await this.db.members.replaceRoomMembers(roomId, normalized);
+    } catch (err) {
+      console.warn('[MatrixDataLayer] Failed to persist room members', roomId, err);
+    }
   }
 
   async getUser(userId: string) {
@@ -979,6 +1024,10 @@ export class MatrixDataLayer {
       if (!room) return;
       const latestTimestamp = room.getLastActiveTimestamp() ?? Date.now();
       this.upsertInMemoryRoom(room, { latestTimestamp }, true);
+      const members = this.mapRoomMembers(room, roomId);
+      if (members.length) {
+        void this.persistRoomMembers(roomId, members);
+      }
     } catch (err) {
       console.warn('[MatrixDataLayer] syncRoom failed', err);
     }

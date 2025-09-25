@@ -5,15 +5,18 @@ import { MetaStore } from './idb/MetaStore';
 import { UsersStore } from './idb/UsersStore';
 import { MediaStore } from './idb/MediaStore';
 import { TimelineStore } from './idb/TimelineStore';
+import { MembersStore } from './idb/MembersStore';
 
 export class IndexedDbCache {
   private readonly conn = new DbConnection();
   private readonly meta = new MetaStore(this.conn);
   private readonly media = new MediaStore(this.conn);
+  private readonly membersStore = new MembersStore(this.conn);
 
   readonly rooms = new RoomsStore(this.conn);
   readonly users = new UsersStore(this.conn);
   readonly timelines = new TimelineStore(this.conn);
+  readonly members = this.membersStore;
 
   // Connection lifecycle
   init(): Promise<void> {
