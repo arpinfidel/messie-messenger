@@ -427,8 +427,6 @@
       refreshMinReadTs();
     });
     console.debug('[MatrixDetail][onMount] Component mounted');
-
-    onDestroy(() => unsubMedia());
   });
 
   onDestroy(() => {
@@ -438,6 +436,7 @@
     unsubscribeRepoEvent?.();
     unsubscribeReceipt?.();
     unregisterLightboxBack?.();
+    unsubMedia?.();
     console.debug('[MatrixDetail][onDestroy] Scroll handler removed');
   });
 
