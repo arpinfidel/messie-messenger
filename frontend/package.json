@@ -10,7 +10,7 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "format": "prettier --write .",
     "mobile:sync": "npm run build && npx cap sync",
-    "mobile:assets": "npx --yes @capacitor/assets@latest generate --iconSource public/messie-logo.svg --splashSource public/messie-logo.svg --ios --android",
+    "mobile:assets": "node ./scripts/mobile-assets.mjs",
     "mobile:run:android": "npx cap run android --no-open",
     "mobile:run:ios": "npx cap run ios --no-open",
     "mobile:android": "npx cap open android",

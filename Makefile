@@ -59,6 +59,9 @@ mobile-run-android:
 mobile-run-ios:
 	cd frontend && npm run mobile:run:ios
 
+mobile-build-android:
+	cd frontend/android && ./gradlew assembleDebug
+
 mobile-open-android:
 	cd frontend && npm run mobile:android
 

@@ -131,6 +131,8 @@ Generate native launcher icons and splash assets from the shared logo (`frontend
 make mobile-assets
 ```
 
+The script copies the shared SVG into a temporary `frontend/assets/` directory so the Capacitor Assets CLI can transform it for Android and iOS, then cleans up after it finishes.
+
 Run the native project directly from the CLI (Capacitor will prompt you to pick a connected device or emulator):
 
 ```bash
