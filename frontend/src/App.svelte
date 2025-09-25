@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import { get } from 'svelte/store';
   import UnifiedTimeline from './views/shared/UnifiedTimeline.svelte';
   import DetailPanel from './views/shared/DetailPanel.svelte';
@@ -10,6 +10,7 @@
   import MatrixLogin from './views/matrix/MatrixLogin.svelte';
   import MatrixForgotPassword from './views/matrix/MatrixForgotPassword.svelte';
   import EmailLoginTab from './views/email/EmailLoginTab.svelte';
+  import { registerBackButtonHandler } from './utils/backButtonManager';
   import { EmailViewModel } from './viewmodels/email/EmailViewModel';
   const emailViewModel = EmailViewModel.getInstance();
   const emailLoginStatusStore = emailViewModel.getLoginStatus();
@@ -28,6 +29,9 @@
   let isMobile = false;
   let detailHistoryActive = false;
   let mediaQuery: MediaQueryList | null = null;
+  let unregisterDetailBack: (() => void) | null = null;
+  let unregisterSettingsBack: (() => void) | null = null;
+  let unregisterForgotBack: (() => void) | null = null;
 
   function ensureDetailHistory() {
     if (typeof window === 'undefined' || detailHistoryActive) return;
@@ -67,6 +71,48 @@
       return;
     }
     selectTimelineItem(null);
+  }
+
+  $: {
+    if (selectedTimelineItem) {
+      unregisterDetailBack?.();
+      unregisterDetailBack = registerBackButtonHandler(() => {
+        handleDetailClose();
+        return true;
+      });
+    } else {
+      unregisterDetailBack?.();
+      unregisterDetailBack = null;
+    }
+  }
+
+  $: {
+    if (showSettingsPopup) {
+      unregisterSettingsBack?.();
+      unregisterSettingsBack = registerBackButtonHandler(() => {
+        showSettingsPopup = false;
+        return true;
+      });
+    } else {
+      unregisterSettingsBack?.();
+      unregisterSettingsBack = null;
+    }
+  }
+
+  $: {
+    if (showForgotPassword) {
+      unregisterForgotBack?.();
+      unregisterForgotBack = registerBackButtonHandler(() => {
+        showForgotPassword = false;
+        if (typeof window !== 'undefined') {
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+        return true;
+      });
+    } else {
+      unregisterForgotBack?.();
+      unregisterForgotBack = null;
+    }
   }
 
   // Matrix login handled via MatrixLogin component now
@@ -131,6 +177,12 @@
     return () => {
       window.removeEventListener('messie-open-room', openRoomHandler);
     };
+  });
+
+  onDestroy(() => {
+    unregisterDetailBack?.();
+    unregisterSettingsBack?.();
+    unregisterForgotBack?.();
   });
 
   $: if (timelineContainer) {

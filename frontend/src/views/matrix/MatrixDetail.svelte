@@ -10,6 +10,7 @@
   import MessageItem from './components/MessageItem.svelte';
   import MessageInput from './components/MessageInput.svelte';
   import { ArrowDownToLine } from 'lucide-svelte';
+  import { registerBackButtonHandler } from '@/utils/backButtonManager';
 
   const scrollThreshold = 0.25;
 
@@ -86,6 +87,7 @@
   let lightboxDesc: string | undefined;
   // Media version for async avatar/image updates
   let mediaVersion = 0;
+  let unregisterLightboxBack: (() => void) | null = null;
 
   function openLightbox(e: CustomEvent<{ url: string; description?: string }>) {
     lightboxUrl = e.detail.url;
@@ -95,6 +97,19 @@
   function closeLightbox() {
     lightboxUrl = null;
     lightboxDesc = undefined;
+  }
+
+  $: {
+    if (lightboxUrl) {
+      unregisterLightboxBack?.();
+      unregisterLightboxBack = registerBackButtonHandler(() => {
+        closeLightbox();
+        return true;
+      });
+    } else {
+      unregisterLightboxBack?.();
+      unregisterLightboxBack = null;
+    }
   }
 
   function getReplyPreview(message: MatrixMessage): string {
@@ -431,6 +446,7 @@
     }
     unsubscribeRepoEvent?.();
     unsubscribeReceipt?.();
+    unregisterLightboxBack?.();
     console.debug('[MatrixDetail][onDestroy] Scroll handler removed');
   });
 

@@ -2,6 +2,7 @@
   import { createEventDispatcher, onDestroy } from 'svelte';
   import { tick } from 'svelte';
   import ModalCloseButton from './ModalCloseButton.svelte';
+  import { registerBackButtonHandler } from '@/utils/backButtonManager';
 
   export let show = false;
   export let closeOnEscape = true;
@@ -29,6 +30,7 @@
   let keyListenerAttached = false;
   let computedHeadingId = internalHeadingId;
   let computedAriaLabelledby: string | null = null;
+  let unregisterBackButton: (() => void) | null = null;
   $: hasTitle = typeof title === 'string' && title.trim().length > 0;
   $: shouldRenderFallbackHeader = hasTitle || showCloseButton;
   $: computedHeadingId = ariaLabelledby ?? internalHeadingId;
@@ -86,13 +88,21 @@
 
   $: {
     if (show) {
+      unregisterBackButton?.();
+      unregisterBackButton = registerBackButtonHandler(() => {
+        close();
+        return true;
+      });
       void openModal();
     } else {
+      unregisterBackButton?.();
+      unregisterBackButton = null;
       closeModal();
     }
   }
 
   onDestroy(() => {
+    unregisterBackButton?.();
     closeModal();
   });
 </script>
