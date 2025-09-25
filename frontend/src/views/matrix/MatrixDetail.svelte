@@ -39,12 +39,13 @@
 
   function updateJumpVisibility() {
     if (!messagesContainer) return;
+    const session = activeSession;
     const near = isNearBottom(messagesContainer);
     showJumpToBottom = !near;
     if (near) {
       unreadCount = 0;
-      if (item?.id) {
-        matrixViewModel.markRoomAsRead(item.id);
+      if (isSessionActive(session)) {
+        void matrixViewModel.markRoomAsRead(session.id);
       }
     }
   }
@@ -73,13 +74,52 @@
   let editingMessage: MatrixMessage | null = null;
   let draft = '';
 
+  type RoomSession = {
+    id: string;
+    token: number;
+    cancelled: boolean;
+  };
+
+  let sessionCounter = 0;
+  let activeSession: RoomSession | null = null;
+
+  function beginRoomSession(roomId: string): RoomSession {
+    if (activeSession) {
+      activeSession.cancelled = true;
+    }
+    const session: RoomSession = {
+      id: roomId,
+      token: ++sessionCounter,
+      cancelled: false,
+    };
+    activeSession = session;
+    resetRoomState();
+    return session;
+  }
+
+  function isSessionActive(session: RoomSession | null): session is RoomSession {
+    if (!session || session.cancelled) return false;
+    return activeSession?.token === session.token && activeSession.id === session.id;
+  }
+
+  function endCurrentSession(): void {
+    if (activeSession) {
+      activeSession.cancelled = true;
+      activeSession = null;
+    }
+  }
+
   // Pending attachment state
   let pendingFile: File | null = null;
   let previewUrl: string | null = null;
 
-  async function refreshMinReadTs() {
-    if (!item?.id) return;
-    minOtherReadTs = await matrixViewModel.getMinOtherReadTs(item.id);
+  async function refreshMinReadTs(session?: RoomSession) {
+    const targetSession = session ?? activeSession;
+    if (!isSessionActive(targetSession)) return;
+    const roomId = targetSession.id;
+    const value = await matrixViewModel.getMinOtherReadTs(roomId);
+    if (!isSessionActive(targetSession)) return;
+    minOtherReadTs = value;
   }
 
   // Image lightbox state
@@ -165,31 +205,57 @@
     draft = '';
   }
 
-  async function fetchMessages(roomId: string) {
+  function resetRoomState() {
+    messages.set([]);
+    isLoadingOlderMessages = false;
+    nextBatch = null;
+    showJumpToBottom = false;
+    unreadCount = 0;
+    replyTo = null;
+    editingMessage = null;
+    draft = '';
+    minOtherReadTs = 0;
+    clearAttachment();
+    lightboxUrl = null;
+    lightboxDesc = undefined;
+    unregisterLightboxBack?.();
+    unregisterLightboxBack = null;
+    isSending = false;
+  }
+
+  async function fetchMessages(roomId: string, session: RoomSession) {
+    if (!isSessionActive(session)) return;
     try {
       console.debug(`[MatrixDetail][fetchMessages] Fetching initial messages for room=${roomId}`);
       const { messages: fetched, nextBatch: newNextBatch } = await matrixViewModel.getRoomMessages(
         roomId,
         null
       );
+      if (!isSessionActive(session)) return;
       messages.set(fetched);
       nextBatch = newNextBatch;
       console.debug(`[MatrixDetail][fetchMessages] got ${fetched.length}, next=${newNextBatch}`);
 
       await tick();
+      if (!isSessionActive(session)) return;
       // Ensure we scroll to the very bottom without smooth scrolling on initial load
       if (messagesContainer) {
         messagesContainer.style.scrollBehavior = 'auto';
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
         messagesContainer.style.scrollBehavior = 'smooth';
       }
-      await ensureScrollable();
+      await ensureScrollable(session);
+      if (!isSessionActive(session)) return;
       updateJumpVisibility();
-      matrixViewModel.markRoomAsRead(roomId);
+      if (isSessionActive(session)) {
+        void matrixViewModel.markRoomAsRead(roomId);
+      }
 
       // After messages load and DOM settles, focus the message input
       await tick();
+      if (!isSessionActive(session)) return;
       messageInputRef?.focus();
+      void refreshMinReadTs(session);
     } catch (e) {
       console.debug(`[MatrixDetail][fetchMessages] ERROR:`, e);
     }
@@ -200,7 +266,7 @@
     matrixViewModel.clearMediaCache();
   });
 
-  async function ensureScrollable() {
+  async function ensureScrollable(session: RoomSession) {
     let safety = 10;
     while (
       safety-- > 0 &&
@@ -208,25 +274,33 @@
       messagesContainer.scrollHeight <= messagesContainer.clientHeight &&
       nextBatch
     ) {
+      if (!isSessionActive(session)) return;
       console.debug(
         `[MatrixDetail][ensureScrollable] Container not scrollable yet (scrollHeight=${messagesContainer.scrollHeight}, clientHeight=${messagesContainer.clientHeight}), loading more...`
       );
-      await loadMoreMessages();
+      await loadMoreMessages(session);
       await tick();
     }
+    if (!isSessionActive(session)) return;
     console.debug(
       `[MatrixDetail][ensureScrollable] Done. scrollHeight=${messagesContainer?.scrollHeight}, clientHeight=${messagesContainer?.clientHeight}, nextBatchToken=${nextBatch}`
     );
   }
 
-  async function loadMoreMessages() {
-    console.time(`[MatrixDetail][loadMoreMessages] room=${item?.id}`);
+  async function loadMoreMessages(session?: RoomSession) {
+    const effectiveSession = session ?? activeSession;
+    if (!isSessionActive(effectiveSession)) {
+      console.debug('[MatrixDetail][loadMoreMessages] Skipped: session no longer active');
+      return;
+    }
     if (isLoadingOlderMessages || !nextBatch) {
       console.debug(
         `[MatrixDetail][loadMoreMessages] Skipped: isLoadingOlderMessages=${isLoadingOlderMessages}, nextBatchToken=${nextBatch}`
       );
       return;
     }
+    const roomId = effectiveSession.id;
+    console.time(`[MatrixDetail][loadMoreMessages] room=${roomId}`);
     isLoadingOlderMessages = true;
     console.debug(
       `[MatrixDetail][loadMoreMessages] Loading older messages… currentCount=${get(messages).length}, nextBatch=${nextBatch}`
@@ -237,8 +311,11 @@
     const prevScrollTop = messagesContainer?.scrollTop ?? 0;
 
     try {
-      const { messages: olderMessages, nextBatch: newNextBatch } =
-        await matrixViewModel.getRoomMessages(item.id, nextBatch);
+      const { messages: olderMessages, nextBatch: newNextBatch } = await matrixViewModel.getRoomMessages(
+        roomId,
+        nextBatch
+      );
+      if (!isSessionActive(effectiveSession)) return;
 
       console.debug(
         `[MatrixDetail][loadMoreMessages] got ${olderMessages?.length || 0} older messages, new nextBatch=${newNextBatch}`
@@ -255,6 +332,7 @@
 
         // Wait for DOM to update
         await tick();
+        if (!isSessionActive(effectiveSession)) return;
 
         // Only adjust scroll if we actually got NEW messages (not duplicates)
         if (actualNewMessages > 0 && messagesContainer) {
@@ -296,16 +374,30 @@
       console.error(`[MatrixDetail][loadMoreMessages] Error loading messages:`, error);
     } finally {
       isLoadingOlderMessages = false;
-      console.timeEnd(`[MatrixDetail][loadMoreMessages] room=${item?.id}`);
+      console.timeEnd(`[MatrixDetail][loadMoreMessages] room=${roomId}`);
     }
   }
 
-  $: if (item?.type === 'matrix' && item.id) {
-    cancelEdit();
-    replyTo = null;
-    console.time(`[MatrixDetail][fetchMessages] room=${item.id}`);
-    fetchMessages(item.id);
-    console.timeEnd(`[MatrixDetail][fetchMessages] room=${item.id}`);
+  $: {
+    if (item?.type === 'matrix' && item.id) {
+      const existing = activeSession;
+      if (isSessionActive(existing) && existing.id === item.id) {
+        // Already handling this room; no need to reset state.
+      } else {
+        const session = beginRoomSession(item.id);
+        console.time(`[MatrixDetail][fetchMessages] room=${session.id}`);
+        void fetchMessages(session.id, session);
+        console.timeEnd(`[MatrixDetail][fetchMessages] room=${session.id}`);
+        void matrixViewModel.syncRoom(session.id).then(() => {
+          if (isSessionActive(session)) {
+            void refreshMinReadTs(session);
+          }
+        });
+      }
+    } else {
+      endCurrentSession();
+      resetRoomState();
+    }
   }
 
   function setupScrollHandler() {
@@ -314,6 +406,8 @@
     }
 
     scrollHandler = () => {
+      const session = activeSession;
+      if (!isSessionActive(session)) return;
       // Update jump-to-bottom visibility
       updateJumpVisibility();
 
@@ -327,7 +421,7 @@
         console.debug(
           `[MatrixDetail][ScrollHandler] Near top (${(scrollPercentage * 100).toFixed(1)}%) → loadMoreMessages()`
         );
-        loadMoreMessages();
+        loadMoreMessages(session);
       }
     };
 
@@ -352,14 +446,16 @@
 
     // Replace the current unsubscribeRepoEvent assignment with this enhanced handler:
     unsubscribeRepoEvent = matrixViewModel.onRepoEvent(async (ev, _room, _meta) => {
-      if (ev.roomId !== item.id) return;
+      const session = activeSession;
+      if (!isSessionActive(session) || ev.roomId !== session.id) return;
       const newMsgs = await matrixViewModel.mapRepoEventsToMessages([ev]);
-      if (!newMsgs.length) return;
+      if (!newMsgs.length || !isSessionActive(session)) return;
 
       const wasNear = isNearBottom(messagesContainer);
       let newMessagesAtEnd = 0;
 
       messages.update((curr) => {
+        if (!isSessionActive(session)) return curr;
         // Create a working copy
         let result = [...curr];
 
@@ -401,6 +497,7 @@
       });
 
       await tick();
+      if (!isSessionActive(session) || !messagesContainer) return;
 
       // Only auto-scroll if user was near bottom AND the new message(s) are at the end
       if (wasNear && newMessagesAtEnd > 0) {
@@ -417,19 +514,19 @@
 
     // On receipt, recompute the max read timestamp once for this room
     unsubscribeReceipt = matrixViewModel.onReadReceipt((roomId) => {
-      if (roomId !== item.id) return;
-      refreshMinReadTs();
+      const session = activeSession;
+      if (!isSessionActive(session) || roomId !== session.id) return;
+      void refreshMinReadTs(session);
     });
 
     // Initial compute
     updateJumpVisibility();
-    matrixViewModel.syncRoom(item.id).then(() => {
-      refreshMinReadTs();
-    });
     console.debug('[MatrixDetail][onMount] Component mounted');
   });
 
   onDestroy(() => {
+    endCurrentSession();
+    clearAttachment();
     if (scrollHandler && messagesContainer) {
       messagesContainer.removeEventListener('scroll', scrollHandler);
     }
@@ -444,37 +541,46 @@
 
   async function sendMessage(content: string, replyContext: MatrixReplyContext | null) {
     const trimmedContent = content.trim();
+    const session = activeSession;
+    if (!isSessionActive(session)) {
+      console.debug('[MatrixDetail][sendMessage] Skipped: no active room session');
+      return;
+    }
+    const roomId = session.id;
 
     if (editingMessage) {
-      if (!trimmedContent || !item?.id || isSending) {
+      if (!trimmedContent || isSending) {
         return;
       }
 
       isSending = true;
       try {
         await matrixViewModel.editMessage(
-          item.id,
+          roomId,
           editingMessage.id,
           trimmedContent,
           editingMessage.replyTo?.eventId,
           editingMessage.msgtype
         );
-        cancelEdit();
+        if (isSessionActive(session)) {
+          cancelEdit();
+        }
       } catch (e) {
         console.error('[MatrixDetail][sendMessage] Failed to edit message:', e);
       } finally {
         isSending = false;
         await tick();
-        messageInputRef?.focus();
+        if (isSessionActive(session)) {
+          messageInputRef?.focus();
+        }
       }
       return;
     }
 
-    if ((!trimmedContent && !pendingFile) || !item?.id || isSending) {
+    if ((!trimmedContent && !pendingFile) || isSending) {
       return;
     }
 
-    const roomId = item.id;
     const effectiveReply = replyContext ?? replyTo ?? undefined;
     isSending = true;
 
@@ -486,18 +592,24 @@
           trimmedContent || undefined,
           effectiveReply
         );
-        clearAttachment();
+        if (isSessionActive(session)) {
+          clearAttachment();
+        }
       } else {
         await matrixViewModel.sendMessage(roomId, trimmedContent, effectiveReply);
       }
-      clearReply();
+      if (isSessionActive(session)) {
+        clearReply();
+      }
     } catch (e) {
       console.error('[MatrixDetail][sendMessage] Failed to send message:', e);
     } finally {
       isSending = false;
       // Keep focus on the message input after sending
       await tick();
-      messageInputRef?.focus();
+      if (isSessionActive(session)) {
+        messageInputRef?.focus();
+      }
     }
   }
 
