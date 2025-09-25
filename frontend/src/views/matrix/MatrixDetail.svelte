@@ -11,6 +11,8 @@
   import MessageInput from './components/MessageInput.svelte';
   import { ArrowDownToLine } from 'lucide-svelte';
   import { registerBackButtonHandler } from '@/utils/backButtonManager';
+  import { detectDeviceAndOrientation, deviceProfile as deviceProfileStore } from '@/utils/deviceProfile';
+  import type { DeviceProfile } from '@/utils/deviceProfile';
 
   const scrollThreshold = 0.25;
 
@@ -63,7 +65,19 @@
   }
 
   let messagesContainer: HTMLDivElement;
-  let messageInputRef: any;
+  let messageInputRef: InstanceType<typeof MessageInput> | null = null;
+  const initialDeviceProfile = detectDeviceAndOrientation();
+  let skipAutoFocus = !initialDeviceProfile.supportsSplitLayout;
+  let unsubscribeDeviceProfile: (() => void) | null = null;
+
+  function updateDeviceProfile(profile: DeviceProfile) {
+    skipAutoFocus = !profile.supportsSplitLayout;
+  }
+
+  function focusMessageInput(options: { force?: boolean } = {}) {
+    if (skipAutoFocus && !options.force) return;
+    messageInputRef?.focus();
+  }
   let unsubscribeRepoEvent: (() => void) | null = null;
   let unsubscribeReceipt: (() => void) | null = null;
   let scrollHandler: (() => void) | null = null;
@@ -184,7 +198,7 @@
       body: getReplyPreview(message),
       msgtype: message.msgtype,
     };
-    messageInputRef?.focus();
+    focusMessageInput({ force: true });
   }
 
   function clearReply() {
@@ -197,7 +211,7 @@
     clearAttachment();
     editingMessage = message;
     draft = message.body ?? '';
-    messageInputRef?.focus();
+    focusMessageInput({ force: true });
   }
 
   function cancelEdit() {
@@ -254,7 +268,7 @@
       // After messages load and DOM settles, focus the message input
       await tick();
       if (!isSessionActive(session)) return;
-      messageInputRef?.focus();
+      focusMessageInput();
       void refreshMinReadTs(session);
     } catch (e) {
       console.debug(`[MatrixDetail][fetchMessages] ERROR:`, e);
@@ -437,12 +451,17 @@
   });
 
   onMount(async () => {
+    if (typeof window !== 'undefined') {
+      updateDeviceProfile(detectDeviceAndOrientation());
+      unsubscribeDeviceProfile = deviceProfileStore.subscribe(updateDeviceProfile);
+    }
+
     await tick();
     setupScrollHandler();
 
     // Ensure input is focused on mount
     await tick();
-    messageInputRef?.focus();
+    focusMessageInput();
 
     // Replace the current unsubscribeRepoEvent assignment with this enhanced handler:
     unsubscribeRepoEvent = matrixViewModel.onRepoEvent(async (ev, _room, _meta) => {
@@ -534,6 +553,7 @@
     unsubscribeReceipt?.();
     unregisterLightboxBack?.();
     unsubMedia?.();
+    unsubscribeDeviceProfile?.();
     console.debug('[MatrixDetail][onDestroy] Scroll handler removed');
   });
 
@@ -571,7 +591,7 @@
         isSending = false;
         await tick();
         if (isSessionActive(session)) {
-          messageInputRef?.focus();
+          focusMessageInput();
         }
       }
       return;
@@ -608,7 +628,7 @@
       // Keep focus on the message input after sending
       await tick();
       if (isSessionActive(session)) {
-        messageInputRef?.focus();
+        focusMessageInput();
       }
     }
   }
@@ -731,7 +751,7 @@
     on:cancelReply={clearReply}
     on:cancelEdit={() => {
       cancelEdit();
-      messageInputRef?.focus();
+      focusMessageInput();
     }}
   />
 

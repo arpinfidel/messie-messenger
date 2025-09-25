@@ -11,6 +11,8 @@
   import MatrixForgotPassword from './views/matrix/MatrixForgotPassword.svelte';
   import EmailLoginTab from './views/email/EmailLoginTab.svelte';
   import { registerBackButtonHandler } from './utils/backButtonManager';
+  import { detectDeviceAndOrientation, deviceProfile as deviceProfileStore } from './utils/deviceProfile';
+  import type { DeviceProfile } from './utils/deviceProfile';
   import { EmailViewModel } from './viewmodels/email/EmailViewModel';
   import DeveloperSettingsTab from './views/settings/DeveloperSettingsTab.svelte';
   import { developerSettings } from './viewmodels/settings/DeveloperSettings';
@@ -28,12 +30,13 @@
   let loggedIn = false;
   let loginStateChecked = false; // avoid showing overlay until init completes
   let showForgotPassword = false;
-  let isMobile = false;
+  let currentDeviceProfile: DeviceProfile = detectDeviceAndOrientation();
+  let isSplitLayout = currentDeviceProfile.supportsSplitLayout;
   let detailHistoryActive = false;
-  let mediaQuery: MediaQueryList | null = null;
   let unregisterDetailBack: (() => void) | null = null;
   let unregisterSettingsBack: (() => void) | null = null;
   let unregisterForgotBack: (() => void) | null = null;
+  let unsubscribeDeviceProfile: (() => void) | null = null;
 
   const rawBuildTimestamp = typeof __BUILD_TIMESTAMP__ === 'undefined' ? '' : __BUILD_TIMESTAMP__;
 
@@ -70,7 +73,7 @@
     }
 
     if (item) {
-      if (!fromHistory && isMobile) {
+      if (!fromHistory && !isSplitLayout) {
         ensureDetailHistory();
       }
     } else {
@@ -130,6 +133,19 @@
 
   // Matrix login handled via MatrixLogin component now
 
+  function applyDeviceProfile(profile: DeviceProfile) {
+    currentDeviceProfile = profile;
+    const nextIsSplit = profile.supportsSplitLayout;
+    if (nextIsSplit !== isSplitLayout) {
+      isSplitLayout = nextIsSplit;
+      if (nextIsSplit) {
+        detailHistoryActive = false;
+      } else if (selectedTimelineItem) {
+        ensureDetailHistory();
+      }
+    }
+  }
+
   onMount(() => {
     matrixViewModel = MatrixViewModel.getInstance(); // Use the singleton instance
 
@@ -156,39 +172,28 @@
 
     window.addEventListener('messie-open-room', openRoomHandler);
 
-    const applyIsMobile = (matches: boolean) => {
-      isMobile = matches;
-      if (matches && selectedTimelineItem) {
-        ensureDetailHistory();
-      }
-    };
-
-    const mediaChangeHandler = (event: MediaQueryListEvent) => {
-      applyIsMobile(event.matches);
-    };
-
     if (typeof window !== 'undefined') {
-      mediaQuery = window.matchMedia('(max-width: 768px)');
-      applyIsMobile(mediaQuery.matches);
-      mediaQuery.addEventListener('change', mediaChangeHandler);
-
       const popStateHandler = () => {
         if (detailHistoryActive) {
           selectTimelineItem(null, { fromHistory: true });
         }
       };
 
+      applyDeviceProfile(detectDeviceAndOrientation());
+      unsubscribeDeviceProfile = deviceProfileStore.subscribe(applyDeviceProfile);
+
       window.addEventListener('popstate', popStateHandler);
 
       return () => {
         window.removeEventListener('messie-open-room', openRoomHandler);
-        mediaQuery?.removeEventListener('change', mediaChangeHandler);
         window.removeEventListener('popstate', popStateHandler);
+        unsubscribeDeviceProfile?.();
       };
     }
 
     return () => {
       window.removeEventListener('messie-open-room', openRoomHandler);
+      unsubscribeDeviceProfile?.();
     };
   });
 
@@ -206,10 +211,10 @@
   }
 </script>
 
-<main class={`h-screen bg-gray-900 ${isMobile ? 'flex flex-col' : 'grid grid-cols-[1fr_2fr]'}`}>
-  {#if !isMobile}
+<main class={`h-screen bg-gray-900 ${isSplitLayout ? 'grid grid-cols-[1fr_2fr]' : 'flex flex-col'}`}>
+  {#if isSplitLayout}
     <div
-      class="overflow-y-auto overflow-x-hidden border-r border-gray-800"
+      class="flex h-full min-h-0 flex-col overflow-hidden border-r border-gray-800"
       bind:clientWidth={timelineWidth}
       bind:this={timelineContainer}
     >
@@ -224,7 +229,7 @@
   {:else}
     {#if !selectedTimelineItem}
       <div
-        class="flex-1 overflow-y-auto overflow-x-hidden"
+        class="flex min-h-0 flex-1 flex-col overflow-hidden"
         bind:clientWidth={timelineWidth}
         bind:this={timelineContainer}
       >

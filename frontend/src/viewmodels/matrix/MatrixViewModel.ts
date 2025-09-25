@@ -14,7 +14,7 @@ import { MatrixSessionStore, type MatrixSessionData } from './core/MatrixSession
 import { MatrixClientManager } from './core/MatrixClientManager';
 import { MatrixCryptoManager } from './core/MatrixCryptoManager';
 import { MatrixDataLayer } from './core/MatrixDataLayer';
-import { BrowserNotificationService } from '@/notifications/NotificationService';
+import { createNotificationService } from '@/notifications/NotificationService';
 import { MatrixMessagingService } from './core/MatrixMessagingService';
 import { MatrixPushRuleService } from './core/MatrixPushRuleService';
 import type { MatrixReplyContext } from './types';
@@ -55,7 +55,7 @@ export class MatrixViewModel implements IModuleViewModel {
     this.dataLayer,
     { maxMemEntries: 200, maxDbEntries: 5000 }
   );
-  private notificationSvc = new BrowserNotificationService();
+  private notificationSvc = createNotificationService();
   private messagingSvc = new MatrixMessagingService(() => this.clientMgr.getClient());
   private timelineSvc = new MatrixTimelineService(
     {

@@ -44,6 +44,7 @@
   "dependencies": {
     "@capacitor/app": "^6.0.2",
     "@capacitor/core": "^6.2.0",
+    "@capacitor/local-notifications": "^6.1.2",
     "@openapitools/openapi-generator-cli": "^2.23.1",
     "date-fns": "^4.1.0",
     "lucide-svelte": "^0.544.0",

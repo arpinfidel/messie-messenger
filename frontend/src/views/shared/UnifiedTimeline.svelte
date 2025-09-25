@@ -328,9 +328,11 @@
   }
 </script>
 
-<div class="timeline-container flex-1 overflow-y-auto bg-white dark:bg-gray-900">
+<div class="timeline-container flex h-full min-h-0 flex-col overflow-hidden bg-white dark:bg-gray-900">
   <!-- Enhanced Header -->
-  <div class="sticky top-0 z-20 border-b border-gray-200/80 dark:border-gray-700/80">
+  <div
+    class="sticky top-0 z-30 border-b border-gray-200/80 bg-white/95 backdrop-blur shadow-sm supports-[backdrop-filter]:bg-white/80 dark:border-gray-700/80 dark:bg-gray-900/90"
+  >
     <div class="px-6 py-4">
       {#if selectionCount > 0}
         <div class="flex min-h-[4rem] items-center justify-between gap-4">
@@ -468,7 +470,7 @@
   </div>
 
   <!-- Content Area -->
-  <div class="px-6 py-6">
+  <div class="flex-1 overflow-y-auto px-6 py-6 min-h-0">
     <div class="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div class="flex w-full items-center gap-3 md:max-w-xl">
         <div class="relative flex-1">
@@ -612,20 +614,20 @@
       </div>
     {/if}
   </div>
-</div>
 
-<!-- Sidebar-scoped loading bar at the bottom -->
-<div class="px-0">
-  <LoadingIndicator
-    show={isLoading}
-    text={loadingText}
-    mode="inline"
-  />
+  <!-- Sidebar-scoped loading bar at the bottom -->
+  <div class="px-0 flex-shrink-0">
+    <LoadingIndicator
+      show={isLoading}
+      text={loadingText}
+      mode="inline"
+    />
+  </div>
 </div>
 
 <style>
   .timeline-container {
-    min-height: 100vh;
+    min-height: 100%;
   }
   
   /* Smooth animations */
