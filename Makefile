@@ -45,6 +45,32 @@ jira-push:
 	@echo "Pushing local YAML changes to Jira (then refreshing YAML)..."
 	cd backend && go run ./cmd/jira-sync push
 
+.PHONY: mobile-assets mobile-sync mobile-run-android mobile-run-ios mobile-open-android mobile-open-ios mobile-add-android mobile-add-ios
+
+mobile-assets:
+	cd frontend && npm run mobile:assets
+
+mobile-sync:
+	cd frontend && npm run mobile:sync
+
+mobile-run-android:
+	cd frontend && npm run mobile:run:android
+
+mobile-run-ios:
+	cd frontend && npm run mobile:run:ios
+
+mobile-open-android:
+	cd frontend && npm run mobile:android
+
+mobile-open-ios:
+	cd frontend && npm run mobile:ios
+
+mobile-add-android:
+	cd frontend && npm run mobile:add:android
+
+mobile-add-ios:
+	cd frontend && npm run mobile:add:ios
+
 
 # swallow extra targets so make doesn’t complain or rerun them
 %:

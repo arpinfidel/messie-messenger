@@ -8,9 +8,20 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "mobile:sync": "npm run build && npx cap sync",
+    "mobile:assets": "npx --yes @capacitor/assets@latest generate --iconSource public/messie-logo.svg --splashSource public/messie-logo.svg --ios --android",
+    "mobile:run:android": "npx cap run android --no-open",
+    "mobile:run:ios": "npx cap run ios --no-open",
+    "mobile:android": "npx cap open android",
+    "mobile:ios": "npx cap open ios",
+    "mobile:add:android": "npx cap add android",
+    "mobile:add:ios": "npx cap add ios"
   },
   "devDependencies": {
+    "@capacitor/android": "^6.2.0",
+    "@capacitor/cli": "^6.2.0",
+    "@capacitor/ios": "^6.2.0",
     "@sveltejs/vite-plugin-svelte": "^2.0.0",
     "@tsconfig/svelte": "^5.0.4",
     "@types/node": "^24.3.0",
@@ -26,6 +37,7 @@
     "vite": "^4.0.0"
   },
   "dependencies": {
+    "@capacitor/core": "^6.2.0",
     "@openapitools/openapi-generator-cli": "^2.23.1",
     "date-fns": "^4.1.0",
     "lucide-svelte": "^0.544.0",

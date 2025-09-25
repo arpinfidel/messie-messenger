@@ -6,3 +6,15 @@ node_modules/
 dist/
 build/
 jira-tasks.yaml
+
+# Capacitor native builds
+frontend/android/
+frontend/ios/
+
+# Frontend build artifacts
+frontend/dist/
+frontend/build/
+frontend/.svelte-kit/
+
+# Local SDK config
+frontend/android/local.properties

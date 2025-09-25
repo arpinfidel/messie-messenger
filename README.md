@@ -107,6 +107,139 @@ npm install
 npm run dev -- --host
 ```
 
+### Mobile wrapper (Capacitor)
+
+The Svelte frontend ships with a Capacitor configuration so you can build native wrappers for Android and iOS. Install the fro
+ntend dependencies if you have not already (`cd frontend && npm install`), then run the add command for each platform you care
+ about (requires the Android SDK command-line tools or Xcode command-line tools):
+
+```bash
+cd frontend
+npm run mobile:add:android   # one-time platform scaffold
+npm run mobile:add:ios       # optional iOS scaffold
+```
+
+After adding a platform, rebuild the web assets and sync them into the native project anytime the Svelte app changes:
+
+```bash
+make mobile-sync
+```
+
+Generate native launcher icons and splash assets from the shared logo (`frontend/public/messie-logo.svg`) whenever the artwork changes:
+
+```bash
+make mobile-assets
+```
+
+Run the native project directly from the CLI (Capacitor will prompt you to pick a connected device or emulator):
+
+```bash
+make mobile-run-android
+make mobile-run-ios
+```
+
+Open the native project in its IDE once assets are synced if you still want an editor experience:
+
+```bash
+make mobile-open-android
+make mobile-open-ios
+```
+
+`make mobile-sync` wraps `npm run mobile:sync`, which performs `vite build` followed by `npx cap sync`. You can also call the N
+PM scripts directly from the `frontend` directory if you prefer.
+
+#### Build Android APK via CLI
+
+Prerequisites (macOS example):
+
+```bash
+brew install --cask android-commandlinetools
+mkdir -p "$HOME/Library/Android/sdk/cmdline-tools/latest"
+cp -R /opt/homebrew/share/android-commandlinetools/* \
+  "$HOME/Library/Android/sdk/cmdline-tools/latest/"
+
+echo 'export ANDROID_HOME="$HOME/Library/Android/sdk"' >> ~/.zshrc
+echo 'export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"' >> ~/.zshrc
+echo 'export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"' >> ~/.zshrc
+brew install --cask temurin@17
+echo 'export JAVA_HOME=$(/usr/libexec/java_home -v 17)' >> ~/.zshrc
+echo 'export PATH="$JAVA_HOME/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Adjust the paths if you are on Intel Homebrew or you unpacked Google’s ZIP manually. Confirm `sdkmanager` works (`sdkmanager --list`) before continuing. If `echo $ANDROID_SDK_ROOT` prints nothing after reloading your shell, export it manually in the current session:
+
+```bash
+export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
+export ANDROID_HOME="$ANDROID_SDK_ROOT"
+```
+
+1. Install the Android SDK command-line tools, ensure `sdkmanager` is on your `PATH`, and accept licenses (the app currently targets `compileSdkVersion = 34`, see `frontend/android/variables.gradle`). Run each command individually so environment changes take effect:
+
+   ```bash
+   sdkmanager --install "platforms;android-34" "build-tools;34.0.0"
+   # optional: pre-install newer APIs you plan to use
+   sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+   yes | sdkmanager --licenses --sdk_root="$ANDROID_SDK_ROOT"
+   ls "$ANDROID_SDK_ROOT/licenses"
+   ```
+
+   Make sure `JAVA_HOME` points to Java 17 or newer.
+2. Install frontend dependencies and add the Android platform if you have not already (the Capacitor CLI is installed here; skipping `npm install` triggers `npm error could not determine executable to run` when you add the platform):
+
+   ```bash
+   cd frontend
+   npm install
+   npm run mobile:add:android
+   ```
+
+3. Build web assets and sync them into the native project:
+
+   ```bash
+   cd ..
+   make mobile-sync
+   ```
+
+4. Build a debug APK with Gradle:
+
+   ```bash
+   cd frontend/android
+   ./gradlew assembleDebug
+   ```
+
+   The package appears at `frontend/android/app/build/outputs/apk/debug/app-debug.apk`. If Gradle reports missing SDK components or licenses, install the requested versions with `sdkmanager` (then rerun `sdkmanager --licenses`). For a release build, configure signing in `android/app/build.gradle` and run `./gradlew assembleRelease`.
+
+#### Build iOS Archive/IPA via CLI
+
+1. Install the Xcode Command Line Tools (`xcode-select --install`) and ensure you have a signing identity plus provisioning profile for device or release builds.
+2. Prepare the Capacitor project (run `npm install` first so the local Capacitor CLI is available):
+
+   ```bash
+   cd frontend
+   npm install
+   npm run mobile:add:ios
+   cd ..
+   make mobile-sync
+   ```
+
+3. Build for the simulator (no signing required):
+
+   ```bash
+   cd frontend/ios/App
+   xcodebuild -scheme App -configuration Debug -sdk iphonesimulator build
+   ```
+
+   The `.app` bundle lives at `frontend/ios/App/build/Build/Products/Debug-iphonesimulator/App.app` and can be installed with `xcrun simctl`.
+4. Build an archive and export an IPA (requires signing assets and an `exportOptions.plist`):
+
+   ```bash
+   xcodebuild -scheme App -configuration Release -sdk iphoneos -archivePath build/App.xcarchive archive
+   xcodebuild -exportArchive -archivePath build/App.xcarchive \
+     -exportOptionsPlist exportOptions.plist -exportPath build/export
+   ```
+
+   The IPA lands in `frontend/ios/App/build/export/`.
+
 ### Matrix Account
 
 You need a Matrix account to sign in for messaging. Register on any homeserver (e.g., your own or a public one), then log in from the Matrix settings screen inside the app.
