@@ -8,6 +8,7 @@ import { AvatarResolver, type ResolveResult } from './AvatarResolver';
 import { MediaResolver } from './MediaResolver';
 import type { DbMember, DbRoom, DbUser } from './idb/constants';
 import type { ImageContent } from 'matrix-js-sdk/lib/types';
+import type { MSC3575RoomData } from 'matrix-js-sdk/lib/sliding-sync';
 
 type RepoEventListener = (ev: RepoEvent, room: matrixSdk.Room | null, meta?: { isLive?: boolean }) => void;
 
@@ -230,10 +231,12 @@ export class MatrixDataLayer {
 
   async applySlidingSyncRoom(
     roomId: string,
-    data: SlidingSyncRoomData,
+    data: SlidingSyncRoomData | MSC3575RoomData,
     opts: { isInitial?: boolean } = {}
   ): Promise<void> {
-    const requiredState = data.required_state;
+    const requiredState = Array.isArray((data as any)?.required_state)
+      ? ((data as any).required_state as IEvent[])
+      : [];
     const nameContent = this.extractRequiredStateValue<{ name?: string }>(
       requiredState,
       'm.room.name'
@@ -243,23 +246,28 @@ export class MatrixDataLayer {
       'm.room.avatar'
     );
 
-    const bumpStamp = Number.isFinite(data.bump_stamp)
-      ? (data.bump_stamp as number)
+    const bumpStamp = Number.isFinite((data as any).bump_stamp)
+      ? ((data as any).bump_stamp as number)
       : undefined;
     const unreadCount =
-      data.unread_notifications?.highlight_count ??
-      data.unread_notifications?.notification_count ??
+      (data as any).highlight_count ??
+      (data as any)?.unread_notifications?.highlight_count ??
+      (data as any).notification_count ??
+      (data as any)?.unread_notifications?.notification_count ??
       undefined;
 
     this.upsertRoomSummaryFromSlidingSync(roomId, {
-      name: data.name ?? nameContent?.name,
-      avatarMxcUrl: (data.avatar as string | undefined) ?? avatarContent?.url,
+      name: (data as any).name ?? nameContent?.name,
+      avatarMxcUrl: ((data as any).avatar as string | undefined) ?? avatarContent?.url,
       latestTimestamp: bumpStamp,
       unreadCount,
     });
 
-    const timelineEvents = Array.isArray(data.timeline?.events)
-      ? (data.timeline?.events as IEvent[])
+    const rawTimeline = (data as any).timeline;
+    const timelineEvents = Array.isArray(rawTimeline?.events)
+      ? (rawTimeline.events as IEvent[])
+      : Array.isArray(rawTimeline)
+      ? (rawTimeline as IEvent[])
       : [];
     if (!timelineEvents.length) {
       return;

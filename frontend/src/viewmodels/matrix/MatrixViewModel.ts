@@ -1,6 +1,6 @@
 import * as matrixSdk from 'matrix-js-sdk';
 import loglevel from 'loglevel';
-import { type Writable } from 'svelte/store';
+import { get, type Writable } from 'svelte/store';
 import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
 import type { TimelineItem } from '@/models/shared/TimelineItem';
 import { matrixSettings } from '@/viewmodels/matrix/MatrixSettings';
@@ -46,10 +46,6 @@ export class MatrixViewModel implements IModuleViewModel {
     waitForPrepared: () => this.waitForMatrixReady(),
     pageSize: 20,
   });
-  private slidingSyncSvc = new MatrixSlidingSyncService({
-    getClient: () => this.clientMgr.getClient(),
-    dataLayer: this.dataLayer,
-  });
   private avatarSvc = new AvatarService(
     { getClient: () => this.clientMgr.getClient() },
     this.dataLayer,
@@ -67,6 +63,32 @@ export class MatrixViewModel implements IModuleViewModel {
     this.avatarSvc,
     this.notificationSvc
   );
+  private slidingSyncSvc = new MatrixSlidingSyncService({
+    getClient: () => this.clientMgr.getClient(),
+    dataLayer: this.dataLayer,
+    highPrioritySelector: () => {
+      const items = get(this.timelineSvc.getTimelineItemsStore());
+      if (!Array.isArray(items) || items.length === 0) {
+        return [];
+      }
+      const boosted: string[] = [];
+      const seen = new Set<string>();
+      for (const item of items) {
+        if (item?.type !== 'matrix' || !item?.id) {
+          continue;
+        }
+        if (seen.has(item.id)) {
+          continue;
+        }
+        boosted.push(item.id);
+        seen.add(item.id);
+        if (boosted.length >= 30) {
+          break;
+        }
+      }
+      return boosted;
+    },
+  });
   private pushRuleSvc = new MatrixPushRuleService(() => this.clientMgr.getClient());
 
   private constructor() {
@@ -256,6 +278,19 @@ export class MatrixViewModel implements IModuleViewModel {
     this.dataLayer.bind();
     console.timeEnd('[MatrixVM] bind data layer');
 
+    try {
+      await this.slidingSyncSvc.init();
+    } catch (err) {
+      console.warn('[MatrixVM] sliding sync init failed', err);
+    }
+
+    const slidingInstance = this.slidingSyncSvc.getSlidingSync();
+    if (!slidingInstance) {
+      console.warn('[MatrixVM] Sliding sync instance missing before start; falling back to legacy sync only');
+    }
+
+    this.slidingSyncSvc.start();
+
     if (!this.clientMgr.isStarted()) {
       console.time('[MatrixVM] startClient');
 
@@ -274,25 +309,18 @@ export class MatrixViewModel implements IModuleViewModel {
         event_fields: ['type', 'content', 'sender', 'origin_server_ts', 'event_id', 'room_id'],
       };
 
-      // Wrap in a Filter instance
       const filter = new matrixSdk.Filter(this.clientMgr.getClient()?.getUserId(), undefined);
       filter.setDefinition(minimalFilterDef);
 
       await this.clientMgr.start({
-        filter: filter,
+        filter,
         pollTimeout: 30000,
         lazyLoadMembers: true,
         initialSyncLimit: 5,
+        slidingSync: slidingInstance ?? undefined,
       });
       console.timeEnd('[MatrixVM] startClient');
     }
-
-    try {
-      await this.slidingSyncSvc.init();
-    } catch (err) {
-      console.warn('[MatrixVM] sliding sync init failed', err);
-    }
-    this.slidingSyncSvc.start();
 
     // Only set to 'syncing' if we haven't already set it to 'ready' from cache
     if (this.hydrationState !== 'ready') {
