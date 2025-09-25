@@ -428,15 +428,6 @@
     });
     console.debug('[MatrixDetail][onMount] Component mounted');
 
-    // Close lightbox on Escape
-    const onKey = (ev: KeyboardEvent) => {
-      if (ev.key === 'Escape' && lightboxUrl) {
-        closeLightbox();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    onDestroy(() => window.removeEventListener('keydown', onKey));
-
     onDestroy(() => unsubMedia());
   });
 

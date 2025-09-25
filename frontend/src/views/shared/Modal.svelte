@@ -27,10 +27,10 @@
   let modalEl: HTMLDivElement | null = null;
   let previouslyFocused: Element | null = null;
   let previousBodyOverflow: string | null = null;
-  let keyListenerAttached = false;
   let computedHeadingId = internalHeadingId;
   let computedAriaLabelledby: string | null = null;
   let unregisterBackButton: (() => void) | null = null;
+  let modalOpen = false;
   $: hasTitle = typeof title === 'string' && title.trim().length > 0;
   $: shouldRenderFallbackHeader = hasTitle || showCloseButton;
   $: computedHeadingId = ariaLabelledby ?? internalHeadingId;
@@ -46,19 +46,9 @@
     }
   }
 
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape' && closeOnEscape) {
-      event.preventDefault();
-      close();
-    }
-  }
-
   async function openModal() {
+    modalOpen = true;
     previouslyFocused = document.activeElement;
-    if (closeOnEscape && !keyListenerAttached) {
-      document.addEventListener('keydown', handleKeydown);
-      keyListenerAttached = true;
-    }
     if (previousBodyOverflow === null) {
       previousBodyOverflow = document.body.style.overflow;
     }
@@ -71,10 +61,6 @@
   }
 
   function closeModal() {
-    if (keyListenerAttached) {
-      document.removeEventListener('keydown', handleKeydown);
-      keyListenerAttached = false;
-    }
     if (previousBodyOverflow !== null) {
       document.body.style.overflow = previousBodyOverflow;
       previousBodyOverflow = null;
@@ -84,26 +70,36 @@
     if (element && typeof element.focus === 'function') {
       element.focus();
     }
+    modalOpen = false;
   }
 
   $: {
     if (show) {
       unregisterBackButton?.();
       unregisterBackButton = registerBackButtonHandler(() => {
+        if (!closeOnEscape) {
+          return true;
+        }
         close();
         return true;
       });
-      void openModal();
+      if (!modalOpen) {
+        void openModal();
+      }
     } else {
       unregisterBackButton?.();
       unregisterBackButton = null;
-      closeModal();
+      if (modalOpen) {
+        closeModal();
+      }
     }
   }
 
   onDestroy(() => {
     unregisterBackButton?.();
-    closeModal();
+    if (modalOpen) {
+      closeModal();
+    }
   });
 </script>
 

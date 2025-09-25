@@ -1,9 +1,10 @@
 <script lang="ts">
   import type { MatrixMessage, MatrixMessageVersion } from '@/viewmodels/matrix/MatrixTimelineService';
-  import { createEventDispatcher, onMount, afterUpdate, tick } from 'svelte';
+  import { createEventDispatcher, onMount, onDestroy, afterUpdate, tick } from 'svelte';
   import PopupMenu from '@/views/shared/PopupMenu.svelte';
   import { Check, CheckCheck, Pencil, Reply } from 'lucide-svelte';
   import type { MatrixReplyContext } from '@/viewmodels/matrix/types';
+  import { registerBackButtonHandler } from '@/utils/backButtonManager';
 
   export let message: MatrixMessage;
   export let isFirstInGroup: boolean;
@@ -31,6 +32,7 @@
   let timestampSpacer: string | null = null;
   let menuButton: HTMLButtonElement | null = null;
   let canEdit = false;
+  let unregisterBackButton: (() => void) | null = null;
 
   function onImageClick() {
     if (message.imageUrl) {
@@ -183,22 +185,35 @@
         closeOverlays();
       }
     };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        closeOverlays();
-      }
-    };
     document.addEventListener('click', handleClick);
-    document.addEventListener('keydown', handleKey);
     void updateTimestampSpacer();
     return () => {
       document.removeEventListener('click', handleClick);
-      document.removeEventListener('keydown', handleKey);
     };
   });
 
   afterUpdate(() => {
     void updateTimestampSpacer();
+  });
+
+  $: {
+    if (showMenu || showHistory) {
+      unregisterBackButton?.();
+      unregisterBackButton = registerBackButtonHandler(() => {
+        if (showMenu || showHistory) {
+          closeOverlays();
+          return true;
+        }
+        return false;
+      });
+    } else {
+      unregisterBackButton?.();
+      unregisterBackButton = null;
+    }
+  }
+
+  onDestroy(() => {
+    unregisterBackButton?.();
   });
 </script>
 

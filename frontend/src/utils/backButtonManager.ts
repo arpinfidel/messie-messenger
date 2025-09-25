@@ -22,16 +22,47 @@ class BackButtonManager {
   private handlers: BackButtonHandler[] = [];
   private listener: PluginListenerHandle | null = null;
   private readonly native = isNativePlatform();
+  private escapeListenerAttached = false;
+
+  private handleKeydown = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape') {
+      return;
+    }
+
+    if (event.defaultPrevented) {
+      return;
+    }
+
+    const handled = this.dispatchBack();
+    if (handled) {
+      event.preventDefault();
+    }
+  };
 
   register(handler: BackButtonHandler): () => void {
     this.handlers.push(handler);
     void this.ensureListener();
+    this.ensureEscapeListener();
     return () => {
       const index = this.handlers.lastIndexOf(handler);
       if (index !== -1) {
         this.handlers.splice(index, 1);
       }
+
+      if (this.handlers.length === 0) {
+        this.removeEscapeListener();
+      }
     };
+  }
+
+  private dispatchBack(): boolean {
+    for (let i = this.handlers.length - 1; i >= 0; i -= 1) {
+      const handled = this.handlers[i]();
+      if (handled !== false) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private async ensureListener(): Promise<void> {
@@ -41,11 +72,8 @@ class BackButtonManager {
 
     try {
       this.listener = await App.addListener('backButton', (event: BackButtonListenerEvent) => {
-        for (let i = this.handlers.length - 1; i >= 0; i -= 1) {
-          const handled = this.handlers[i]();
-          if (handled !== false) {
-            return;
-          }
+        if (this.dispatchBack()) {
+          return;
         }
 
         if (event.canGoBack) {
@@ -58,6 +86,32 @@ class BackButtonManager {
       console.warn('[BackButtonManager] Failed to attach backButton listener', error);
       this.listener = null;
     }
+  }
+
+  private ensureEscapeListener(): void {
+    if (this.escapeListenerAttached) {
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.addEventListener('keydown', this.handleKeydown, { passive: false });
+    this.escapeListenerAttached = true;
+  }
+
+  private removeEscapeListener(): void {
+    if (!this.escapeListenerAttached) {
+      return;
+    }
+
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.removeEventListener('keydown', this.handleKeydown);
+    this.escapeListenerAttached = false;
   }
 }
 
