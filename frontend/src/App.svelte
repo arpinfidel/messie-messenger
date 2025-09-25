@@ -12,6 +12,8 @@
   import EmailLoginTab from './views/email/EmailLoginTab.svelte';
   import { registerBackButtonHandler } from './utils/backButtonManager';
   import { EmailViewModel } from './viewmodels/email/EmailViewModel';
+  import DeveloperSettingsTab from './views/settings/DeveloperSettingsTab.svelte';
+  import { developerSettings } from './viewmodels/settings/DeveloperSettings';
   const emailViewModel = EmailViewModel.getInstance();
   const emailLoginStatusStore = emailViewModel.getLoginStatus();
   const emailLoginErrorStore = emailViewModel.getLoginError();
@@ -32,6 +34,17 @@
   let unregisterDetailBack: (() => void) | null = null;
   let unregisterSettingsBack: (() => void) | null = null;
   let unregisterForgotBack: (() => void) | null = null;
+
+  const rawBuildTimestamp = typeof __BUILD_TIMESTAMP__ === 'undefined' ? '' : __BUILD_TIMESTAMP__;
+
+  const buildTimestampLabel = (() => {
+    if (!rawBuildTimestamp) return '';
+    const parsed = new Date(rawBuildTimestamp);
+    if (Number.isNaN(parsed.getTime())) return '';
+    const hours = parsed.getHours().toString().padStart(2, '0');
+    const minutes = parsed.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+  })();
 
   function ensureDetailHistory() {
     if (typeof window === 'undefined' || detailHistoryActive) return;
@@ -235,6 +248,7 @@
     { name: 'Matrix', component: MatrixSettingsTab },
     { name: 'Cloud Auth', component: CloudAuthTab },
     { name: 'Email', component: EmailLoginTab },
+    { name: 'Developer', component: DeveloperSettingsTab },
   ]}
 />
 
@@ -283,6 +297,12 @@
 {#if $emailMailboxStatusStore === 'refreshing'}
   <div class="fixed bottom-4 left-4 z-40 rounded-md bg-gray-900/90 px-4 py-2 text-sm text-gray-100 shadow-lg">
     Syncing email mailboxes…
+  </div>
+{/if}
+
+{#if $developerSettings.showBuildTimestamp && buildTimestampLabel}
+  <div class="pointer-events-none fixed bottom-3 right-3 z-50 rounded-md bg-gray-900/80 px-2 py-1 text-[0.7rem] font-medium uppercase tracking-wide text-gray-300 shadow-lg">
+    Build {buildTimestampLabel}
   </div>
 {/if}
 
