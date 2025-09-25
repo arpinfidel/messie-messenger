@@ -39,20 +39,15 @@ export class AvatarService {
   ): Promise<string | undefined> {
     const direct = await this.tryResolveMxc(this.roomTag(roomId), roomMxc ?? undefined, dims);
     if (direct) return direct;
-    // Fallback: top 3 joined member avatars (prefer non-self), compose if multiple exist
-    const members = await this.data.getRoomMembers(roomId);
     const currentUserId = this.data.getCurrentUserId();
-    const candidateMembers = this.pickRoomAvatarMembers(members, currentUserId);
 
-    if (!candidateMembers.length) return this.createRoomInitialsAvatar(roomId, dims);
-
-    // Compose N (2..3) avatars with stable layout seeded by room+mxcs
-    const key = `${roomId}|${candidateMembers
-      .map((m) => m.userId)
-      .sort()
-      .join('|')}`;
+    const key = `${roomId}`;
     const cached = this.compositeAvatarCache.get(key);
     if (cached) return cached;
+
+    const members = await this.data.getRoomMembers(roomId);
+    const candidateMembers = this.pickRoomAvatarMembers(members, currentUserId);
+    if (!candidateMembers.length) return this.createRoomInitialsAvatar(roomId, dims);
 
     const memberAvatars = (
       await Promise.all(
@@ -307,12 +302,17 @@ export class AvatarService {
     }
   }
 
-  private async tryResolveMxc(tag: string, mxc: string | undefined, dims: AvatarDims): Promise<string | undefined> {
+  private async tryResolveMxc(
+    tag: string,
+    mxc: string | undefined,
+    dims: AvatarDims
+  ): Promise<string | undefined> {
     if (!mxc) return undefined;
     const result = await this.data.resolveAvatarMxc(mxc, dims, tag);
     if (!result.url) return undefined;
 
-    const shouldKeep = (result.status >= 200 && result.status < 300) || (result.status > 0 && result.status < 400);
+    const shouldKeep =
+      (result.status >= 200 && result.status < 300) || (result.status > 0 && result.status < 400);
     if (shouldKeep && (await this.isRenderable(result.url))) return result.url;
 
     if (result.objectUrl) {

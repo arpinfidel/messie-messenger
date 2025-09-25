@@ -9,7 +9,25 @@ import { MediaResolver } from './MediaResolver';
 import type { DbMember, DbRoom, DbUser } from './idb/constants';
 import type { ImageContent } from 'matrix-js-sdk/lib/types';
 
-type RepoEventListener = (ev: RepoEvent, room: matrixSdk.Room, meta?: { isLive?: boolean }) => void;
+type RepoEventListener = (ev: RepoEvent, room: matrixSdk.Room | null, meta?: { isLive?: boolean }) => void;
+
+interface SlidingSyncTimeline {
+  events?: IEvent[];
+  limited?: boolean;
+}
+
+interface SlidingSyncRoomData {
+  name?: string;
+  avatar?: string;
+  room_type?: string;
+  bump_stamp?: number;
+  required_state?: IEvent[];
+  timeline?: SlidingSyncTimeline;
+  unread_notifications?: {
+    notification_count?: number;
+    highlight_count?: number;
+  };
+}
 
 class RepoEventEmitter {
   private listeners = new Set<RepoEventListener>();
@@ -19,7 +37,7 @@ class RepoEventEmitter {
     return () => this.listeners.delete(listener);
   }
 
-  emit(ev: RepoEvent, room: matrixSdk.Room, meta?: { isLive?: boolean }) {
+  emit(ev: RepoEvent, room: matrixSdk.Room | null, meta?: { isLive?: boolean }) {
     for (const l of this.listeners) {
       try {
         l(ev, room, meta);
@@ -103,6 +121,7 @@ export class MatrixDataLayer {
   private repoEventEmitter = new RepoEventEmitter();
   private unreadEventEmitter = new UnreadEventEmitter();
   private readReceiptEmitter = new ReadReceiptEventEmitter();
+  private latestEventIdByRoom = new Map<string, string>();
 
   constructor(private readonly opts: MatrixDataLayerOptions) {
     this.pageSize = opts.pageSize ?? 20;
@@ -134,7 +153,7 @@ export class MatrixDataLayer {
   }
 
   onRepoEvent(
-    listener: (ev: RepoEvent, room: matrixSdk.Room, meta?: { isLive?: boolean }) => void
+    listener: (ev: RepoEvent, room: matrixSdk.Room | null, meta?: { isLive?: boolean }) => void
   ): () => void {
     return this.repoEventEmitter.on(listener);
   }
@@ -180,8 +199,142 @@ export class MatrixDataLayer {
     this.handleReceipts(c);
   }
 
+  async applySlidingSyncRoom(
+    roomId: string,
+    data: SlidingSyncRoomData,
+    opts: { isInitial?: boolean } = {}
+  ): Promise<void> {
+    const requiredState = data.required_state;
+    const nameContent = this.extractRequiredStateValue<{ name?: string }>(
+      requiredState,
+      'm.room.name'
+    );
+    const avatarContent = this.extractRequiredStateValue<{ url?: string }>(
+      requiredState,
+      'm.room.avatar'
+    );
+
+    const bumpStamp = Number.isFinite(data.bump_stamp)
+      ? (data.bump_stamp as number)
+      : undefined;
+    const unreadCount =
+      data.unread_notifications?.highlight_count ??
+      data.unread_notifications?.notification_count ??
+      undefined;
+
+    this.upsertRoomSummaryFromSlidingSync(roomId, {
+      name: data.name ?? nameContent?.name,
+      avatarMxcUrl: (data.avatar as string | undefined) ?? avatarContent?.url,
+      latestTimestamp: bumpStamp,
+      unreadCount,
+    });
+
+    const timelineEvents = Array.isArray(data.timeline?.events)
+      ? (data.timeline?.events as IEvent[])
+      : [];
+    if (!timelineEvents.length) {
+      return;
+    }
+
+    const client = this.client;
+    const room = client?.getRoom(roomId) ?? null;
+    const isInitial = opts?.isInitial ?? false;
+    let lastIndexed = this.inMemoryRooms.get(roomId)?.lastEvent?.index ?? 0;
+
+    // Timeline events are usually ordered oldest->newest; emit sequentially.
+    for (const raw of timelineEvents) {
+      const mxEvent = new matrixSdk.MatrixEvent(raw as IEvent);
+      try {
+        if (this.opts.tryDecryptEvent) {
+          await this.opts.tryDecryptEvent(mxEvent);
+        } else if (client?.decryptEventIfNeeded) {
+          await client.decryptEventIfNeeded(mxEvent);
+        }
+      } catch (err) {
+        console.warn('[MatrixDataLayer] Sliding sync decrypt failed', err);
+      }
+
+      const repoEvent = await this.toRepoEvent(mxEvent);
+      if (!repoEvent) {
+        continue;
+      }
+
+      const eventId = repoEvent.eventId;
+      if (eventId && this.latestEventIdByRoom.get(roomId) === eventId) {
+        continue;
+      }
+
+      const eventTs = mxEvent.getTs() || Date.now();
+      if (lastIndexed && eventTs <= lastIndexed && !opts.isInitial) {
+        // Skip events older than what we already have indexed
+        continue;
+      }
+      repoEvent.index = eventTs;
+      this.upsertRoomSummaryFromSlidingSync(roomId, {
+        lastEvent: repoEvent,
+        latestTimestamp: Math.max(eventTs, bumpStamp ?? eventTs),
+      });
+      lastIndexed = eventTs;
+      if (eventId) {
+        this.latestEventIdByRoom.set(roomId, eventId);
+      }
+
+      this.repoEventEmitter.emit(repoEvent, room, { isLive: !isInitial });
+    }
+  }
+
   private get client(): matrixSdk.MatrixClient | null {
     return this.opts.getClient();
+  }
+
+  private extractRequiredStateValue<T = any>(
+    stateEvents: IEvent[] | undefined,
+    type: string,
+    stateKey = ''
+  ): T | undefined {
+    if (!Array.isArray(stateEvents)) return undefined;
+    const match = stateEvents.find(
+      (ev) => ev?.type === type && (stateKey === undefined || ev?.state_key === stateKey)
+    );
+    return (match?.content as T | undefined) ?? undefined;
+  }
+
+  private upsertRoomSummaryFromSlidingSync(
+    roomId: string,
+    overrides: Partial<DbRoom>
+  ): DbRoom {
+    const existing = this.inMemoryRooms.get(roomId);
+
+    const hasLastEventOverride = Object.prototype.hasOwnProperty.call(overrides, 'lastEvent');
+
+    const updated: DbRoom = {
+      id: roomId,
+      name: overrides.name ?? existing?.name ?? roomId,
+      avatarMxcUrl: overrides.avatarMxcUrl ?? existing?.avatarMxcUrl,
+      latestTimestamp:
+        overrides.latestTimestamp !== undefined
+          ? overrides.latestTimestamp
+          : existing?.latestTimestamp,
+      unreadCount:
+        overrides.unreadCount !== undefined
+          ? overrides.unreadCount
+          : existing?.unreadCount ?? 0,
+      lastEvent: hasLastEventOverride
+        ? (overrides.lastEvent as RepoEvent | null | undefined) ?? null
+        : existing?.lastEvent ?? null,
+    };
+
+    this.inMemoryRooms.set(roomId, updated);
+
+    if (overrides.unreadCount !== undefined && overrides.unreadCount !== existing?.unreadCount) {
+      this.unreadEventEmitter.emit(roomId, overrides.unreadCount ?? 0);
+    }
+
+    void this.db.rooms.put(updated).catch((err) => {
+      console.warn('[MatrixDataLayer] Failed to persist sliding sync room summary', err);
+    });
+
+    return updated;
   }
 
   private getUnreadFromRoom(room: matrixSdk.Room): number {

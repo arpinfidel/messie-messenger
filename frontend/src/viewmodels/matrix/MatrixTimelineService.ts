@@ -193,27 +193,36 @@ export class MatrixTimelineService {
   async handleEvent() {
     // await this.data.ingestLiveEvent(ev, room);
     this.data.onRepoEvent(async (ev, room, meta) => {
-      const rooms = await this.data.getRoom(room.roomId);
-      const fallbackTs = rooms?.latestTimestamp || 0;
+      const id = room?.roomId ?? ev.roomId;
+      if (!id) return;
+      const rooms = await this.data.getRoom(id);
+      const fallbackTs = rooms?.latestTimestamp || Date.now();
       const unreadCount = rooms?.unreadCount || 0;
       const timestamp = ev?.originServerTs ?? fallbackTs;
-      const id = room.roomId;
-      const title = room.name || room.roomId;
+      const title = room?.name || rooms?.name || id;
       const description = ev ? this.repoEventToPreview(ev) : '';
       const body = typeof ev?.content?.body === 'string' ? (ev!.content.body as string) : undefined;
 
       let avatarUrl: string | undefined;
-      const roomMxc = room.getMxcAvatarUrl();
-      avatarUrl = await this.avatars.resolveRoomAvatar(room.roomId, roomMxc || undefined, {
-        w: 64,
-        h: 64,
-        method: 'crop' as const,
-      });
+      if (room) {
+        const roomMxc = room.getMxcAvatarUrl();
+        avatarUrl = await this.avatars.resolveRoomAvatar(room.roomId, roomMxc || undefined, {
+          w: 64,
+          h: 64,
+          method: 'crop' as const,
+        });
+      } else if (rooms?.avatarMxcUrl) {
+        avatarUrl = await this.avatars.resolveRoomAvatar(id, rooms.avatarMxcUrl, {
+          w: 64,
+          h: 64,
+          method: 'crop' as const,
+        });
+      }
 
       const previousItem =
         this.nextTimeline.get(id) ||
         (get(this._timelineItems).find((it) => it.id === id) as TimelineItem | undefined);
-      const computedSource = this.computeRoomSource(room);
+      const computedSource = this.computeRoomSource(room ?? null);
       const source =
         computedSource === 'matrix' && previousItem?.source && previousItem.source !== 'matrix'
           ? previousItem.source
@@ -260,7 +269,7 @@ export class MatrixTimelineService {
           }
           try {
             const client = this.client;
-            const mxEv = room.findEventById(ev.eventId);
+            const mxEv = room?.findEventById?.(ev.eventId);
             const actions = mxEv && client?.getPushActionsForEvent(mxEv);
             if (actions?.notify) {
               const senderName = (await this.data.getUserDisplayName(ev.sender)) || ev.sender;
