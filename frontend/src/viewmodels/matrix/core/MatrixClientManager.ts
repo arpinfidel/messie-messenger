@@ -59,6 +59,18 @@ export class MatrixClientManager {
     this.started = true;
   }
 
+  async kickSyncLoop(): Promise<void> {
+    const client = this.client as any;
+    if (!client?.syncApi) return;
+    try {
+      if (typeof client.syncApi.retryImmediately === 'function') {
+        client.syncApi.retryImmediately();
+      }
+    } catch (err) {
+      console.warn('[MatrixClientManager] kickSyncLoop failed', err);
+    }
+  }
+
   async stop() {
     if (!this.client || !this.started) return;
     await this.client.stopClient();
@@ -68,18 +80,24 @@ export class MatrixClientManager {
   async waitForPrepared(): Promise<void> {
     const c = this.client;
     if (!c) return;
+    const label = '[MatrixClientManager] waitForPrepared';
+    console.time(label);
     if (c.isInitialSyncComplete()) {
+      console.timeEnd(label);
       return;
     }
 
     await new Promise<void>((resolve) => {
+      console.time('[MatrixClientManager] waitForPrepared -> listener duration');
       const onSync = (s: matrixSdk.SyncState) => {
         if (s === 'PREPARED') {
           c.removeListener(ClientEvent.Sync, onSync);
+          console.timeEnd('[MatrixClientManager] waitForPrepared -> listener duration');
           resolve();
         }
       };
       c.on(ClientEvent.Sync, onSync);
     });
+    console.timeEnd(label);
   }
 }

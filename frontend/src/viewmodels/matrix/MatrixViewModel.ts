@@ -18,7 +18,6 @@ import { createNotificationService } from '@/notifications/NotificationService';
 import { MatrixMessagingService } from './core/MatrixMessagingService';
 import { MatrixPushRuleService } from './core/MatrixPushRuleService';
 import type { MatrixReplyContext } from './types';
-import { MatrixSlidingSyncService } from './core/MatrixSlidingSyncService';
 
 export class MatrixViewModel implements IModuleViewModel {
   private static instance: MatrixViewModel;
@@ -45,10 +44,6 @@ export class MatrixViewModel implements IModuleViewModel {
     },
     waitForPrepared: () => this.waitForMatrixReady(),
     pageSize: 20,
-  });
-  private slidingSyncSvc = new MatrixSlidingSyncService({
-    getClient: () => this.clientMgr.getClient(),
-    dataLayer: this.dataLayer,
   });
   private avatarSvc = new AvatarService(
     { getClient: () => this.clientMgr.getClient() },
@@ -224,7 +219,6 @@ export class MatrixViewModel implements IModuleViewModel {
     loglevel.setLevel('warn');
     console.time('[MatrixVM] initialize total');
     this.resetMatrixReadyPromise();
-    this.slidingSyncSvc.stop();
 
     const restored = this.sessionStore.restore();
     if (!restored?.accessToken || !restored.userId || !restored.homeserverUrl) {
@@ -261,8 +255,9 @@ export class MatrixViewModel implements IModuleViewModel {
 
       const minimalFilterDef: matrixSdk.IFilterDefinition = {
         room: {
+          rooms: ['!bsDgA0nyzB2SbxUXGlNK:beeper.local'],
           timeline: {
-            limit: 30,
+            limit: 0,
             types: ['m.room.message', 'm.room.encrypted'],
           },
           state: { lazy_load_members: true },
@@ -280,42 +275,33 @@ export class MatrixViewModel implements IModuleViewModel {
 
       await this.clientMgr.start({
         filter: filter,
-        pollTimeout: 30000,
+        pollTimeout: 5000,
         lazyLoadMembers: true,
         initialSyncLimit: 5,
       });
       console.timeEnd('[MatrixVM] startClient');
     }
-
-    try {
-      await this.slidingSyncSvc.init();
-    } catch (err) {
-      console.warn('[MatrixVM] sliding sync init failed', err);
-    }
-    this.slidingSyncSvc.start();
+    await this.clientMgr.kickSyncLoop();
 
     // Only set to 'syncing' if we haven't already set it to 'ready' from cache
     if (this.hydrationState !== 'ready') {
       this.hydrationState = 'syncing';
     }
 
-    const slidingReadyPromise = this.slidingSyncSvc
-      .waitUntilReady()
-      .catch((err) => {
-        console.warn('[MatrixVM] sliding sync failed to signal readiness', err);
-      });
+    console.time('[MatrixVM] waitForPrepared promise');
     const legacyPreparedPromise = this.clientMgr
       .waitForPrepared()
       .catch((err) => {
         console.warn('[MatrixVM] waitForPrepared failed', err);
+      })
+      .finally(() => {
+        console.timeEnd('[MatrixVM] waitForPrepared promise');
       });
 
     console.time('[MatrixVM] waitForMatrixReady');
-    await Promise.race([slidingReadyPromise, legacyPreparedPromise]);
+    await legacyPreparedPromise;
     this.markMatrixReady();
     console.timeEnd('[MatrixVM] waitForMatrixReady');
-
-    void legacyPreparedPromise.then(() => this.markMatrixReady());
 
     console.time('[MatrixVM] ensurePushRulesLoaded');
     try {
