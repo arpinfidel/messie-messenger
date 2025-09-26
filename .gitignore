@@ -7,9 +7,15 @@ dist/
 build/
 jira-tasks.yaml
 
-# Capacitor native builds
-frontend/android/
-frontend/ios/
+# Capacitor native builds (keep sources, ignore build artifacts)
+frontend/android/app/build/
+frontend/android/capacitor-cordova-android-plugins/
+frontend/android/capacitor.build/
+frontend/android/.gradle/
+frontend/android/.idea/
+frontend/android/.settings/
+frontend/ios/App/build/
+frontend/ios/Pods/
 
 # Frontend build artifacts
 frontend/dist/
@@ -18,3 +24,16 @@ frontend/.svelte-kit/
 
 # Local SDK config
 frontend/android/local.properties
+
+# Rust / Cargo
+target/
+**/*.rs.bk
+
+# Cargo registry and git DB (local cache, don't commit)
+.cargo/
+.rustup/
+
+# Downloaded upstream SDK sources / archives
+matrix-rust-sdk-*/
+matrix-sdk-crypto-ffi.tar.gz
+rustup-init

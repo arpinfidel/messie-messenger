@@ -1,7 +1,9 @@
 import * as matrixSdk from 'matrix-js-sdk';
+import { Capacitor } from '@capacitor/core';
 import { decodeRecoveryKey, type CryptoCallbacks } from 'matrix-js-sdk/lib/crypto-api';
 import type { MatrixSessionData } from './MatrixSessionStore';
 import { ClientEvent } from 'matrix-js-sdk';
+import { MatrixCrypto } from '../../../native/MatrixCryptoPlugin';
 
 export type ClientGetter = () => matrixSdk.MatrixClient | null;
 
@@ -49,8 +51,34 @@ export class MatrixClientManager {
 
   async initCryptoIfNeeded() {
     if (!this.client) return;
-    // rust crypto init is idempotent/safe
+    const isNative = Capacitor?.isNativePlatform?.() ?? false;
+    let nativeCryptoInitialised = false;
+    if (isNative) {
+      const userId = this.client.getUserId();
+      const deviceId = this.client.getDeviceId();
+      if (userId && deviceId) {
+        try {
+          await MatrixCrypto.initCrypto({ userId, deviceId });
+          nativeCryptoInitialised = true;
+        } catch (err) {
+          console.warn(
+            '[MatrixClientManager] native crypto init failed; falling back to JS rust-crypto',
+            err
+          );
+        }
+      } else {
+        console.warn('[MatrixClientManager] native crypto init skipped: missing userId/deviceId');
+      }
+    }
+
+    // Until the native bridge exposes the full set of crypto APIs, keep
+    // matrix-js-sdk's Rust crypto running so the client surface stays functional.
     await this.client.initRustCrypto();
+    if (nativeCryptoInitialised) {
+      console.info(
+        '[MatrixClientManager] Native crypto initialised; JS rust-crypto kept alive for now'
+      );
+    }
   }
 
   async start(opts?: matrixSdk.IStartClientOpts) {
