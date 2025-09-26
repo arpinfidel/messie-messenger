@@ -1,0 +1,34 @@
+{
+  "name": "@messie/native-crypto",
+  "version": "0.1.0",
+  "description": "Capacitor bridge for Messie's native Matrix crypto backend",
+  "type": "module",
+  "main": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "source": "src/index.ts",
+  "files": [
+    "android/",
+    "ios/",
+    "src/",
+    "dist/"
+  ],
+  "scripts": {
+    "build": "rimraf dist && tsc -p tsconfig.json",
+    "clean": "rimraf dist"
+  },
+  "peerDependencies": {
+    "@capacitor/core": "^6.2.0"
+  },
+  "devDependencies": {
+    "rimraf": "^5.0.5",
+    "typescript": "^5.8.3"
+  },
+  "capacitor": {
+    "android": {
+      "src": "android"
+    },
+    "ios": {
+      "src": "ios"
+    }
+  }
+}

@@ -1,0 +1,5 @@
+namespace messie_crypto {
+  interface NativeCrypto {
+    void ping();
+  };
+}

@@ -5,6 +5,9 @@ ARGS = $(filter-out $@,$(MAKECMDGOALS))
 MATRIX_SERVER_URL ?= http://localhost:8008
 MATRIX_REGISTRATION_SHARED_SECRET ?= dev_matrix_shared_secret
 
+ANDROID_OUT ?= out/android
+IOS_OUT ?= out/ios
+
 STACK ?= dev
 COMPOSE = docker compose -f docker-compose.$(STACK).yml
 
@@ -76,6 +79,14 @@ mobile-add-android:
 
 mobile-add-ios:
 	cd frontend && npm run mobile:add:ios
+
+.PHONY: native-crypto-android native-crypto-clean
+
+native-crypto-android:
+	docker compose -f docker-compose.native-crypto.yml run --rm android-build
+
+native-crypto-clean:
+	rm -rf $(ANDROID_OUT) $(IOS_OUT)
 
 test-e2e-codegen:
 	cd frontend && npm run test:e2e:codegen

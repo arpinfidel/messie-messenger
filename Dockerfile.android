@@ -1,0 +1,44 @@
+# syntax=docker/dockerfile:1.7
+FROM rust:1.80
+
+# Add Android Rust targets
+RUN rustup target add aarch64-linux-android x86_64-linux-android
+
+# Android SDK/NDK env
+ENV ANDROID_SDK_ROOT=/opt/android-sdk
+ENV ANDROID_NDK_ROOT=/opt/android-ndk
+ENV PATH="$PATH:${ANDROID_SDK_ROOT}/platform-tools:${ANDROID_SDK_ROOT}/build-tools/34.0.0:${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin"
+
+# Base deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    unzip wget ca-certificates openjdk-17-jre-headless build-essential \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install Android commandline-tools and move to cmdline-tools/latest
+RUN mkdir -p "${ANDROID_SDK_ROOT}/cmdline-tools" && \
+    wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/clt.zip && \
+    unzip -q /tmp/clt.zip -d "${ANDROID_SDK_ROOT}/cmdline-tools" && rm /tmp/clt.zip && \
+    mv "${ANDROID_SDK_ROOT}/cmdline-tools/cmdline-tools" "${ANDROID_SDK_ROOT}/cmdline-tools/latest"
+
+# Install platform-tools, platform, build-tools, and NDK
+RUN yes | sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" \
+      "platform-tools" \
+      "platforms;android-34" \
+      "build-tools;34.0.0" \
+      "ndk;26.3.11579264"
+
+# Wire NDK root
+RUN ln -s "${ANDROID_SDK_ROOT}/ndk/26.3.11579264" "${ANDROID_NDK_ROOT}"
+
+# Rust helpers: cargo-ndk + UniFFI bindgen CLI (pinned to v0.28.0)
+RUN cargo install cargo-ndk --locked --version 3.5.4 && \
+    cargo install --git https://github.com/mozilla/uniffi-rs --rev v0.28.0 uniffi-bindgen
+
+WORKDIR /work
+
+# Optional: your build script (if you have one)
+# COPY scripts/native-crypto/android-build.sh /usr/local/bin/android-build.sh
+# CMD ["/usr/local/bin/android-build.sh"]
+
+# Default to an interactive shell; override in docker-compose for specific commands
+CMD ["bash"]

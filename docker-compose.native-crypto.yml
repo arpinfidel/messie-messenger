@@ -1,0 +1,20 @@
+services:
+  android-build:
+    build:
+      context: .
+      dockerfile: Dockerfile.android
+    volumes:
+      - ./:/work
+      - android-gradle-cache:/root/.gradle
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - rust-target:/work/rust/messie-crypto-ffi/target
+    environment:
+      ANDROID_SDK_ROOT: /opt/android-sdk
+      ANDROID_NDK_ROOT: /opt/android-ndk
+    working_dir: /work
+volumes:
+  android-gradle-cache: {}
+  cargo-registry: {}
+  cargo-git: {}
+  rust-target: {}

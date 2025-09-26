@@ -242,9 +242,9 @@ export class MatrixViewModel implements IModuleViewModel {
       this.dataLayer.setCurrentUser(restored.userId);
     }
 
-    console.time('[MatrixVM] initRustCrypto');
+    console.time('[MatrixVM] initCrypto');
     await this.clientMgr.initCryptoIfNeeded();
-    console.timeEnd('[MatrixVM] initRustCrypto');
+    console.timeEnd('[MatrixVM] initCrypto');
 
     console.time('[MatrixVM] bind data layer');
     this.dataLayer.bind();

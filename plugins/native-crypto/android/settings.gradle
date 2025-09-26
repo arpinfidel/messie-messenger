@@ -1,0 +1,2 @@
+include ':nativecrypto'
+project(':nativecrypto').projectDir = new File(rootDir, 'nativecrypto')

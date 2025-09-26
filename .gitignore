@@ -5,6 +5,12 @@
 node_modules/
 dist/
 build/
+
+# Native build outputs
+out/
+rust/messie-crypto-ffi/target/
+
+# Generated artifacts
 jira-tasks.yaml
 
 # Capacitor native builds

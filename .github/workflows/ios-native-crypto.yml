@@ -1,0 +1,51 @@
+name: native-crypto-ios
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - develop
+      - feature/native-crypto
+
+jobs:
+  ios-xcframework:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Add iOS targets
+        run: |
+          rustup target add aarch64-apple-ios x86_64-apple-ios
+
+      - name: Install UniFFI bindgen
+        run: pip3 install --no-cache-dir uniffi-bindgen==0.28.3
+
+      - name: Build Rust static libraries
+        run: |
+          set -euo pipefail
+          cd rust/messie-crypto-ffi
+          mkdir -p include
+          uniffi-bindgen generate src/native_crypto.udl --language swift --out-dir ../../plugins/native-crypto/ios/Sources/NativeCrypto/Generated
+          uniffi-bindgen generate src/native_crypto.udl --language c --out-dir include
+          cargo build --release --target aarch64-apple-ios
+          cargo build --release --target x86_64-apple-ios
+
+      - name: Create XCFramework
+        run: |
+          set -euo pipefail
+          mkdir -p out/ios
+          xcodebuild -create-xcframework \
+            -library rust/messie-crypto-ffi/target/aarch64-apple-ios/release/libmessie_crypto_ffi.a \
+            -library rust/messie-crypto-ffi/target/x86_64-apple-ios/release/libmessie_crypto_ffi.a \
+            -output out/ios/MessieCrypto.xcframework
+
+      - name: Archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: messie-native-crypto-ios
+          path: out/ios/MessieCrypto.xcframework

@@ -2,6 +2,7 @@ import * as matrixSdk from 'matrix-js-sdk';
 import { decodeRecoveryKey, type CryptoCallbacks } from 'matrix-js-sdk/lib/crypto-api';
 import type { MatrixSessionData } from './MatrixSessionStore';
 import { ClientEvent } from 'matrix-js-sdk';
+import { ensureNativeCrypto } from '../../../native-crypto/NativeCryptoBridge';
 
 export type ClientGetter = () => matrixSdk.MatrixClient | null;
 
@@ -49,7 +50,17 @@ export class MatrixClientManager {
 
   async initCryptoIfNeeded() {
     if (!this.client) return;
-    // rust crypto init is idempotent/safe
+    try {
+      const native = await ensureNativeCrypto(this.client);
+      if (native.enabled) {
+        console.info('[MatrixClientManager] Native crypto enabled');
+        return;
+      }
+    } catch (err) {
+      console.warn('[MatrixClientManager] Native crypto bootstrap failed', err);
+    }
+
+    // Fallback to bundled wasm rust crypto
     await this.client.initRustCrypto();
   }
 
