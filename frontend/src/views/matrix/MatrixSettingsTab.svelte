@@ -8,6 +8,7 @@
   let recoveryKey: string = matrixSettings.recoveryKey;
   // Cooldown is stored in milliseconds; edit as seconds in UI
   let notifyCooldownSeconds: number = Math.floor((matrixSettings.notifyCooldownMs || 0) / 1000);
+  let verificationMessage: { type: 'success' | 'error'; text: string } | null = null;
 
   function saveSettings() {
     matrixSettings.recoveryKey = recoveryKey;
@@ -15,6 +16,24 @@
     const ms = Math.max(0, Math.floor(Number(notifyCooldownSeconds) || 0)) * 1000;
     matrixSettings.saveNotifyCooldown(ms);
     console.log('Settings saved.');
+  }
+
+  async function verifyDevice() {
+    verificationMessage = null;
+    try {
+      await matrixViewModel.verifyCurrentDevice();
+      verificationMessage = {
+        type: 'success',
+        text: 'Device verification completed successfully.',
+      };
+    } catch (error) {
+      console.error('Error initiating device verification:', error);
+      const text =
+        error instanceof Error && error.message
+          ? error.message
+          : 'Failed to start device verification. Check the console for details.';
+      verificationMessage = { type: 'error', text };
+    }
   }
 </script>
 
@@ -58,12 +77,20 @@
     Save Settings
   </button>
 
+  {#if verificationMessage}
+    <div
+      class={`mt-4 rounded-md border px-3 py-2 text-sm ${
+        verificationMessage.type === 'success'
+          ? 'border-green-300 bg-green-50 text-green-800'
+          : 'border-red-300 bg-red-50 text-red-800'
+      }`}
+    >
+      {verificationMessage.text}
+    </div>
+  {/if}
+
   <button
-    on:click={() =>
-      matrixViewModel
-        .verifyCurrentDevice()
-        .then(() => console.log('Device verification initiated successfully.'))
-        .catch((error) => console.error('Error initiating device verification:', error))}
+    on:click={verifyDevice}
     class="mt-4 inline-flex justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
   >
     Verify Device

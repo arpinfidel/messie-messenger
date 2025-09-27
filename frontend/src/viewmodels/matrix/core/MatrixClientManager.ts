@@ -41,6 +41,20 @@ export class MatrixClientManager {
     };
 
     this.client = matrixSdk.createClient(opts);
+
+    this.client.on(ClientEvent.ToDeviceEvent, (event) => {
+      try {
+        console.log('[MatrixClient] to-device event:', event.getType(), event.getContent()?.type ?? null);
+      } catch (err) {
+        console.warn('[MatrixClient] failed to log to-device event:', err);
+      }
+    });
+
+    this.client.on(ClientEvent.Sync, (state) => {
+      if (state === 'ERROR') {
+        console.error('[MatrixClient] sync error');
+      }
+    });
   }
 
   createForHomeserver(homeserverUrl: string) {

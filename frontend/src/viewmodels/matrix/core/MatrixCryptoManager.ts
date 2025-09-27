@@ -191,6 +191,32 @@ export class MatrixCryptoManager {
       return;
     }
 
+    let hasCrossSigning = false;
+    const userId = this.client.getUserId();
+    const deviceId = this.client.getDeviceId();
+    if (!userId || !deviceId) {
+      console.error('Cannot verify device: missing userId or deviceId.');
+      return;
+    }
+
+    try {
+      await crypto.getUserDeviceInfo([userId], true);
+    } catch (e) {
+      console.warn('[Verification] Failed to refresh device list before verification:', e);
+    }
+
+    try {
+      hasCrossSigning = await crypto.userHasCrossSigningKeys(undefined, true);
+      console.log('[Verification] userHasCrossSigningKeys =', hasCrossSigning);
+    } catch (e) {
+      console.warn('[Verification] Failed to check cross-signing keys:', e);
+    }
+    if (!hasCrossSigning) {
+      throw new Error(
+        'Cross-signing has not been set up for this account yet. Enable Secure Backup on another device or bootstrap cross-signing before verifying.',
+      );
+    }
+
     const PhaseName: Record<number, string> = {
       [VerificationPhase.Unsent]: 'Unsent',
       [VerificationPhase.Requested]: 'Requested',
@@ -272,6 +298,13 @@ export class MatrixCryptoManager {
     console.log('[Verification] Bootstrapping secret storage (if not already).');
     console.log('[Verification] Requesting own user verification.');
     const vreq = await crypto.requestOwnUserVerification();
+
+    try {
+      console.log('[Verification] Sending ready/accept to peer.');
+      await vreq.accept();
+    } catch (e) {
+      console.warn('[Verification] accept() failed (likely already accepted or passive request):', e);
+    }
 
     let startedMethod = false;
 
@@ -358,6 +391,7 @@ export class MatrixCryptoManager {
       try {
         await vreq.cancel();
       } catch {}
+      throw err;
     }
   }
 }
