@@ -5,6 +5,9 @@ ARGS = $(filter-out $@,$(MAKECMDGOALS))
 MATRIX_SERVER_URL ?= http://localhost:8008
 MATRIX_REGISTRATION_SHARED_SECRET ?= dev_matrix_shared_secret
 
+JAVA_HOME ?= $(shell /usr/libexec/java_home -v 17 2>/dev/null)
+GRADLE_USER_HOME ?= $(CURDIR)/frontend/android/.gradle-user
+
 STACK ?= dev
 COMPOSE = docker compose -f docker-compose.$(STACK).yml
 
@@ -48,7 +51,7 @@ jira-push:
 	@echo "Pushing local YAML changes to Jira (then refreshing YAML)..."
 	cd backend && go run ./cmd/jira-sync push
 
-.PHONY: mobile-assets mobile-sync mobile-run-android mobile-run-ios mobile-open-android mobile-open-ios mobile-add-android mobile-add-ios test-e2e-codegen matrix-init matrix-up matrix-down matrix-register
+.PHONY: mobile-assets mobile-sync mobile-run-android mobile-run-ios mobile-open-android mobile-open-ios mobile-add-android mobile-add-ios mobile-build-android mobile-build-apk test-e2e-codegen matrix-init matrix-up matrix-down matrix-register
 
 mobile-assets:
 	cd frontend && npm run mobile:assets
@@ -63,7 +66,7 @@ mobile-run-ios:
 	cd frontend && npm run mobile:run:ios
 
 mobile-build-android:
-	cd frontend/android && ./gradlew assembleDebug
+	$(MAKE) mobile-build-apk
 
 mobile-open-android:
 	cd frontend && npm run mobile:android
@@ -76,6 +79,12 @@ mobile-add-android:
 
 mobile-add-ios:
 	cd frontend && npm run mobile:add:ios
+
+mobile-build-apk:
+	cd frontend/android && \
+	  export JAVA_HOME=$(JAVA_HOME) GRADLE_USER_HOME=$(GRADLE_USER_HOME) && \
+	  mkdir -p "$$GRADLE_USER_HOME" && \
+	  ./gradlew assembleDebug
 
 test-e2e-codegen:
 	cd frontend && npm run test:e2e:codegen

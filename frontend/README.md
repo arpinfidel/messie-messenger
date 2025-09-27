@@ -164,11 +164,32 @@ export ANDROID_HOME="$ANDROID_SDK_ROOT"
    npm run mobile:add:android
    ```
 
-3. Build web assets and sync them into the native project:
+3. Build web assets and sync them into the native project (runs the GeckoView patcher automatically and keeps the Android scheme on HTTP so GeckoView’s embedded server can load assets):
 
    ```bash
    npm run mobile:sync
    ```
+
+4. Produce a debug APK. The root `Makefile` exposes a helper that wires the required environment variables (`JAVA_HOME` pointing at Java 17 and a writable `GRADLE_USER_HOME`) before invoking Gradle:
+
+   ```bash
+   make mobile-build-apk
+   ```
+
+   Override the defaults per shell session if your paths differ:
+
+   ```bash
+   JAVA_HOME="/path/to/jdk-17" GRADLE_USER_HOME="$(pwd)/frontend/android/.gradle-cache" make mobile-build-apk
+   ```
+
+   Keep these exports in `~/.zshrc`/`~/.bashrc` if you build regularly:
+
+   ```bash
+   echo 'export JAVA_HOME="/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home"' >> ~/.zshrc
+   echo 'export GRADLE_USER_HOME="$HOME/.gradle"' >> ~/.zshrc
+   ```
+
+   `GRADLE_USER_HOME` defaults to `frontend/android/.gradle-user` when unset so builds stay sandbox friendly, but pointing it at the global `~/.gradle` speeds up subsequent runs.
 
 ### Build iOS App via CLI
 
