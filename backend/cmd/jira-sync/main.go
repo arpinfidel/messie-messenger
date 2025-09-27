@@ -238,11 +238,14 @@ func findRepoRoot() (string, error) {
 }
 
 type jiraClient struct {
-	httpClient     *http.Client
-	baseURL        string
-	authHeader     string
-	issueTypeMu    sync.Mutex
-	issueTypeCache map[string]string
+	httpClient             *http.Client
+	baseURL                string
+	authHeader             string
+	projectKey             string
+	issueTypeMu            sync.Mutex
+	issueTypeCache         map[string]string
+	issueTypeProjectLoaded bool
+	issueTypeGlobalLoaded  bool
 }
 
 func newJiraClient(cfg config) *jiraClient {
@@ -251,6 +254,7 @@ func newJiraClient(cfg config) *jiraClient {
 		httpClient: &http.Client{Timeout: 30 * time.Second},
 		baseURL:    cfg.BaseURL,
 		authHeader: "Basic " + credentials,
+		projectKey: cfg.ProjectKey,
 	}
 }
 
@@ -570,7 +574,7 @@ func runListFields(ctx context.Context, client *jiraClient) error {
 		return err
 	}
 	if len(fields) == 0 {
-		fmt.Println("No fields returned." )
+		fmt.Println("No fields returned.")
 		return nil
 	}
 	sort.Slice(fields, func(i, j int) bool {
@@ -633,6 +637,23 @@ func createIssue(ctx context.Context, client *jiraClient, cfg config, issue issu
 	}
 
 	key, err := client.createIssue(ctx, fields)
+	if err != nil && isInvalidIssueTypeError(err) {
+		client.invalidateIssueTypeCache()
+		if refreshed, refreshErr := client.issueTypeField(ctx, issueType); refreshErr == nil {
+			issueTypeField = refreshed
+			fields["issuetype"] = issueTypeField
+			fmt.Printf("Warning: Jira refreshed issue type mapping for new issue %q; retrying.\n", summary)
+			key, err = client.createIssue(ctx, fields)
+		}
+	}
+	if err != nil && isInvalidIssueTypeError(err) {
+		if _, ok := issueTypeField["id"]; ok {
+			delete(issueTypeField, "id")
+			issueTypeField["name"] = issueType
+			fmt.Printf("Warning: Jira rejected issue type id for new issue %q; retrying with name.\n", summary)
+			key, err = client.createIssue(ctx, fields)
+		}
+	}
 	if err != nil && parent != "" && isParentError(err) {
 		delete(fields, "parent")
 		if useEpicFallback {
@@ -670,8 +691,10 @@ func updateIssue(ctx context.Context, client *jiraClient, cfg config, issue issu
 	}
 
 	issueType := strings.TrimSpace(issue.IssueType)
+	var issueTypeField map[string]string
 	if issue.ForceIssueType && issueType != "" {
-		issueTypeField, err := client.issueTypeField(ctx, issueType)
+		var err error
+		issueTypeField, err = client.issueTypeField(ctx, issueType)
 		if err != nil {
 			return fmt.Errorf("resolve issue type %q: %w", issueType, err)
 		}
@@ -696,6 +719,23 @@ func updateIssue(ctx context.Context, client *jiraClient, cfg config, issue issu
 	}
 
 	err := client.updateIssue(ctx, issue.Key, fields)
+	if err != nil && issueTypeField != nil && isInvalidIssueTypeError(err) {
+		client.invalidateIssueTypeCache()
+		if refreshed, refreshErr := client.issueTypeField(ctx, issueType); refreshErr == nil {
+			issueTypeField = refreshed
+			fields["issuetype"] = issueTypeField
+			fmt.Printf("Warning: Jira refreshed issue type mapping for %s; retrying.\n", issue.Key)
+			err = client.updateIssue(ctx, issue.Key, fields)
+		}
+	}
+	if err != nil && issueTypeField != nil && isInvalidIssueTypeError(err) {
+		if _, ok := issueTypeField["id"]; ok {
+			delete(issueTypeField, "id")
+			issueTypeField["name"] = issueType
+			fmt.Printf("Warning: Jira rejected issue type id for %s; retrying with name.\n", issue.Key)
+			err = client.updateIssue(ctx, issue.Key, fields)
+		}
+	}
 	if err != nil && parent != "" && isParentError(err) {
 		delete(fields, "parent")
 		if useEpicFallback {
@@ -752,17 +792,128 @@ func (c *jiraClient) lookupIssueTypeID(ctx context.Context, name string) (string
 	}
 
 	c.issueTypeMu.Lock()
-	if c.issueTypeCache != nil {
-		if id, ok := c.issueTypeCache[normalized]; ok {
+	id, ok := c.issueTypeCache[normalized]
+	projectLoaded := c.issueTypeProjectLoaded
+	globalLoaded := c.issueTypeGlobalLoaded
+	c.issueTypeMu.Unlock()
+	if ok {
+		return id, true, nil
+	}
+
+	var metaErr error
+	if !projectLoaded {
+		if err := c.fetchProjectIssueTypeIDs(ctx); err != nil {
+			metaErr = err
+		} else {
+			c.issueTypeMu.Lock()
+			id, ok = c.issueTypeCache[normalized]
 			c.issueTypeMu.Unlock()
-			return id, true, nil
+			if ok {
+				return id, true, nil
+			}
 		}
 	}
-	c.issueTypeMu.Unlock()
 
+	if !globalLoaded {
+		if err := c.fetchGlobalIssueTypeIDs(ctx); err != nil {
+			if metaErr != nil {
+				return "", false, fmt.Errorf("fetch project issue types: %w; fetch global issue types: %v", metaErr, err)
+			}
+			return "", false, err
+		}
+	}
+
+	c.issueTypeMu.Lock()
+	id, ok = c.issueTypeCache[normalized]
+	c.issueTypeMu.Unlock()
+	if ok {
+		return id, true, nil
+	}
+
+	if metaErr != nil {
+		return "", false, metaErr
+	}
+	return "", false, nil
+}
+
+func (c *jiraClient) invalidateIssueTypeCache() {
+	c.issueTypeMu.Lock()
+	c.issueTypeCache = nil
+	c.issueTypeProjectLoaded = false
+	c.issueTypeGlobalLoaded = false
+	c.issueTypeMu.Unlock()
+}
+
+func (c *jiraClient) fetchProjectIssueTypeIDs(ctx context.Context) error {
+	key := strings.TrimSpace(c.projectKey)
+	if key == "" {
+		c.issueTypeMu.Lock()
+		c.issueTypeProjectLoaded = true
+		c.issueTypeMu.Unlock()
+		return nil
+	}
+
+	query := url.Values{}
+	query.Set("projectKeys", key)
+	req, err := c.newRequest(ctx, http.MethodGet, jiraAPIPrefix+"/issue/createmeta", query, nil)
+	if err != nil {
+		return err
+	}
+
+	var payload struct {
+		Projects []struct {
+			Key        string `json:"key"`
+			IssueTypes []struct {
+				ID   string `json:"id"`
+				Name string `json:"name"`
+			} `json:"issuetypes"`
+		} `json:"projects"`
+	}
+	if err := c.do(req, &payload); err != nil {
+		return err
+	}
+
+	table := make(map[string]string)
+	for _, project := range payload.Projects {
+		if !strings.EqualFold(project.Key, key) {
+			continue
+		}
+		for _, item := range project.IssueTypes {
+			norm := normalizeIssueTypeName(item.Name)
+			if norm == "" || item.ID == "" {
+				continue
+			}
+			table[norm] = item.ID
+		}
+	}
+	if len(table) == 0 {
+		for _, project := range payload.Projects {
+			for _, item := range project.IssueTypes {
+				norm := normalizeIssueTypeName(item.Name)
+				if norm == "" || item.ID == "" {
+					continue
+				}
+				table[norm] = item.ID
+			}
+		}
+	}
+
+	c.issueTypeMu.Lock()
+	if c.issueTypeCache == nil {
+		c.issueTypeCache = make(map[string]string, len(table))
+	}
+	for k, v := range table {
+		c.issueTypeCache[k] = v
+	}
+	c.issueTypeProjectLoaded = true
+	c.issueTypeMu.Unlock()
+	return nil
+}
+
+func (c *jiraClient) fetchGlobalIssueTypeIDs(ctx context.Context) error {
 	req, err := c.newRequest(ctx, http.MethodGet, jiraAPIPrefix+"/issuetype", nil, nil)
 	if err != nil {
-		return "", false, err
+		return err
 	}
 
 	var payload []struct {
@@ -770,29 +921,26 @@ func (c *jiraClient) lookupIssueTypeID(ctx context.Context, name string) (string
 		Name string `json:"name"`
 	}
 	if err := c.do(req, &payload); err != nil {
-		return "", false, err
-	}
-
-	table := make(map[string]string, len(payload))
-	for _, item := range payload {
-		key := normalizeIssueTypeName(item.Name)
-		if key == "" {
-			continue
-		}
-		table[key] = item.ID
+		return err
 	}
 
 	c.issueTypeMu.Lock()
 	if c.issueTypeCache == nil {
-		c.issueTypeCache = table
-	} else {
-		for k, v := range table {
-			c.issueTypeCache[k] = v
-		}
+		c.issueTypeCache = make(map[string]string, len(payload))
 	}
-	result, ok := c.issueTypeCache[normalized]
+	for _, item := range payload {
+		norm := normalizeIssueTypeName(item.Name)
+		if norm == "" || item.ID == "" {
+			continue
+		}
+		if _, exists := c.issueTypeCache[norm]; exists {
+			continue
+		}
+		c.issueTypeCache[norm] = item.ID
+	}
+	c.issueTypeGlobalLoaded = true
 	c.issueTypeMu.Unlock()
-	return result, ok, nil
+	return nil
 }
 
 func normalizeIssueTypeName(name string) string {
@@ -819,6 +967,14 @@ func isEpicLinkError(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "epic") || strings.Contains(msg, "customfield")
+}
+
+func isInvalidIssueTypeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "issuetype") && strings.Contains(msg, "invalid")
 }
 
 func canSetParent(issueType string) bool {

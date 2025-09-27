@@ -164,6 +164,8 @@ cp .env.example .env
 
 Key variables: `NGINX_PORT`, `FRONTEND_PORT`, `BACKEND_PORT`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SECRET`, `VITE_API_BASE_URL`.
 
+Mobile wrappers reuse the same values and fall back to `.env.mobile` (tracked) for deterministic build metadata such as `MATRIX_RUST_SDK_ANDROID_VERSION`.
+
 The frontend runs inside Docker in dev; in prod the SPA is built and served by nginx.
 
 ### Common Commands

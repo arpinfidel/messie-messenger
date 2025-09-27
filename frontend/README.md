@@ -170,6 +170,14 @@ export ANDROID_HOME="$ANDROID_SDK_ROOT"
    npm run mobile:sync
    ```
 
+### Native Matrix core (Matrix Rust SDK)
+
+- **Why**: WebAssembly crypto from `matrix-js-sdk` works for the browser shell, but mobile wrappers benefit from the native Rust implementation for faster sync and lower memory churn.
+- **Android**: `frontend/android/app/build.gradle` now depends on `org.matrix.rustcomponents:sdk-android:$matrixRustSdkAndroidVersion` and enables `packagingOptions.pickFirst('lib/**/libc++_shared.so')` so the bundled C++ runtime does not collide with other libraries. The version resolves from `.env.mobile` (tracked) or your local `.env`/shell; update one of those to bump past the default `25.9.25`.
+- **Repositories**: Gradle resolves the SDK through `https://packages.matrix.org/maven` in addition to `google()` and `mavenCentral()`. If resolution fails, confirm that URL and ensure your network policy allows access.
+- **iOS (next)**: When the iOS wrapper exists, add the Swift package `https://github.com/matrix-org/matrix-rust-components-swift.git` in Xcode (File → Add Packages…), then link the `MatrixRustSDK` product to the app target. Keep the Swift package tag aligned with the Android artifact to minimise API drift.
+- **Follow-up**: Wire the new SDK through a Capacitor or native bridge so `MatrixCryptoManager` can delegate to Rust when running inside native shells, retaining the existing WebAssembly fallback for browsers.
+
 ### Build iOS App via CLI
 
 1. Add the iOS platform (if you did not earlier) and sync assets:
