@@ -1,4 +1,4 @@
-import { registerPlugin } from '@capacitor/core';
+import { registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import type { MatrixNativeCryptoBundle } from '@/types/matrixNative';
 
 export interface MatrixNativeSessionPayload {
@@ -6,6 +6,7 @@ export interface MatrixNativeSessionPayload {
   userId: string;
   accessToken: string;
   deviceId?: string;
+  refreshToken?: string;
 }
 
 export interface MatrixNativeState {
@@ -19,6 +20,34 @@ export interface MatrixNativeState {
   homeserverUrl?: string;
 }
 
+export interface MatrixNativeLoginResult {
+  homeserverUrl: string;
+  userId: string;
+  accessToken: string;
+  deviceId?: string;
+  refreshToken?: string;
+}
+
+export type MatrixNativeVerificationEvent =
+  | {
+      type: 'state';
+      phase:
+        | 'requested'
+        | 'accepted'
+        | 'sas_started'
+        | 'waiting_for_peer'
+        | 'cancelled'
+        | 'completed'
+        | 'failed'
+        | 'request_received';
+      reason?: string;
+    }
+  | {
+      type: 'sas';
+      emoji: [string, string][];
+      variant?: 'emoji' | 'decimal';
+    };
+
 export interface MatrixNativePlugin {
   initFromSession(payload: { session: MatrixNativeSessionPayload }): Promise<void>;
   initForHomeserver(payload: { homeserverUrl: string }): Promise<void>;
@@ -27,6 +56,14 @@ export interface MatrixNativePlugin {
   currentState(): Promise<MatrixNativeState>;
   importCryptoState(payload: { bundle: MatrixNativeCryptoBundle }): Promise<void>;
   exportCryptoState(): Promise<{ bundle?: MatrixNativeCryptoBundle }>;
+  login(payload: { username: string; password: string; deviceName?: string }): Promise<MatrixNativeLoginResult>;
+  verifyCurrentDevice(): Promise<void>;
+  confirmVerification(): Promise<void>;
+  cancelVerification(): Promise<void>;
+  addListener(
+    eventName: 'verificationEvent',
+    listenerFunc: (event: MatrixNativeVerificationEvent) => void
+  ): Promise<PluginListenerHandle>;
 }
 
 class MatrixNativeWeb implements MatrixNativePlugin {
@@ -75,8 +112,36 @@ class MatrixNativeWeb implements MatrixNativePlugin {
   async exportCryptoState(): Promise<{ bundle?: MatrixNativeCryptoBundle }> {
     return { bundle: this.bundle };
   }
+
+  async login(): Promise<MatrixNativeLoginResult> {
+    throw new Error('Native Matrix login is not available in the web stub.');
+  }
+
+  async verifyCurrentDevice(): Promise<void> {
+    console.warn('[MatrixNativeWeb] verifyCurrentDevice is not available in this environment.');
+  }
+
+  async confirmVerification(): Promise<void> {
+    console.warn('[MatrixNativeWeb] confirmVerification is not available in this environment.');
+  }
+
+  async cancelVerification(): Promise<void> {
+    console.warn('[MatrixNativeWeb] cancelVerification is not available in this environment.');
+  }
+
+  async addListener(): Promise<PluginListenerHandle> {
+    return {
+      remove: async () => {
+        /* no-op */
+      },
+    };
+  }
 }
 
 export const matrixNative = registerPlugin<MatrixNativePlugin>('MatrixNative', {
   web: () => new MatrixNativeWeb(),
 });
+
+if (typeof window !== 'undefined') {
+  (window as any).__messieMatrixNative = matrixNative;
+}

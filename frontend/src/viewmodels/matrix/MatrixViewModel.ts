@@ -19,6 +19,7 @@ import { MatrixMessagingService } from './core/MatrixMessagingService';
 import { MatrixPushRuleService } from './core/MatrixPushRuleService';
 import type { MatrixReplyContext } from './types';
 import { MatrixSlidingSyncService } from './core/MatrixSlidingSyncService';
+import { matrixNative } from '@/plugins/matrixNative';
 
 export class MatrixViewModel implements IModuleViewModel {
   private static instance: MatrixViewModel;
@@ -34,7 +35,10 @@ export class MatrixViewModel implements IModuleViewModel {
   // composition
   private sessionStore = new MatrixSessionStore();
   private clientMgr = new MatrixClientManager();
-  private cryptoMgr = new MatrixCryptoManager({ getClient: () => this.clientMgr.getClient() });
+  private cryptoMgr = new MatrixCryptoManager({
+    getClient: () => this.clientMgr.getClient(),
+    getRuntimeFlavor: () => this.clientMgr.getRuntimeFlavor(),
+  });
   private dataLayer = new MatrixDataLayer({
     getClient: () => this.clientMgr.getClient(),
     shouldIncludeEvent: (ev) =>
@@ -361,6 +365,26 @@ export class MatrixViewModel implements IModuleViewModel {
       this.hasInitialized = false;
 
       await this.clientMgr.createForHomeserver(homeserverUrl);
+
+      if (this.clientMgr.getRuntimeFlavor() === 'native') {
+        const loginResult = await matrixNative.login({
+          username,
+          password,
+          deviceName: 'Messie Android',
+        });
+
+        const session: MatrixSessionData = {
+          homeserverUrl: loginResult.homeserverUrl ?? homeserverUrl,
+          userId: loginResult.userId,
+          accessToken: loginResult.accessToken,
+          deviceId: loginResult.deviceId,
+          refreshToken: loginResult.refreshToken,
+        };
+        this.sessionStore.save(session);
+        await this.initialize();
+        return;
+      }
+
       const c = this.clientMgr.getClient();
       if (!c) throw new Error('Failed to create Matrix client');
       const loginResponse = await c.login('m.login.password', { user: username, password });

@@ -15,7 +15,7 @@
     "test:native-smoke": "npm run mobile:sync && cd android && ./gradlew app:assembleDebug",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "format": "prettier --write .",
-    "mobile:sync": "npm run build && npx cap sync",
+    "mobile:sync": "npm run build && npx cap sync android",
     "mobile:assets": "node ./scripts/mobile-assets.mjs",
     "mobile:run:android": "npx cap run android --no-open",
     "mobile:run:ios": "npx cap run ios --no-open",

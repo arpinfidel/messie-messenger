@@ -15,6 +15,9 @@ import { matrixSettings } from '../MatrixSettings';
 import { VerificationMethod } from 'matrix-js-sdk/lib/types';
 import { logger } from 'matrix-js-sdk/lib/logger.js';
 import { sasVerificationStore } from './SasVerificationStore';
+import { matrixNative } from '@/plugins/matrixNative';
+import { ensureNativeVerificationBridge } from './nativeVerificationBridge';
+import type { MatrixRuntimeFlavor } from './runtime';
 
 /* =========================
  * MatrixCryptoManager
@@ -23,11 +26,16 @@ export class MatrixCryptoManager {
   constructor(
     private readonly ctx: {
       getClient: () => matrixSdk.MatrixClient | null;
+      getRuntimeFlavor?: () => MatrixRuntimeFlavor;
     }
   ) {}
 
   private get client() {
     return this.ctx.getClient();
+  }
+
+  private get runtimeFlavor(): MatrixRuntimeFlavor {
+    return this.ctx.getRuntimeFlavor?.() ?? 'js';
   }
 
   async ensureVerificationAndKeys(): Promise<void> {
@@ -181,6 +189,13 @@ export class MatrixCryptoManager {
   }
 
   async verifyCurrentDevice(): Promise<void> {
+    if (this.runtimeFlavor === 'native') {
+      await ensureNativeVerificationBridge();
+      sasVerificationStore.set(null);
+      await matrixNative.verifyCurrentDevice();
+      return;
+    }
+
     if (!this.client) {
       console.error('Cannot verify device: Matrix client not initialized.');
       return;

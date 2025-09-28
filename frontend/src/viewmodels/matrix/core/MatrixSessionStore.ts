@@ -3,6 +3,7 @@ export interface MatrixSessionData {
   userId: string;
   accessToken: string;
   deviceId?: string;
+  refreshToken?: string;
 }
 
 const KEY = 'matrixSession';
