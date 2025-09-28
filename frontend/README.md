@@ -117,6 +117,48 @@ make mobile-open-android
 make mobile-open-ios
 ```
 
+### Android emulator quickstart (macOS/Homebrew)
+
+If you installed `android-commandlinetools` via Homebrew, point your shell at the shared SDK bundle (add these to `~/.zshrc` so new terminals inherit them):
+
+```bash
+export ANDROID_SDK_ROOT=/opt/homebrew/share/android-commandlinetools
+export ANDROID_HOME="$ANDROID_SDK_ROOT"
+export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
+export PATH="$JAVA_HOME/bin:$PATH"
+```
+
+Provision and launch the Pixel 6 API 34 emulator with the repo helpers:
+
+```bash
+make android-emulator-install   # installs emulator, platform-tools, and API 34 image into $ANDROID_SDK_ROOT
+make android-emulator-avd       # creates the MessiePixel6Api34 virtual device
+make android-emulator-run       # boots the emulator and starts the adb daemon
+# or: make android-emulator      # runs all three steps in sequence
+```
+
+With the emulator booted, iterate on the Android wrapper using:
+
+```bash
+make mobile-sync          # rebuild Svelte app + sync into Capacitor
+make mobile-build-android # Gradle assembleDebug
+make mobile-run-android   # installs and launches the debug app on the active emulator/device
+```
+
+Stream logs while you test:
+
+```bash
+$ANDROID_SDK_ROOT/platform-tools/adb logcat
+# example: $ANDROID_SDK_ROOT/platform-tools/adb logcat "Capacitor:D" "Messie:D" "*:S"
+```
+
+For WebView console output, attach Chrome DevTools (open `chrome://inspect/#devices`, enable **Discover USB devices**, then pick the running WebView instance) so you can see `console.log`/network traces while the native shell runs.
+
+If `make mobile-run-android` does not open the app, confirm `adb devices` lists `emulator-5554`; rerun `make android-emulator-run` to restart the emulator and adb server.
+
+Enable the native Matrix runtime by setting `VITE_MATRIX_NATIVE_ANDROID=true` in your `.env` (or `.env.mobile`) before running the app. The flag controls whether the Capacitor bridge asks the Rust SDK to hydrate a session on Android builds.
+
 `make mobile-sync` wraps `npm run mobile:sync`, which performs `vite build` followed by `npx cap sync`. You can also call the npm scripts directly from the `frontend` directory if you prefer.
 
 ### Build Android APK via CLI
@@ -125,15 +167,12 @@ Prerequisites (macOS example):
 
 ```bash
 brew install --cask android-commandlinetools
-mkdir -p "$HOME/Library/Android/sdk/cmdline-tools/latest"
-cp -R /opt/homebrew/share/android-commandlinetools/* \
-  "$HOME/Library/Android/sdk/cmdline-tools/latest/"
-
-echo 'export ANDROID_HOME="$HOME/Library/Android/sdk"' >> ~/.zshrc
-echo 'export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"' >> ~/.zshrc
-echo 'export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"' >> ~/.zshrc
 brew install --cask temurin@17
-echo 'export JAVA_HOME=$(/usr/libexec/java_home -v 17)' >> ~/.zshrc
+
+echo 'export ANDROID_SDK_ROOT=/opt/homebrew/share/android-commandlinetools' >> ~/.zshrc
+echo 'export ANDROID_HOME="$ANDROID_SDK_ROOT"' >> ~/.zshrc
+echo 'export JAVA_HOME="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"' >> ~/.zshrc
+echo 'export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"' >> ~/.zshrc
 echo 'export PATH="$JAVA_HOME/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
@@ -141,7 +180,7 @@ source ~/.zshrc
 Adjust the paths if you are on Intel Homebrew or unpacked Google’s ZIP manually. Confirm `sdkmanager` works (`sdkmanager --list`) before continuing. If `echo $ANDROID_SDK_ROOT` prints nothing after reloading your shell, export it manually in the current session:
 
 ```bash
-export ANDROID_SDK_ROOT="$HOME/Library/Android/sdk"
+export ANDROID_SDK_ROOT=/opt/homebrew/share/android-commandlinetools
 export ANDROID_HOME="$ANDROID_SDK_ROOT"
 ```
 

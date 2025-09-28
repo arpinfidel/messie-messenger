@@ -360,7 +360,7 @@ export class MatrixViewModel implements IModuleViewModel {
       await this.clientMgr.stop();
       this.hasInitialized = false;
 
-      this.clientMgr.createForHomeserver(homeserverUrl);
+      await this.clientMgr.createForHomeserver(homeserverUrl);
       const c = this.clientMgr.getClient();
       if (!c) throw new Error('Failed to create Matrix client');
       const loginResponse = await c.login('m.login.password', { user: username, password });
