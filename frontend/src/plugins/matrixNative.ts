@@ -57,6 +57,12 @@ export interface MatrixNativePlugin {
   importCryptoState(payload: { bundle: MatrixNativeCryptoBundle }): Promise<void>;
   exportCryptoState(): Promise<{ bundle?: MatrixNativeCryptoBundle }>;
   login(payload: { username: string; password: string; deviceName?: string }): Promise<MatrixNativeLoginResult>;
+  getOpenIdToken(): Promise<{
+    access_token: string;
+    matrix_server_name: string;
+    token_type: string;
+    expires_in?: number;
+  }>;
   verifyCurrentDevice(): Promise<void>;
   confirmVerification(): Promise<void>;
   cancelVerification(): Promise<void>;
@@ -127,6 +133,15 @@ class MatrixNativeWeb implements MatrixNativePlugin {
 
   async cancelVerification(): Promise<void> {
     console.warn('[MatrixNativeWeb] cancelVerification is not available in this environment.');
+  }
+
+  async getOpenIdToken(): Promise<{
+    access_token: string;
+    matrix_server_name: string;
+    token_type: string;
+    expires_in?: number;
+  }> {
+    throw new Error('getOpenIdToken is not available in the web stub.');
   }
 
   async addListener(): Promise<PluginListenerHandle> {

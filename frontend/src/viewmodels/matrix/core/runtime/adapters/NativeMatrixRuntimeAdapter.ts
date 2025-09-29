@@ -154,8 +154,33 @@ class NativeMatrixClientFacade implements MatrixClientFacade {
     return this.getSession() !== null;
   }
 
-  mxcUrlToHttp(): string | null {
-    return null;
+  mxcUrlToHttp(
+    mxcUrl: string,
+    width?: number,
+    height?: number,
+    resizeMethod?: string,
+    _allowDirectLinks?: boolean
+  ): string | null {
+    const s = this.getSession();
+    if (!s || !mxcUrl || !mxcUrl.startsWith('mxc://')) return null;
+    try {
+      const base = s.homeserverUrl.replace(/\/$/, '');
+      const withoutScheme = mxcUrl.slice('mxc://'.length);
+      const slash = withoutScheme.indexOf('/');
+      if (slash <= 0) return null;
+      const server = withoutScheme.slice(0, slash);
+      const mediaId = withoutScheme.slice(slash + 1);
+      if (width && height) {
+        const params = new URLSearchParams();
+        params.set('width', String(width));
+        params.set('height', String(height));
+        if (resizeMethod) params.set('method', resizeMethod);
+        return `${base}/_matrix/media/v3/thumbnail/${encodeURIComponent(server)}/${encodeURIComponent(mediaId)}?${params.toString()}`;
+      }
+      return `${base}/_matrix/media/v3/download/${encodeURIComponent(server)}/${encodeURIComponent(mediaId)}`;
+    } catch {
+      return null;
+    }
   }
 
   getCrypto(): MatrixCryptoFacade | null {

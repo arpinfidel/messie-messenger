@@ -21,6 +21,7 @@ export class MatrixClientManager {
   private clientFacade: MatrixClientFacade | null = null;
   private client: matrixSdk.MatrixClient | null = null;
   private started = false;
+  private lastInitParams: MatrixRuntimeInitParams | null = null;
 
   getClient(): matrixSdk.MatrixClient | null {
     return this.client;
@@ -39,11 +40,15 @@ export class MatrixClientManager {
   }
 
   async createFromSession(session: MatrixSessionData, getRecoveryKey?: () => string | null) {
-    await this.activateRuntime({ session, getRecoveryKey });
+    const params: MatrixRuntimeInitParams = { session, getRecoveryKey };
+    this.lastInitParams = params;
+    await this.activateRuntime(params);
   }
 
   async createForHomeserver(homeserverUrl: string) {
-    await this.activateRuntime({ homeserverUrl });
+    const params: MatrixRuntimeInitParams = { homeserverUrl };
+    this.lastInitParams = params;
+    await this.activateRuntime(params);
   }
 
   async initCryptoIfNeeded() {
@@ -57,8 +62,24 @@ export class MatrixClientManager {
 
   async start(opts?: matrixSdk.IStartClientOpts) {
     if (this.started) return;
-    await this.runtime.start({ client: opts });
-    this.started = true;
+    try {
+      await this.runtime.start({ client: opts });
+      this.started = true;
+      return;
+    } catch (error) {
+      if (this.runtimeFlavor === 'native' && this.isSlidingSyncUnavailable(error)) {
+        console.warn('[MatrixClientManager] Native runtime missing sliding sync support, falling back to JS.');
+        const fallback = this.lastInitParams;
+        if (!fallback) {
+          throw error;
+        }
+        await this.switchTo('js', fallback);
+        await this.runtime.start({ client: opts });
+        this.started = true;
+        return;
+      }
+      throw error;
+    }
   }
 
   async stop() {
@@ -81,6 +102,7 @@ export class MatrixClientManager {
 
   private async activateRuntime(params: MatrixRuntimeInitParams): Promise<void> {
     const flavor = this.chooseRuntimeFlavor();
+    console.info('[MatrixClientManager] selecting runtime', flavor, params.session ? 'session' : 'homeserver');
     await this.switchTo(flavor, params);
   }
 
@@ -95,7 +117,7 @@ export class MatrixClientManager {
       this.runtimeFlavor = flavor;
     } catch (err) {
       if (flavor === 'native') {
-        console.warn('[MatrixClientManager] Native runtime init failed; falling back to JS.', err);
+        console.error('[MatrixClientManager] Native runtime init failed; falling back to JS.', err);
         await this.jsAdapter.init(params);
         this.runtime = this.jsAdapter;
         this.runtimeFlavor = 'js';
@@ -106,38 +128,63 @@ export class MatrixClientManager {
     this.clientFacade = this.runtime.getClient();
     this.client = this.clientFacade?.asMatrixClient?.() ?? null;
     this.started = false;
+    console.info('[MatrixClientManager] active runtime', this.runtimeFlavor);
   }
 
   private chooseRuntimeFlavor(): MatrixRuntimeFlavor {
-    if (!this.nativeRuntimeEnabled()) return 'js';
-    return 'native';
+    if (this.nativeRuntimeEnabled()) return 'native';
+    return 'js';
   }
 
   private nativeRuntimeEnabled(): boolean {
     const flag = getNativeFeatureFlag();
-    if (!flag) return false;
+    if (!flag) {
+      console.info('[MatrixClientManager] native runtime disabled via flag');
+      return false;
+    }
     try {
       if (typeof window === 'undefined') return false;
       const platform = Capacitor.getPlatform?.();
-      if (platform !== 'android') return false;
-      return Capacitor.isPluginAvailable('MatrixNative');
+      if (platform === 'android') {
+        console.info('[MatrixClientManager] native runtime enabled on Android platform');
+        return true;
+      }
+
+      const available = Capacitor.isPluginAvailable?.('MatrixNative');
+      if (available) return true;
+
+      const pluginInstance = (Capacitor as any)?.Plugins?.MatrixNative;
+      return !!pluginInstance;
     } catch (err) {
       console.warn('[MatrixClientManager] Native runtime detection failed', err);
       return false;
     }
+  }
+
+  private isSlidingSyncUnavailable(error: unknown): boolean {
+    if (!error) return false;
+    const message = (error as Error).message ?? '';
+    if (message.includes('SlidingSyncUnavailableFallback')) return true;
+    if (message.includes('Sliding sync version is missing')) return true;
+    return false;
   }
 }
 
 function getNativeFeatureFlag(): boolean {
   const globalOverride = (globalThis as any)?.MESSIE_FORCE_NATIVE_MATRIX;
   if (typeof globalOverride === 'boolean') {
+    console.info('[MatrixClientManager] native runtime flag override', globalOverride);
     return globalOverride;
   }
   const envValue = (import.meta as any)?.env?.VITE_MATRIX_NATIVE_ANDROID;
   if (typeof envValue === 'string') {
     return envValue === '1' || envValue.toLowerCase() === 'true';
   }
-  return false;
+  try {
+    return Capacitor.getPlatform?.() === 'android';
+  } catch {
+    return false;
+  }
 }
 
 async function waitForPreparedViaClient(client: matrixSdk.MatrixClient): Promise<void> {

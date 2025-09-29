@@ -2,8 +2,8 @@
 import type { RepoEvent } from '../TimelineRepository';
 
 export const DB_NAME = 'mx-app-store';
-// Bump DB version whenever the schema changes. Version 6 removes legacy
-// timeline/token stores now that sliding sync drives the timeline.
+// Bump DB version whenever the schema changes. Version 6 removed legacy
+// timeline/token stores; sliding sync is no longer used.
 export const DB_VERSION = 8;
 
 export const STORES = {

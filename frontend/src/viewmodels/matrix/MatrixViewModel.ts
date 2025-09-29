@@ -18,7 +18,7 @@ import { createNotificationService } from '@/notifications/NotificationService';
 import { MatrixMessagingService } from './core/MatrixMessagingService';
 import { MatrixPushRuleService } from './core/MatrixPushRuleService';
 import type { MatrixReplyContext } from './types';
-import { MatrixSlidingSyncService } from './core/MatrixSlidingSyncService';
+// Sliding sync removed; legacy sync only
 import { matrixNative } from '@/plugins/matrixNative';
 
 export class MatrixViewModel implements IModuleViewModel {
@@ -50,10 +50,7 @@ export class MatrixViewModel implements IModuleViewModel {
     waitForPrepared: () => this.waitForMatrixReady(),
     pageSize: 20,
   });
-  private slidingSyncSvc = new MatrixSlidingSyncService({
-    getClient: () => this.clientMgr.getClient(),
-    dataLayer: this.dataLayer,
-  });
+  // Sliding sync removed
   private avatarSvc = new AvatarService(
     { getClient: () => this.clientMgr.getClient() },
     this.dataLayer,
@@ -117,8 +114,11 @@ export class MatrixViewModel implements IModuleViewModel {
   }
 
   public isLoggedIn(): boolean {
-    const c = this.clientMgr.getClient();
-    return !!c && c.isLoggedIn();
+    const facade = this.clientMgr.getClientFacade();
+    if (facade) return facade.isLoggedIn();
+
+    const client = this.clientMgr.getClient();
+    return !!client && client.isLoggedIn();
   }
 
   public getTimelineItems(): Writable<TimelineItem[]> {
@@ -130,11 +130,19 @@ export class MatrixViewModel implements IModuleViewModel {
   }
 
   public getCurrentUserId(): string {
-    return this.dataLayer.getCurrentUserId() || 'unknown';
+    return (
+      this.dataLayer.getCurrentUserId() ||
+      this.clientMgr.getClientFacade()?.getUserId() ||
+      'unknown'
+    );
   }
 
   public getCurrentUserDisplayName(): string {
-    return this.dataLayer.getCurrentUserDisplayName() || 'unknown';
+    const displayName = this.dataLayer.getCurrentUserDisplayName();
+    if (displayName) return displayName;
+
+    const userIdFallback = this.clientMgr.getClientFacade()?.getUserId();
+    return userIdFallback || 'unknown';
   }
 
   public async getRoomMessages(roomId: string, beforeIndex: number | null, limit = 20) {
@@ -199,6 +207,9 @@ export class MatrixViewModel implements IModuleViewModel {
   }
 
   public getOpenIdToken(): Promise<matrixSdk.IOpenIDToken> {
+    if (this.clientMgr.getRuntimeFlavor() === 'native') {
+      return matrixNative.getOpenIdToken() as unknown as Promise<matrixSdk.IOpenIDToken>;
+    }
     const c = this.clientMgr.getClient();
     if (!c) throw new Error('Matrix client not initialized.');
     return c.getOpenIdToken();
@@ -228,7 +239,7 @@ export class MatrixViewModel implements IModuleViewModel {
     loglevel.setLevel('warn');
     console.time('[MatrixVM] initialize total');
     this.resetMatrixReadyPromise();
-    this.slidingSyncSvc.stop();
+    // Sliding sync removed
 
     const restored = this.sessionStore.restore();
     if (!restored?.accessToken || !restored.userId || !restored.homeserverUrl) {
@@ -291,23 +302,13 @@ export class MatrixViewModel implements IModuleViewModel {
       console.timeEnd('[MatrixVM] startClient');
     }
 
-    try {
-      await this.slidingSyncSvc.init();
-    } catch (err) {
-      console.warn('[MatrixVM] sliding sync init failed', err);
-    }
-    this.slidingSyncSvc.start();
+    // Sliding sync removed
 
     // Only set to 'syncing' if we haven't already set it to 'ready' from cache
     if (this.hydrationState !== 'ready') {
       this.hydrationState = 'syncing';
     }
 
-    const slidingReadyPromise = this.slidingSyncSvc
-      .waitUntilReady()
-      .catch((err) => {
-        console.warn('[MatrixVM] sliding sync failed to signal readiness', err);
-      });
     const legacyPreparedPromise = this.clientMgr
       .waitForPrepared()
       .catch((err) => {
@@ -315,11 +316,10 @@ export class MatrixViewModel implements IModuleViewModel {
       });
 
     console.time('[MatrixVM] waitForMatrixReady');
-    await Promise.race([slidingReadyPromise, legacyPreparedPromise]);
+    await legacyPreparedPromise;
     this.markMatrixReady();
     console.timeEnd('[MatrixVM] waitForMatrixReady');
-
-    void legacyPreparedPromise.then(() => this.markMatrixReady());
+    // Sliding sync removed; no parallel readiness path
 
     console.time('[MatrixVM] ensurePushRulesLoaded');
     try {
