@@ -123,6 +123,18 @@ export class MatrixDataLayer {
   private unreadEventEmitter = new UnreadEventEmitter();
   private readReceiptEmitter = new ReadReceiptEventEmitter();
   private latestEventIdByRoom = new Map<string, string>();
+  private pendingDecrypts = new Map<
+    string,
+    {
+      event: matrixSdk.MatrixEvent;
+      roomId: string;
+      isInitial: boolean;
+      index: number;
+      bumpStamp?: number;
+    }
+  >();
+  private pendingDecryptFlush: Promise<void> | null = null;
+  private pendingDecryptRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   private async cacheTimelineEvents(events: RepoEvent[]): Promise<void> {
     if (!events.length) return;
@@ -290,6 +302,20 @@ export class MatrixDataLayer {
         continue;
       }
 
+      if (mxEvent.isDecryptionFailure()) {
+        const eventIndex = repoEvent.index ?? mxEvent.getTs() ?? Date.now();
+        if (repoEvent.eventId) {
+          this.pendingDecrypts.set(repoEvent.eventId, {
+            event: mxEvent,
+            roomId,
+            isInitial,
+            index: eventIndex,
+            bumpStamp,
+          });
+          this.schedulePendingDecryptFlush();
+        }
+      }
+
       const eventId = repoEvent.eventId;
       if (eventId && this.latestEventIdByRoom.get(roomId) === eventId) {
         continue;
@@ -321,6 +347,63 @@ export class MatrixDataLayer {
 
   private get client(): matrixSdk.MatrixClient | null {
     return this.opts.getClient();
+  }
+
+  private schedulePendingDecryptFlush(): void {
+    if (this.pendingDecryptFlush) return;
+    const wait = this.opts.waitForClientPrepared
+      ? this.opts.waitForClientPrepared()
+      : Promise.resolve();
+    this.pendingDecryptFlush = wait
+      .catch((err) => {
+        console.warn('[MatrixDataLayer] waitForClientPrepared before retry failed', err);
+      })
+      .then(() => this.flushPendingDecrypts())
+      .finally(() => {
+        this.pendingDecryptFlush = null;
+      });
+  }
+
+  private async flushPendingDecrypts(): Promise<void> {
+    if (!this.pendingDecrypts.size) return;
+    const client = this.client;
+    const retryEntries = Array.from(this.pendingDecrypts.entries());
+    for (const [eventId, pending] of retryEntries) {
+      try {
+        if (!client) break;
+        await client.decryptEventIfNeeded(pending.event);
+        if (pending.event.isDecryptionFailure()) {
+          continue;
+        }
+        const updated = await this.toRepoEvent(pending.event, pending.index);
+        if (!updated) {
+          continue;
+        }
+        updated.index = pending.index;
+        const refreshedTs = pending.event.getTs() || pending.index;
+        this.upsertRoomSummaryFromSlidingSync(pending.roomId, {
+          lastEvent: updated,
+          latestTimestamp: Math.max(refreshedTs, pending.bumpStamp ?? refreshedTs),
+        });
+        this.pendingDecrypts.delete(eventId);
+        this.repoEventEmitter.emit(updated, client.getRoom(pending.roomId) ?? null, {
+          isLive: !pending.isInitial,
+        });
+        await this.cacheTimelineEvents([updated]);
+      } catch (err) {
+        console.warn('[MatrixDataLayer] Failed to flush pending decrypt', eventId, err);
+      }
+    }
+
+    if (this.pendingDecrypts.size) {
+      if (this.pendingDecryptRetryTimer) {
+        clearTimeout(this.pendingDecryptRetryTimer);
+      }
+      this.pendingDecryptRetryTimer = setTimeout(() => {
+        this.pendingDecryptRetryTimer = null;
+        this.schedulePendingDecryptFlush();
+      }, 2000);
+    }
   }
 
   private extractRequiredStateValue<T = any>(
