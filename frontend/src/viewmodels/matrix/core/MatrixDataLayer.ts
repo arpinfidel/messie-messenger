@@ -99,7 +99,8 @@ export interface MatrixDataLayerOptions {
   getClient: () => matrixSdk.MatrixClient | null;
   shouldIncludeEvent?: (ev: matrixSdk.MatrixEvent) => boolean;
   tryDecryptEvent?: (ev: matrixSdk.MatrixEvent) => Promise<void> | void;
-  waitForPrepared: () => Promise<void>;
+  waitForClientReady: () => Promise<void>;
+  waitForClientPrepared?: () => Promise<void>;
   pageSize?: number; // default 20
 }
 
@@ -517,7 +518,11 @@ export class MatrixDataLayer {
   }
 
   async getRoomMembers(roomId: string) {
-    await this.opts.waitForPrepared();
+    if (this.opts.waitForClientPrepared) {
+      await this.opts.waitForClientPrepared();
+    } else {
+      await this.opts.waitForClientReady();
+    }
     const client = this.client;
     if (!client) {
       console.error(`[MatrixDataLayer] getRoomMembers(${roomId}) → Matrix client not available`);
@@ -730,7 +735,7 @@ export class MatrixDataLayer {
       return { events: [], firstIndex: null };
     }
 
-    await this.opts.waitForPrepared();
+    await this.opts.waitForClientReady();
     const client = this.client;
     if (!client) {
       return null;
@@ -819,7 +824,7 @@ export class MatrixDataLayer {
     beforeIndex: number | null,
     limit: number
   ): Promise<{ events: RepoEvent[]; firstIndex: number | null }> {
-    await this.opts.waitForPrepared();
+    await this.opts.waitForClientReady();
     const client = this.client;
     if (!client) {
       return { events: [], firstIndex: beforeIndex };
@@ -1017,7 +1022,11 @@ export class MatrixDataLayer {
    */
   async syncRoom(roomId: string): Promise<void> {
     try {
-      await this.opts.waitForPrepared();
+      if (this.opts.waitForClientPrepared) {
+        await this.opts.waitForClientPrepared();
+      } else {
+        await this.opts.waitForClientReady();
+      }
       const client = this.client;
       if (!client) return;
       const room = client.getRoom(roomId);

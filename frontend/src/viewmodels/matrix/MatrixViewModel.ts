@@ -28,6 +28,9 @@ export class MatrixViewModel implements IModuleViewModel {
   private matrixReadyPromise: Promise<void>;
   private resolveMatrixReady: (() => void) | null = null;
   private matrixReadyResolved = false;
+  private clientPreparedPromise: Promise<void>;
+  private resolveClientPrepared: (() => void) | null = null;
+  private clientPreparedResolved = false;
   private initPromise: Promise<void> | null = null;
   private hasInitialized = false;
 
@@ -43,7 +46,8 @@ export class MatrixViewModel implements IModuleViewModel {
       const c = this.clientMgr.getClient();
       if (c?.decryptEventIfNeeded) await c.decryptEventIfNeeded(ev);
     },
-    waitForPrepared: () => this.waitForMatrixReady(),
+    waitForClientReady: () => this.waitForMatrixReady(),
+    waitForClientPrepared: () => this.waitForClientPrepared(),
     pageSize: 20,
   });
   private slidingSyncSvc = new MatrixSlidingSyncService({
@@ -73,12 +77,22 @@ export class MatrixViewModel implements IModuleViewModel {
     this.matrixReadyPromise = new Promise<void>((resolve) => {
       this.resolveMatrixReady = resolve;
     });
+    this.clientPreparedPromise = new Promise<void>((resolve) => {
+      this.resolveClientPrepared = resolve;
+    });
   }
 
   private resetMatrixReadyPromise(): void {
     this.matrixReadyResolved = false;
     this.matrixReadyPromise = new Promise<void>((resolve) => {
       this.resolveMatrixReady = resolve;
+    });
+  }
+
+  private resetClientPreparedPromise(): void {
+    this.clientPreparedResolved = false;
+    this.clientPreparedPromise = new Promise<void>((resolve) => {
+      this.resolveClientPrepared = resolve;
     });
   }
 
@@ -91,9 +105,23 @@ export class MatrixViewModel implements IModuleViewModel {
     }
   }
 
+  private markClientPrepared(): void {
+    if (this.clientPreparedResolved) return;
+    this.clientPreparedResolved = true;
+    if (this.resolveClientPrepared) {
+      this.resolveClientPrepared();
+      this.resolveClientPrepared = null;
+    }
+  }
+
   private async waitForMatrixReady(): Promise<void> {
     if (this.matrixReadyResolved) return;
     await this.matrixReadyPromise;
+  }
+
+  private async waitForClientPrepared(): Promise<void> {
+    if (this.clientPreparedResolved) return;
+    await this.clientPreparedPromise;
   }
 
   public static getInstance(): MatrixViewModel {
@@ -224,6 +252,7 @@ export class MatrixViewModel implements IModuleViewModel {
     loglevel.setLevel('warn');
     console.time('[MatrixVM] initialize total');
     this.resetMatrixReadyPromise();
+    this.resetClientPreparedPromise();
     this.slidingSyncSvc.stop();
 
     const restored = this.sessionStore.restore();
@@ -262,7 +291,7 @@ export class MatrixViewModel implements IModuleViewModel {
       const minimalFilterDef: matrixSdk.IFilterDefinition = {
         room: {
           timeline: {
-            limit: 30,
+            limit: 0,
             types: ['m.room.message', 'm.room.encrypted'],
           },
           state: { lazy_load_members: true },
@@ -280,42 +309,31 @@ export class MatrixViewModel implements IModuleViewModel {
 
       await this.clientMgr.start({
         filter: filter,
-        pollTimeout: 30000,
+        pollTimeout: 0,
         lazyLoadMembers: true,
-        initialSyncLimit: 5,
+        initialSyncLimit: 0,
       });
       console.timeEnd('[MatrixVM] startClient');
     }
-
-    try {
-      await this.slidingSyncSvc.init();
-    } catch (err) {
-      console.warn('[MatrixVM] sliding sync init failed', err);
-    }
-    this.slidingSyncSvc.start();
 
     // Only set to 'syncing' if we haven't already set it to 'ready' from cache
     if (this.hydrationState !== 'ready') {
       this.hydrationState = 'syncing';
     }
 
-    const slidingReadyPromise = this.slidingSyncSvc
-      .waitUntilReady()
-      .catch((err) => {
-        console.warn('[MatrixVM] sliding sync failed to signal readiness', err);
-      });
-    const legacyPreparedPromise = this.clientMgr
+    const waitForPreparedPromise = this.clientMgr
       .waitForPrepared()
+      .then(() => {
+        this.markClientPrepared();
+      })
       .catch((err) => {
         console.warn('[MatrixVM] waitForPrepared failed', err);
+        this.markClientPrepared();
       });
 
-    console.time('[MatrixVM] waitForMatrixReady');
-    await Promise.race([slidingReadyPromise, legacyPreparedPromise]);
     this.markMatrixReady();
-    console.timeEnd('[MatrixVM] waitForMatrixReady');
 
-    void legacyPreparedPromise.then(() => this.markMatrixReady());
+    void waitForPreparedPromise.then(() => this.markMatrixReady());
 
     console.time('[MatrixVM] ensurePushRulesLoaded');
     try {
