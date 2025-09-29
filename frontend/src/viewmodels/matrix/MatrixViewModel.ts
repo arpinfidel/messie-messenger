@@ -262,9 +262,12 @@ export class MatrixViewModel implements IModuleViewModel {
     }
 
     await this.dataLayer.init();
-    await this.timelineSvc.initTimeline({ offlineOnly: true }).catch((err) => {
-      console.warn('Failed to hydrate cached timeline:', err);
-    });
+    const offlineTimelinePromise = this.timelineSvc
+      .initTimeline({ offlineOnly: true })
+      .catch((err) => {
+        console.warn('Failed to hydrate cached timeline:', err);
+      });
+    void offlineTimelinePromise;
     void this.notificationSvc.requestPermission();
 
     console.time('[MatrixVM] create client');
@@ -278,7 +281,9 @@ export class MatrixViewModel implements IModuleViewModel {
     }
 
     console.time('[MatrixVM] initRustCrypto');
-    await this.clientMgr.initCryptoIfNeeded();
+    void this.clientMgr.initCryptoIfNeeded().catch((err) => {
+      console.warn('[MatrixVM] initRustCrypto failed', err);
+    });
     console.timeEnd('[MatrixVM] initRustCrypto');
 
     console.time('[MatrixVM] bind data layer');
