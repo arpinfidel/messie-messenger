@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "messie-matrix",
+    "messie-ffi",
+]
+resolver = "2"

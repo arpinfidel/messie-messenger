@@ -1,0 +1,9 @@
+# flutter_rust_bridge configuration shared between platforms.
+
+rust_input: "../core/messie-ffi/src/api.rs"
+dart_output: "../app/lib/bridge/bridge_generated.dart"
+rust_output: "../core/messie-ffi/src/bridge_generated.rs"
+
+[blocklist]
+# Reserve space for future exclusions.
+functions = []

@@ -20,6 +20,7 @@ Messie Messenger is a multi-channel productivity hub that combines Matrix chat, 
   - [Docker Compose Workflow](#docker-compose-workflow)
   - [Manual Service Runs](#manual-service-runs)
   - [GitHub Codespaces](#github-codespaces)
+  - [Flutter + Rust Mobile Stack](#flutter--rust-mobile-stack)
 - [Testing \& QA](#testing--qa)
   - [Playwright End-to-End Suite](#playwright-end-to-end-suite)
   - [Local Matrix Homeserver](#local-matrix-homeserver)
@@ -54,11 +55,12 @@ This section intentionally stays non-technical. Detailed UI behavior and timelin
 
 ## Architecture
 
-Messie Messenger spans a web frontend, a Go backend, and containerized infrastructure.
+Messie Messenger spans a web frontend, a Go backend, a Flutter mobile/desktop client, and containerized infrastructure.
 
 - **Frontend**: Svelte + Vite + Tailwind, with Matrix connectivity via `matrix-js-sdk`. See `frontend/README.md` for implementation notes.
 - **Backend**: Go (Chi) with PostgreSQL and OpenAPI-defined endpoints. See `backend/README.md`.
 - **API Gateway**: nginx proxy for `/api` and the SPA.
+- **Mobile/Desktop**: Flutter application backed by a shared Rust core exposed through `flutter_rust_bridge`.
 - **Orchestration**: Docker Compose templates for development and production topologies.
 
 ## Development Setup
@@ -134,6 +136,34 @@ npm run dev -- --host
 - The devcontainer uses `docker-compose.dev.yml` and automatically launches Postgres, backend, frontend, and nginx.
 - Port forwarding for `8080`, `5173`, and `5432` is preconfigured; Codespaces prompts you to open the web UI when the stack is ready.
 - The first boot runs `go mod download` and `npm install`. To rebuild later, use `docker compose -f docker-compose.dev.yml up --build` from `/workspace`.
+
+### Flutter + Rust Mobile Stack
+
+The native client lives under `app/` with its shared Rust core inside `core/`.
+
+1. Install the Flutter SDK (3.16+) and the stable Rust toolchain. If you need
+   the platform scaffolds (Android, iOS, desktop), run
+   `flutter create --platforms=android,ios,macos,windows,linux .` from the `app/`
+   directory once to let Flutter materialize them.
+2. Generate flutter_rust_bridge bindings:
+
+   ```bash
+   ./bindings/generate.sh
+   ```
+
+3. Build the Rust crates for your platform as needed:
+   - Android: `./bindings/android/build.sh`
+   - iOS/macOS: `./bindings/ios/build.sh`
+
+4. Run the Flutter app:
+
+   ```bash
+   cd app
+   flutter pub get
+   flutter run
+   ```
+
+The initial screen calls the Rust `ping()` function and renders the returned string to verify the bridge.
 
 ## Testing & QA
 
@@ -250,6 +280,9 @@ See `frontend/README.md` for standalone client generation notes.
 ```txt
 backend/        Go service and generated API handlers
 frontend/       Svelte application with view models and generated client
+app/            Flutter application scaffold
+core/           Rust workspace shared by the Flutter app
+bindings/       flutter_rust_bridge tooling and build scripts
 api-gateway/    nginx configurations and Dockerfiles for dev/prod proxies
 docs/           Shared OpenAPI specification and supporting documentation
 ```

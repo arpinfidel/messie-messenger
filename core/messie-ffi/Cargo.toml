@@ -1,0 +1,16 @@
+[package]
+name = "messie-ffi"
+version = "0.1.0"
+edition = "2021"
+description = "Flutter Rust Bridge exports for Messie"
+authors = ["Messie Team"]
+license = "Apache-2.0"
+
+[lib]
+name = "messie_ffi"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+flutter_rust_bridge = { version = "1", features = ["chrono"] }
+messie-matrix = { path = "../messie-matrix" }
+anyhow = "1"

@@ -1,0 +1,11 @@
+# Flutter/Dart/Pub related
+.dart_tool/
+.packages
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.melton
+pubspec.lock
+
+# Generated Rust bindings
+lib/bridge/bridge_generated.dart

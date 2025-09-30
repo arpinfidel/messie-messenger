@@ -1,0 +1,10 @@
+[package]
+name = "messie-matrix"
+version = "0.1.0"
+edition = "2021"
+description = "Matrix SDK wrapper for Messie"
+authors = ["Messie Team"]
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1"
