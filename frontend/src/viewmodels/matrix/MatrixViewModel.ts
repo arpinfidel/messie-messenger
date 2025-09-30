@@ -1,4 +1,5 @@
 import * as matrixSdk from 'matrix-js-sdk';
+import type { SlidingSync } from 'matrix-js-sdk/lib/sliding-sync';
 import loglevel from 'loglevel';
 import { type Writable } from 'svelte/store';
 import type { IModuleViewModel } from '@/viewmodels/shared/IModuleViewModel';
@@ -256,6 +257,14 @@ export class MatrixViewModel implements IModuleViewModel {
     this.dataLayer.bind();
     console.timeEnd('[MatrixVM] bind data layer');
 
+    let slidingSyncInstance: SlidingSync | null = null;
+    try {
+      await this.slidingSyncSvc.init();
+      slidingSyncInstance = this.slidingSyncSvc.getSlidingSync();
+    } catch (err) {
+      console.warn('[MatrixVM] sliding sync init failed', err);
+    }
+
     if (!this.clientMgr.isStarted()) {
       console.time('[MatrixVM] startClient');
 
@@ -283,15 +292,11 @@ export class MatrixViewModel implements IModuleViewModel {
         pollTimeout: 30000,
         lazyLoadMembers: true,
         initialSyncLimit: 5,
+        slidingSync: slidingSyncInstance ?? undefined,
       });
       console.timeEnd('[MatrixVM] startClient');
     }
 
-    try {
-      await this.slidingSyncSvc.init();
-    } catch (err) {
-      console.warn('[MatrixVM] sliding sync init failed', err);
-    }
     this.slidingSyncSvc.start();
 
     // Only set to 'syncing' if we haven't already set it to 'ready' from cache

@@ -11,10 +11,13 @@ import type { ImageContent } from 'matrix-js-sdk/lib/types';
 
 type RepoEventListener = (ev: RepoEvent, room: matrixSdk.Room | null, meta?: { isLive?: boolean }) => void;
 
-interface SlidingSyncTimeline {
-  events?: IEvent[];
-  limited?: boolean;
-}
+type SlidingSyncTimeline =
+  | {
+      events?: IEvent[];
+      limited?: boolean;
+    }
+  | IEvent[]
+  | undefined;
 
 interface SlidingSyncRoomData {
   name?: string;
@@ -27,6 +30,10 @@ interface SlidingSyncRoomData {
     notification_count?: number;
     highlight_count?: number;
   };
+  notification_count?: number;
+  highlight_count?: number;
+  initial?: boolean;
+  limited?: boolean;
 }
 
 class RepoEventEmitter {
@@ -247,7 +254,9 @@ export class MatrixDataLayer {
       ? (data.bump_stamp as number)
       : undefined;
     const unreadCount =
+      data.highlight_count ??
       data.unread_notifications?.highlight_count ??
+      data.notification_count ??
       data.unread_notifications?.notification_count ??
       undefined;
 
@@ -258,16 +267,24 @@ export class MatrixDataLayer {
       unreadCount,
     });
 
-    const timelineEvents = Array.isArray(data.timeline?.events)
-      ? (data.timeline?.events as IEvent[])
-      : [];
+    const timelineSource = data.timeline;
+    let timelineEvents: IEvent[] = [];
+    if (Array.isArray(timelineSource)) {
+      timelineEvents = timelineSource as IEvent[];
+    } else if (
+      timelineSource &&
+      typeof timelineSource === 'object' &&
+      Array.isArray((timelineSource as { events?: IEvent[] }).events)
+    ) {
+      timelineEvents = ((timelineSource as { events?: IEvent[] }).events ?? []) as IEvent[];
+    }
     if (!timelineEvents.length) {
       return;
     }
 
     const client = this.client;
     const room = client?.getRoom(roomId) ?? null;
-    const isInitial = opts?.isInitial ?? false;
+    const isInitial = opts?.isInitial ?? !!data.initial;
     let lastIndexed = this.inMemoryRooms.get(roomId)?.lastEvent?.index ?? 0;
     const toPersist: RepoEvent[] = [];
 
