@@ -77,6 +77,12 @@ mobile-add-android:
 mobile-add-ios:
 	cd frontend && npm run mobile:add:ios
 
+mobile-emu-list-android:
+	$(ANDROID_SDK_ROOT)/emulator/emulator -list-avds
+
+mobile-emu-start-android:
+	$(ANDROID_SDK_ROOT)/emulator/emulator -avd $(ARGS)
+
 test-e2e-codegen:
 	cd frontend && npm run test:e2e:codegen
 

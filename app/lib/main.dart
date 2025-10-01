@@ -218,7 +218,7 @@ class HomeScreen extends ConsumerWidget {
       );
     }
 
-    final session = authState.valueOrNull;
+    final session = authState.asData?.value;
     final errorText = authState.hasError ? _errorMessage(authState.error) : null;
 
     if (session != null) {

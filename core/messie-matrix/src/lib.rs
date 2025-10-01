@@ -58,19 +58,23 @@ pub fn client() -> Option<Arc<Client>> {
 }
 
 fn client_builder(homeserver_url: &Url, base_path: &Path) -> Result<Client> {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+
     let store_root = base_path.join("matrix_store");
     fs::create_dir_all(&store_root).context("failed to create Matrix store path")?;
     let cache_path = store_root.join("cache");
     fs::create_dir_all(&cache_path).context("failed to create Matrix cache path")?;
     let database_path = store_root.join("messie.sqlite");
-
-    runtime()
-        .block_on(
+    let homeserver = homeserver_url.clone();
+    runtime
+        .block_on(async move {
             Client::builder()
-                .homeserver_url(homeserver_url.as_ref())
+                .homeserver_url(homeserver.as_ref())
                 .sqlite_store_with_cache_path(&database_path, &cache_path, None)
-                .build(),
-        )
+                .build()
+                .await
+        })
         .context("failed to build Matrix client")
 }
 
@@ -185,10 +189,13 @@ pub fn init_client(hs_url: &str, base_path: &Path) -> Result<InitClientResponse>
     let homeserver_url = Url::parse(hs_url).context("invalid homeserver URL")?;
     let base_path = base_path.to_path_buf();
 
+    let runtime = runtime();
+    let _guard = runtime.enter();
+
     let session = load_session(&base_path)?.ok_or_else(|| anyhow!("no stored session"))?;
 
     let client = client_builder(&homeserver_url, &base_path)?;
-    runtime()
+    runtime
         .block_on(async {
             client.restore_session(session).await?;
             Result::<_, anyhow::Error>::Ok(())
@@ -222,10 +229,13 @@ pub fn restore_or_login(
     let homeserver_url = Url::parse(hs_url).context("invalid homeserver URL")?;
     let base_path = base_path.to_path_buf();
 
+    let runtime = runtime();
+    let _guard = runtime.enter();
+
     let client = client_builder(&homeserver_url, &base_path)?;
 
     if let Some(session) = load_session(&base_path)? {
-        runtime()
+        runtime
             .block_on(async {
                 client.restore_session(session.clone()).await?;
                 Result::<_, anyhow::Error>::Ok(session)
@@ -242,7 +252,7 @@ pub fn restore_or_login(
         let username = username.to_owned();
         let password = password.to_owned();
 
-        let response = runtime()
+        let response = runtime
             .block_on(async {
                 let response = client
                     .matrix_auth()
@@ -274,6 +284,9 @@ pub fn restore_or_login(
 
 /// Wipe any stored credentials and Matrix state on disk.
 pub fn logout(base_path: &Path) -> Result<()> {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+
     {
         let mut guard = ACTIVE_CLIENT.write().expect("ACTIVE_CLIENT lock poisoned");
         *guard = None;

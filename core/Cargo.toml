@@ -4,3 +4,6 @@ members = [
     "messie-ffi",
 ]
 resolver = "2"
+
+[profile.release]
+panic = "unwind"
