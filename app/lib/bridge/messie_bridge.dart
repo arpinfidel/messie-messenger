@@ -3,9 +3,31 @@ import 'dart:ffi' as ffi;
 import 'dart:isolate';
 import 'dart:io';
 
-import 'package:ffi/ffi.dart';
+import 'package:ffi/ffi.dart'; // Utf8, toNativeUtf8, toDartString, calloc
 
-typedef _PointerUtf8 = ffi.Pointer<ffi.Utf8>;
+typedef _PointerUtf8 = ffi.Pointer<Utf8>;
+
+// ---- FFI signature typedefs (avoid parser confusion with inline function types) ----
+typedef _NativePing = _PointerUtf8 Function();
+typedef _DartPing   = _PointerUtf8 Function();
+
+typedef _NativeInitClient = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+typedef _DartInitClient   = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+
+typedef _NativeRestoreOrLogin = _PointerUtf8 Function(
+  _PointerUtf8, _PointerUtf8, _PointerUtf8, _PointerUtf8
+);
+typedef _DartRestoreOrLogin = _PointerUtf8 Function(
+  _PointerUtf8, _PointerUtf8, _PointerUtf8, _PointerUtf8
+);
+
+typedef _NativeLogout = _PointerUtf8 Function(_PointerUtf8);
+typedef _DartLogout   = _PointerUtf8 Function(_PointerUtf8);
+
+typedef _NativeFreeString = ffi.Void Function(_PointerUtf8);
+typedef _DartFreeString   = void Function(_PointerUtf8);
+
+// -----------------------------------------------------------------------------
 
 Future<String> rustPing() => Isolate.run(() => _pingIsolate(_LibraryConfig.detect()));
 
@@ -125,31 +147,17 @@ class LoginData {
 
 class _RustBindings {
   _RustBindings(ffi.DynamicLibrary library)
-      : _ping = library.lookupFunction<_PointerUtf8 Function(), _PointerUtf8 Function>(
-          'messie_ffi_ping',
-        ),
-        _initClient = library.lookupFunction<
-            _PointerUtf8 Function(_PointerUtf8, _PointerUtf8),
-            _PointerUtf8 Function(_PointerUtf8, _PointerUtf8)>(
-          'messie_ffi_init_client',
-        ),
-        _restoreOrLogin = library.lookupFunction<
-            _PointerUtf8 Function(_PointerUtf8, _PointerUtf8, _PointerUtf8, _PointerUtf8),
-            _PointerUtf8 Function(_PointerUtf8, _PointerUtf8, _PointerUtf8, _PointerUtf8)>(
-          'messie_ffi_restore_or_login',
-        ),
-        _logout = library.lookupFunction<_PointerUtf8 Function(_PointerUtf8), _PointerUtf8 Function(_PointerUtf8)>(
-          'messie_ffi_logout',
-        ),
-        _freeString = library.lookupFunction<void Function(_PointerUtf8), void Function(_PointerUtf8)>(
-          'messie_ffi_free_string',
-        );
+      : _ping = library.lookupFunction<_NativePing, _DartPing>('messie_ffi_ping'),
+        _initClient = library.lookupFunction<_NativeInitClient, _DartInitClient>('messie_ffi_init_client'),
+        _restoreOrLogin = library.lookupFunction<_NativeRestoreOrLogin, _DartRestoreOrLogin>('messie_ffi_restore_or_login'),
+        _logout = library.lookupFunction<_NativeLogout, _DartLogout>('messie_ffi_logout'),
+        _freeString = library.lookupFunction<_NativeFreeString, _DartFreeString>('messie_ffi_free_string');
 
-  final _PointerUtf8 Function() _ping;
-  final _PointerUtf8 Function(_PointerUtf8, _PointerUtf8) _initClient;
-  final _PointerUtf8 Function(_PointerUtf8, _PointerUtf8, _PointerUtf8, _PointerUtf8) _restoreOrLogin;
-  final _PointerUtf8 Function(_PointerUtf8) _logout;
-  final void Function(_PointerUtf8) _freeString;
+  final _DartPing _ping;
+  final _DartInitClient _initClient;
+  final _DartRestoreOrLogin _restoreOrLogin;
+  final _DartLogout _logout;
+  final _DartFreeString _freeString;
 
   String ping() => _stringFromPointer(_ping());
 
@@ -197,11 +205,9 @@ class _RustBindings {
   }
 
   String _stringFromPointer(_PointerUtf8 pointer) {
-    if (pointer == ffi.nullptr) {
-      return '';
-    }
-    final value = pointer.toDartString();
-    _freeString(pointer);
+    if (pointer == ffi.nullptr) return '';
+    final value = pointer.toDartString(); // from package:ffi
+    _freeString(pointer); // must match Rust allocator
     return value;
   }
 
@@ -209,8 +215,8 @@ class _RustBindings {
     final decoded = jsonDecode(source) as Map<String, dynamic>;
     final ok = decoded['ok'] == true;
     final error = decoded['error'] as String?;
-    final dataJson = decoded['data'];
-    final data = parser(dataJson);
+    final rawData = decoded['data'];
+    final data = ok ? parser(rawData) : null;
     return RustResult(ok: ok, data: data, error: error);
   }
 }
@@ -227,12 +233,12 @@ class _LibraryConfig {
       return const _LibraryConfig(useProcess: true);
     }
     if (Platform.isAndroid || Platform.isLinux) {
-      return const _LibraryConfig(useProcess: false, libraryPath: 'lib${base}.so');
+      return const _LibraryConfig(useProcess: false, libraryPath: 'lib$base.so');
     }
     if (Platform.isWindows) {
-      return const _LibraryConfig(useProcess: false, libraryPath: '${base}.dll');
+      return const _LibraryConfig(useProcess: false, libraryPath: '$base.dll');
     }
-    return const _LibraryConfig(useProcess: false, libraryPath: 'lib${base}.dylib');
+    return const _LibraryConfig(useProcess: false, libraryPath: 'lib$base.dylib');
   }
 
   ffi.DynamicLibrary open() {
