@@ -8,6 +8,7 @@ use std::{
 };
 
 use crate::api;
+use allo_isolate::ffi::DartPostCObjectFnType;
 
 static INIT: Once = Once::new();
 
@@ -138,6 +139,62 @@ pub extern "C" fn messie_ffi_logout(base_path: *const c_char) -> *mut c_char {
 }
 
 #[no_mangle]
+pub extern "C" fn messie_ffi_start_sliding_sync(
+    handle: *const c_char,
+    hp_size: u32,
+    lp_batch: u32,
+    hp_timeline: u32,
+    lp_timeline: u32,
+) -> *mut c_char {
+    ffi_safe(|| {
+        let handle = read_c_string(handle, "handle")?;
+        Ok(api::start_sliding_sync(
+            handle,
+            hp_size,
+            lp_batch,
+            hp_timeline,
+            lp_timeline,
+        ))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_room_list_stream(handle: *const c_char, port: i64) -> *mut c_char {
+    ffi_safe(|| {
+        let handle = read_c_string(handle, "handle")?;
+        Ok(api::room_list_stream(handle, port))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_set_hp_rooms(
+    handle: *const c_char,
+    rooms_json: *const c_char,
+) -> *mut c_char {
+    ffi_safe(|| {
+        let handle = read_c_string(handle, "handle")?;
+        let rooms = read_c_string(rooms_json, "roomsJson")?;
+        Ok(api::set_hp_rooms(handle, rooms))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_subscribe_more_lp(handle: *const c_char) -> *mut c_char {
+    ffi_safe(|| {
+        let handle = read_c_string(handle, "handle")?;
+        Ok(api::subscribe_more_lp(handle))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_resubscribe_all(handle: *const c_char) -> *mut c_char {
+    ffi_safe(|| {
+        let handle = read_c_string(handle, "handle")?;
+        Ok(api::resubscribe_all(handle))
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn messie_ffi_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;
@@ -145,4 +202,9 @@ pub extern "C" fn messie_ffi_free_string(ptr: *mut c_char) {
     unsafe {
         let _ = CString::from_raw(ptr);
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn messie_ffi_store_dart_post_cobject(ptr: DartPostCObjectFnType) {
+    allo_isolate::store_dart_post_cobject(ptr);
 }
