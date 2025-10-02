@@ -55,7 +55,7 @@ Future<RustResult<LoginData>> rustRestoreOrLogin({
   return Isolate.run(() => _restoreOrLoginIsolate(args));
 }
 
-Future<RustResult<void>> rustLogout({required String basePath}) {
+Future<RustResult<Unit>> rustLogout({required String basePath}) {
   final args = _LogoutArgs(_LibraryConfig.detect(), basePath);
   return Isolate.run(() => _logoutIsolate(args));
 }
@@ -80,7 +80,7 @@ RustResult<LoginData> _restoreOrLoginIsolate(_RestoreArgs args) {
   );
 }
 
-RustResult<void> _logoutIsolate(_LogoutArgs args) {
+RustResult<Unit> _logoutIsolate(_LogoutArgs args) {
   final bindings = _RustBindings(args.config.open());
   return bindings.logout(args.basePath);
 }
@@ -194,11 +194,11 @@ class _RustBindings {
     }
   }
 
-  RustResult<void> logout(String basePath) {
+  RustResult<Unit> logout(String basePath) {
     final basePtr = basePath.toNativeUtf8();
     try {
       final result = _stringFromPointer(_logout(basePtr));
-      return _parse(result, (_) => null);
+      return _parse(result, (_) => Unit.instance);
     } finally {
       calloc.free(basePtr);
     }
@@ -276,4 +276,9 @@ class _LogoutArgs {
 
   final _LibraryConfig config;
   final String basePath;
+}
+class Unit {
+  const Unit._();
+
+  static const instance = Unit._();
 }
