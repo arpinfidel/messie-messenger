@@ -8,6 +8,8 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'bridge/messie_bridge.dart';
+import 'theme/app_theme.dart';
+import 'theme/messie_tokens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,10 +27,10 @@ class MessieApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Messie',
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: Colors.teal,
-      ),
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: ThemeMode.system,
+      debugShowCheckedModeBanner: false,
       home: const HomeScreen(),
     );
   }
@@ -168,9 +170,11 @@ class AuthController extends AsyncNotifier<MatrixSession?> {
   }
 
   Future<void> _persistSession(MatrixSession session) async {
-    await _secureStorage.write(key: _kHomeserverKey, value: session.homeserverUrl);
+    await _secureStorage.write(
+        key: _kHomeserverKey, value: session.homeserverUrl);
     await _secureStorage.write(key: _kUserIdKey, value: session.userId);
-    await _secureStorage.write(key: _kAccessTokenKey, value: session.accessToken);
+    await _secureStorage.write(
+        key: _kAccessTokenKey, value: session.accessToken);
     if (session.deviceId != null) {
       await _secureStorage.write(key: _kDeviceIdKey, value: session.deviceId);
     } else {
@@ -198,7 +202,8 @@ class HomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    ref.listen<AsyncValue<MatrixSession?>>(authControllerProvider, (previous, next) {
+    ref.listen<AsyncValue<MatrixSession?>>(authControllerProvider,
+        (previous, next) {
       if (next.hasError) {
         final message = _errorMessage(next.error);
         if (message != null) {
@@ -219,7 +224,8 @@ class HomeScreen extends ConsumerWidget {
     }
 
     final session = authState.asData?.value;
-    final errorText = authState.hasError ? _errorMessage(authState.error) : null;
+    final errorText =
+        authState.hasError ? _errorMessage(authState.error) : null;
 
     if (session != null) {
       return LoggedInView(session: session);
@@ -266,7 +272,8 @@ class _LoginViewState extends ConsumerState<LoginView> {
   @override
   void initState() {
     super.initState();
-    _homeserverController = TextEditingController(text: 'https://matrix-client.matrix.org');
+    _homeserverController =
+        TextEditingController(text: 'https://matrix-client.matrix.org');
     _usernameController = TextEditingController();
     _passwordController = TextEditingController();
   }
@@ -281,113 +288,191 @@ class _LoginViewState extends ConsumerState<LoginView> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+    final spacing = MessieSpacing.of(context);
+    final radii = MessieRadii.of(context);
+    final surfaces = MessieSurfaces.of(context);
+    final gutter = MessieSpacing.gutter(context);
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Messie Messenger'),
-      ),
       body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text(
-                      'Sign in to your Matrix account',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [surfaces.surface3, surfaces.surface1],
+            ),
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: SingleChildScrollView(
+                padding: EdgeInsets.symmetric(
+                  horizontal: gutter,
+                  vertical: spacing.gap.xxl,
+                ),
+                child: Card(
+                  margin: EdgeInsets.zero,
+                  color: surfaces.surface2,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(radii.xl),
+                  ),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: spacing.gap.xl,
+                      vertical: spacing.gap.xl,
                     ),
-                    const SizedBox(height: 16),
-                    if (widget.errorMessage != null)
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        margin: const EdgeInsets.only(bottom: 16),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context).colorScheme.errorContainer,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          widget.errorMessage!,
-                          style: TextStyle(
-                            color: Theme.of(context).colorScheme.onErrorContainer,
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          CircleAvatar(
+                            radius: 32,
+                            backgroundColor: colorScheme.primaryContainer,
+                            child: Icon(
+                              Icons.bubble_chart_rounded,
+                              color: colorScheme.onPrimaryContainer,
+                              size: 36,
+                            ),
                           ),
-                        ),
+                          SizedBox(height: spacing.gap.xl),
+                          Text(
+                            'Welcome to Messie',
+                            style: textTheme.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          SizedBox(height: spacing.gap.sm),
+                          Text(
+                            'Stay connected with an encrypted Matrix-first messenger.',
+                            style: textTheme.bodyMedium?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                          SizedBox(height: spacing.gap.xl),
+                          if (widget.errorMessage != null)
+                            Container(
+                              padding: EdgeInsets.all(spacing.gap.lg),
+                              margin: EdgeInsets.only(bottom: spacing.gap.xl),
+                              decoration: BoxDecoration(
+                                color: colorScheme.errorContainer,
+                                borderRadius: BorderRadius.circular(radii.lg),
+                              ),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(Icons.error_outline,
+                                      color: colorScheme.onErrorContainer),
+                                  SizedBox(width: spacing.gap.sm),
+                                  Expanded(
+                                    child: Text(
+                                      widget.errorMessage!,
+                                      style: textTheme.bodyMedium?.copyWith(
+                                        color: colorScheme.onErrorContainer,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          TextFormField(
+                            controller: _homeserverController,
+                            decoration: const InputDecoration(
+                              labelText: 'Homeserver URL',
+                              hintText: 'https://matrix-client.matrix.org',
+                              prefixIcon: Icon(Icons.public_rounded),
+                            ),
+                            enabled: !widget.isProcessing,
+                            keyboardType: TextInputType.url,
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Homeserver URL is required';
+                              }
+                              final trimmed = value.trim();
+                              if (!trimmed.startsWith('http://') &&
+                                  !trimmed.startsWith('https://')) {
+                                return 'Enter a valid URL starting with http or https';
+                              }
+                              return null;
+                            },
+                          ),
+                          SizedBox(height: spacing.gap.lg),
+                          TextFormField(
+                            controller: _usernameController,
+                            decoration: const InputDecoration(
+                              labelText: 'Username or user ID',
+                              hintText: '@user:matrix.org',
+                              prefixIcon: Icon(Icons.person_outline_rounded),
+                            ),
+                            enabled: !widget.isProcessing,
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Username is required';
+                              }
+                              return null;
+                            },
+                          ),
+                          SizedBox(height: spacing.gap.lg),
+                          TextFormField(
+                            controller: _passwordController,
+                            decoration: InputDecoration(
+                              labelText: 'Password',
+                              prefixIcon:
+                                  const Icon(Icons.lock_outline_rounded),
+                              suffixIcon: IconButton(
+                                icon: Icon(_obscurePassword
+                                    ? Icons.visibility
+                                    : Icons.visibility_off),
+                                onPressed: widget.isProcessing
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          _obscurePassword = !_obscurePassword;
+                                        });
+                                      },
+                              ),
+                            ),
+                            enabled: !widget.isProcessing,
+                            obscureText: _obscurePassword,
+                            validator: (value) {
+                              if (value == null || value.isEmpty) {
+                                return 'Password is required';
+                              }
+                              return null;
+                            },
+                          ),
+                          SizedBox(height: spacing.gap.xxl),
+                          FilledButton.icon(
+                            onPressed: widget.isProcessing
+                                ? null
+                                : () => _submit(context),
+                            icon: widget.isProcessing
+                                ? SizedBox(
+                                    width: spacing.gap.sm,
+                                    height: spacing.gap.sm,
+                                    child: const CircularProgressIndicator(
+                                        strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.login_rounded),
+                            label: Text(widget.isProcessing
+                                ? 'Signing in…'
+                                : 'Sign in securely'),
+                          ),
+                          SizedBox(height: spacing.gap.md),
+                          Text(
+                            'Matrix credentials never leave your device.',
+                            textAlign: TextAlign.center,
+                            style: textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
                       ),
-                    TextFormField(
-                      controller: _homeserverController,
-                      decoration: const InputDecoration(
-                        labelText: 'Homeserver URL',
-                        hintText: 'https://matrix-client.matrix.org',
-                      ),
-                      enabled: !widget.isProcessing,
-                      keyboardType: TextInputType.url,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Homeserver URL is required';
-                        }
-                        final trimmed = value.trim();
-                        if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
-                          return 'Enter a valid URL starting with http or https';
-                        }
-                        return null;
-                      },
                     ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _usernameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Username or user ID',
-                        hintText: '@user:matrix.org',
-                      ),
-                      enabled: !widget.isProcessing,
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return 'Username is required';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _passwordController,
-                      decoration: InputDecoration(
-                        labelText: 'Password',
-                        suffixIcon: IconButton(
-                          icon: Icon(_obscurePassword ? Icons.visibility : Icons.visibility_off),
-                          onPressed: widget.isProcessing
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _obscurePassword = !_obscurePassword;
-                                  });
-                                },
-                        ),
-                      ),
-                      enabled: !widget.isProcessing,
-                      obscureText: _obscurePassword,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Password is required';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 24),
-                    FilledButton.icon(
-                      onPressed: widget.isProcessing ? null : () => _submit(context),
-                      icon: widget.isProcessing
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.lock_open),
-                      label: Text(widget.isProcessing ? 'Signing in…' : 'Sign in'),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -421,6 +506,13 @@ class LoggedInView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final pingState = ref.watch(pingProvider);
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+    final spacing = MessieSpacing.of(context);
+    final surfaces = MessieSurfaces.of(context);
+    final colors = MessieColors.of(context);
+    final gutter = MessieSpacing.gutter(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -429,58 +521,139 @@ class LoggedInView extends ConsumerWidget {
           IconButton(
             onPressed: () => ref.read(authControllerProvider.notifier).logout(),
             tooltip: 'Log out',
-            icon: const Icon(Icons.logout),
+            icon: const Icon(Icons.logout_rounded),
           ),
         ],
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      body: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [surfaces.surface3, surfaces.surface1],
+          ),
+        ),
+        child: ListView(
+          padding: EdgeInsets.symmetric(
+            horizontal: gutter,
+            vertical: spacing.gap.xl,
+          ),
           children: [
-            Text(
-              'Welcome back, ${session.userId}',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 12),
-            Text('Homeserver: ${session.homeserverUrl}'),
-            if (session.deviceId != null) Text('Device ID: ${session.deviceId}'),
-            const SizedBox(height: 24),
             Card(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.all(spacing.gap.xl),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Rust bridge status',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 8),
-                    pingState.when(
-                      data: (value) => Text('Rust says: $value'),
-                      loading: () => const Row(
-                        children: [
-                          SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 28,
+                          backgroundColor: colorScheme.primaryContainer,
+                          child: Icon(
+                            Icons.verified_user_rounded,
+                            color: colorScheme.onPrimaryContainer,
+                            size: 28,
                           ),
-                          SizedBox(width: 12),
-                          Text('Calling Rust…'),
+                        ),
+                        SizedBox(width: spacing.gap.lg),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                session.userId,
+                                style: textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              SizedBox(height: spacing.gap.xs),
+                              Text(
+                                session.homeserverUrl,
+                                style: textTheme.bodySmall?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (session.deviceId != null) ...[
+                      SizedBox(height: spacing.gap.xl),
+                      Row(
+                        children: [
+                          Icon(Icons.devices_rounded,
+                              color: colorScheme.primary),
+                          SizedBox(width: spacing.gap.sm),
+                          Expanded(
+                            child: Text(
+                              'Device ID: ${session.deviceId}',
+                              style: textTheme.bodyMedium,
+                            ),
+                          ),
                         ],
                       ),
-                      error: (error, _) => Text('Failed to call Rust: $error'),
+                    ],
+                    SizedBox(height: spacing.gap.xl),
+                    FilledButton.icon(
+                      onPressed: () =>
+                          ref.read(authControllerProvider.notifier).logout(),
+                      icon: const Icon(Icons.logout_rounded),
+                      label: const Text('Log out'),
                     ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: () => ref.read(authControllerProvider.notifier).logout(),
-              icon: const Icon(Icons.logout),
-              label: const Text('Log out'),
+            SizedBox(height: spacing.gap.xl),
+            Card(
+              child: Padding(
+                padding: EdgeInsets.all(spacing.gap.xl),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Rust bridge status',
+                      style: textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w600),
+                    ),
+                    SizedBox(height: spacing.gap.md),
+                    pingState.when(
+                      data: (value) => Row(
+                        children: [
+                          Icon(Icons.check_circle_rounded,
+                              color: colors.success),
+                          SizedBox(width: spacing.gap.sm),
+                          Expanded(child: Text('Rust says: $value')),
+                        ],
+                      ),
+                      loading: () => Row(
+                        children: [
+                          SizedBox(
+                            width: spacing.gap.md,
+                            height: spacing.gap.md,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colorScheme.primary,
+                            ),
+                          ),
+                          SizedBox(width: spacing.gap.sm),
+                          const Text('Calling Rust…'),
+                        ],
+                      ),
+                      error: (error, _) => Row(
+                        children: [
+                          Icon(Icons.error_outline, color: colorScheme.error),
+                          SizedBox(width: spacing.gap.sm),
+                          Expanded(
+                            child: Text('Failed to call Rust: $error'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
