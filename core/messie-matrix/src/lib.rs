@@ -235,19 +235,26 @@ pub fn restore_or_login(
     let client = client_builder(&homeserver_url, &base_path)?;
 
     if let Some(session) = load_session(&base_path)? {
-        runtime
+        let session = runtime
             .block_on(async {
                 client.restore_session(session.clone()).await?;
                 Result::<_, anyhow::Error>::Ok(session)
             })
-            .context("failed to restore existing session")
-            .map(|session| LoginResponse {
-                user_id: session.meta.user_id.to_string(),
-                device_id: Some(session.meta.device_id.to_string()),
-                access_token: session.tokens.access_token,
-                homeserver_url: homeserver_url.to_string(),
-                did_restore: true,
-            })
+            .context("failed to restore existing session")?;
+
+        let arc = store_client(client);
+        let meta = arc
+            .session_meta()
+            .cloned()
+            .ok_or_else(|| anyhow!("restored client missing session metadata"))?;
+
+        Ok(LoginResponse {
+            user_id: meta.user_id.to_string(),
+            device_id: Some(meta.device_id.to_string()),
+            access_token: session.tokens.access_token,
+            homeserver_url: homeserver_url.to_string(),
+            did_restore: true,
+        })
     } else {
         let username = username.to_owned();
         let password = password.to_owned();
