@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'bridge/messie_bridge.dart';
+import 'state/room_list_controller.dart';
 import 'theme/app_theme.dart';
 import 'theme/messie_tokens.dart';
 
@@ -212,6 +213,14 @@ class HomeScreen extends ConsumerWidget {
             SnackBar(content: Text(message)),
           );
         }
+      }
+
+      final session = next.asData?.value;
+      final roomList = ref.read(roomListControllerProvider.notifier);
+      if (session != null) {
+        roomList.start();
+      } else {
+        roomList.stop();
       }
     });
 
@@ -506,6 +515,7 @@ class LoggedInView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final pingState = ref.watch(pingProvider);
+    final roomListState = ref.watch(roomListControllerProvider);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final textTheme = theme.textTheme;
@@ -655,9 +665,224 @@ class LoggedInView extends ConsumerWidget {
                 ),
               ),
             ),
+            SizedBox(height: spacing.gap.xl),
+            Card(
+              child: Padding(
+                padding: EdgeInsets.all(spacing.gap.xl),
+                child: _RoomListSection(
+                  state: roomListState,
+                  onLoadMore: () => ref
+                      .read(roomListControllerProvider.notifier)
+                      .loadMoreLp(),
+                  onResubscribe: () => ref
+                      .read(roomListControllerProvider.notifier)
+                      .resubscribeAll(),
+                ),
+              ),
+            ),
           ],
         ),
       ),
     );
+  }
+}
+
+class _RoomListSection extends StatelessWidget {
+  const _RoomListSection({
+    required this.state,
+    required this.onLoadMore,
+    required this.onResubscribe,
+  });
+
+  final RoomListState state;
+  final VoidCallback onLoadMore;
+  final VoidCallback onResubscribe;
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colors = Theme.of(context).colorScheme;
+    final spacing = MessieSpacing.of(context);
+
+    if (state.isLoading) {
+      return Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: spacing.gap.lg),
+          child: const CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    final children = <Widget>[];
+
+    if (state.error != null) {
+      children.add(
+        Container(
+          padding: EdgeInsets.all(spacing.gap.md),
+          margin: EdgeInsets.only(bottom: spacing.gap.md),
+          decoration: BoxDecoration(
+            color: colors.errorContainer,
+            borderRadius: BorderRadius.circular(MessieRadii.of(context).md),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.warning_rounded, color: colors.onErrorContainer),
+              SizedBox(width: spacing.gap.sm),
+              Expanded(
+                child: Text(
+                  state.error!,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: colors.onErrorContainer,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: onResubscribe,
+                icon: const Icon(Icons.refresh_rounded),
+                tooltip: 'Retry sync',
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (state.hpRooms.isNotEmpty) {
+      children.add(Text(
+        'Priority rooms',
+        style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+      ));
+      children.add(SizedBox(height: spacing.gap.sm));
+      children.addAll(state.hpRooms.map((room) => _RoomTile(room: room)));
+      children.add(SizedBox(height: spacing.gap.lg));
+    }
+
+    children.add(Text(
+      'All rooms',
+      style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+    ));
+    children.add(SizedBox(height: spacing.gap.sm));
+    if (state.lpRooms.isEmpty) {
+      children.add(Text(
+        'No additional rooms yet.',
+        style: textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
+      ));
+    } else {
+      children.addAll(state.lpRooms.map((room) => _RoomTile(room: room)));
+    }
+
+    final canLoadMore = state.lpRooms.length < state.lpTotal;
+    if (canLoadMore) {
+      children.add(SizedBox(height: spacing.gap.md));
+      children.add(
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: onLoadMore,
+            icon: const Icon(Icons.expand_more_rounded),
+            label: const Text('Load more conversations'),
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: children,
+    );
+  }
+}
+
+class _RoomTile extends StatelessWidget {
+  const _RoomTile({required this.room});
+
+  final RoomPreview room;
+
+  @override
+  Widget build(BuildContext context) {
+    final spacing = MessieSpacing.of(context);
+    final colors = Theme.of(context).colorScheme;
+    final unread = room.notificationCount;
+
+    return Padding(
+      padding: EdgeInsets.only(bottom: spacing.gap.sm),
+      child: ListTile(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(MessieRadii.of(context).md),
+        ),
+        contentPadding: EdgeInsets.symmetric(horizontal: spacing.gap.sm),
+        leading: _AvatarPlaceholder(name: room.name, avatarUrl: room.avatarUrl),
+        title: Text(room.name),
+        subtitle: Text(
+          room.roomId,
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(color: colors.onSurfaceVariant),
+        ),
+        trailing: unread > 0
+            ? Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: spacing.gap.sm,
+                  vertical: spacing.gap.xs,
+                ),
+                decoration: BoxDecoration(
+                  color: colors.primaryContainer,
+                  borderRadius: BorderRadius.circular(spacing.gap.sm),
+                ),
+                child: Text(
+                  unread > 99 ? '99+' : '$unread',
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(color: colors.onPrimaryContainer),
+                ),
+              )
+            : null,
+      ),
+    );
+  }
+}
+
+class _AvatarPlaceholder extends StatelessWidget {
+  const _AvatarPlaceholder({required this.name, this.avatarUrl});
+
+  final String name;
+  final String? avatarUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final initials = _initials(name);
+    final colors = Theme.of(context).colorScheme;
+
+    return CircleAvatar(
+      backgroundColor: colors.secondaryContainer,
+      child: Text(
+        initials,
+        style: Theme.of(context)
+            .textTheme
+            .labelLarge
+            ?.copyWith(color: colors.onSecondaryContainer),
+      ),
+    );
+  }
+
+  String _initials(String value) {
+    final trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return '?';
+    }
+    final parts = trimmed.split(RegExp(r'\s+'));
+    String result = '';
+    if (parts.first.isNotEmpty) {
+      result += parts.first[0];
+    }
+    if (parts.length > 1 && parts.last.isNotEmpty) {
+      result += parts.last[0];
+    } else if (parts.first.length > 1) {
+      result += parts.first[1];
+    }
+    return result.toUpperCase();
   }
 }

@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 use tokio::runtime::{Builder, Runtime};
 use url::Url;
 
+mod sliding_sync;
+
 /// Simple ping function used for integration tests.
 pub fn ping() -> Result<String> {
     Ok("pong".to_owned())
@@ -294,9 +296,51 @@ pub fn logout(base_path: &Path) -> Result<()> {
     let runtime = runtime();
     let _guard = runtime.enter();
 
+    runtime.block_on(sliding_sync::reset_all());
+
     {
         let mut guard = ACTIVE_CLIENT.write().expect("ACTIVE_CLIENT lock poisoned");
         *guard = None;
     }
     wipe_store(base_path)
+}
+
+pub use sliding_sync::{AckResponse, SlidingSyncConfig, StartSlidingSyncResponse};
+
+/// Start (or update) the sliding sync controller associated with the provided handle.
+pub fn start_sliding_sync(
+    handle: &str,
+    config: SlidingSyncConfig,
+) -> Result<StartSlidingSyncResponse> {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(sliding_sync::start_sliding_sync(handle, config))
+}
+
+/// Register a Dart send port to receive room list updates for the given handle.
+pub fn register_room_list_listener(handle: &str, port: i64) -> Result<AckResponse> {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(sliding_sync::register_room_list_listener(handle, port))
+}
+
+/// Update the pinned high-priority rooms for the sliding sync handle.
+pub fn set_hp_rooms(handle: &str, rooms: Vec<String>) -> Result<AckResponse> {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(sliding_sync::set_hp_rooms(handle, rooms))
+}
+
+/// Grow the low-priority window for the given sliding sync handle.
+pub fn subscribe_more_lp(handle: &str) -> Result<AckResponse> {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(sliding_sync::subscribe_more_lp(handle))
+}
+
+/// Force the sliding sync controller to resubscribe and reset position.
+pub fn resubscribe_all(handle: &str) -> Result<AckResponse> {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(sliding_sync::resubscribe_all(handle))
 }
