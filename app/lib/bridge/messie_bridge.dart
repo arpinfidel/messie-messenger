@@ -29,15 +29,11 @@ typedef _DartStartSlidingSync = _PointerUtf8 Function(
 
 typedef _NativeRoomListStream = _PointerUtf8 Function(_PointerUtf8, ffi.Int64);
 typedef _DartRoomListStream = _PointerUtf8 Function(_PointerUtf8, int);
+typedef _NativeListJoinedRooms = _PointerUtf8 Function();
+typedef _DartListJoinedRooms = _PointerUtf8 Function();
+typedef _NativeRoomOverview = _PointerUtf8 Function(_PointerUtf8);
+typedef _DartRoomOverview = _PointerUtf8 Function(_PointerUtf8);
 
-typedef _NativeSetHpRooms = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
-typedef _DartSetHpRooms = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
-
-typedef _NativeSubscribeMoreLp = _PointerUtf8 Function(_PointerUtf8);
-typedef _DartSubscribeMoreLp = _PointerUtf8 Function(_PointerUtf8);
-
-typedef _NativeResubscribeAll = _PointerUtf8 Function(_PointerUtf8);
-typedef _DartResubscribeAll = _PointerUtf8 Function(_PointerUtf8);
 
 typedef _NativeOpenRoom = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
 typedef _DartOpenRoom = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
@@ -155,32 +151,19 @@ Future<RustResult<AckData>> rustRoomListStream({
   return Isolate.run(() => _roomListStreamIsolate(args));
 }
 
-Future<RustResult<AckData>> rustSetHpRooms({
-  required String handle,
-  required List<String> roomIds,
+Future<RustResult<ListRoomsData>> rustListJoinedRooms() {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  return Isolate.run(() => _listJoinedRoomsIsolate(config));
+}
+
+Future<RustResult<RoomOverviewData>> rustRoomOverview({
+  required String roomId,
 }) {
   final config = _LibraryConfig.detect();
   _ensurePostCObjectRegistered(config);
-  final args = _SetHpArgs(
-    config,
-    handle,
-    roomIds,
-  );
-  return Isolate.run(() => _setHpRoomsIsolate(args));
-}
-
-Future<RustResult<AckData>> rustSubscribeMoreLp({required String handle}) {
-  final config = _LibraryConfig.detect();
-  _ensurePostCObjectRegistered(config);
-  final args = _HandleArgs(config, handle);
-  return Isolate.run(() => _subscribeMoreLpIsolate(args));
-}
-
-Future<RustResult<AckData>> rustResubscribeAll({required String handle}) {
-  final config = _LibraryConfig.detect();
-  _ensurePostCObjectRegistered(config);
-  final args = _HandleArgs(config, handle);
-  return Isolate.run(() => _resubscribeAllIsolate(args));
+  final args = _RoomOverviewArgs(config, roomId);
+  return Isolate.run(() => _roomOverviewIsolate(args));
 }
 
 Future<RustResult<OpenRoomData>> rustOpenRoom({
@@ -261,19 +244,14 @@ RustResult<AckData> _roomListStreamIsolate(_RoomListStreamArgs args) {
   return bindings.roomListStream(args.handle, args.nativePort);
 }
 
-RustResult<AckData> _setHpRoomsIsolate(_SetHpArgs args) {
-  final bindings = _RustBindings(_loadLibrary(args.config));
-  return bindings.setHpRooms(args.handle, args.roomIds);
+RustResult<ListRoomsData> _listJoinedRoomsIsolate(_LibraryConfig config) {
+  final bindings = _RustBindings(_loadLibrary(config));
+  return bindings.listJoinedRooms();
 }
 
-RustResult<AckData> _subscribeMoreLpIsolate(_HandleArgs args) {
+RustResult<RoomOverviewData> _roomOverviewIsolate(_RoomOverviewArgs args) {
   final bindings = _RustBindings(_loadLibrary(args.config));
-  return bindings.subscribeMoreLp(args.handle);
-}
-
-RustResult<AckData> _resubscribeAllIsolate(_HandleArgs args) {
-  final bindings = _RustBindings(_loadLibrary(args.config));
-  return bindings.resubscribeAll(args.handle);
+  return bindings.roomOverview(args.roomId);
 }
 
 RustResult<OpenRoomData> _openRoomIsolate(_RoomHandleArgs args) {
@@ -361,6 +339,20 @@ class StartSlidingSyncData {
   final bool started;
 }
 
+class ListRoomsData {
+  const ListRoomsData({required this.rooms});
+
+  factory ListRoomsData.fromJson(Map<String, dynamic> json) {
+    final rawRooms = json['rooms'];
+    final rooms = rawRooms is List
+        ? rawRooms.map((value) => value.toString()).toList()
+        : const <String>[];
+    return ListRoomsData(rooms: rooms);
+  }
+
+  final List<String> rooms;
+}
+
 class AckData {
   const AckData({required this.ok});
 
@@ -386,17 +378,53 @@ class OpenRoomData {
 }
 
 class LoadBackwardData {
-  const LoadBackwardData({required this.reachedStart, required this.loaded});
+  const LoadBackwardData({required this.reachedStart, required this.events});
 
   factory LoadBackwardData.fromJson(Map<String, dynamic> json) {
+    final rawEvents = json['events'];
+    final events = rawEvents is List
+        ? rawEvents.map((value) => value as String).toList()
+        : const <String>[];
     return LoadBackwardData(
       reachedStart: json['reached_start'] as bool? ?? false,
-      loaded: (json['loaded'] as num?)?.toInt() ?? 0,
+      events: events,
     );
   }
 
   final bool reachedStart;
-  final int loaded;
+  final List<String> events;
+}
+
+class RoomOverviewData {
+  const RoomOverviewData({
+    required this.roomId,
+    required this.name,
+    required this.avatarUrl,
+    required this.bumpTs,
+    required this.notificationCount,
+    required this.highlightCount,
+    required this.isMarkedUnread,
+  });
+
+  factory RoomOverviewData.fromJson(Map<String, dynamic> json) {
+    return RoomOverviewData(
+      roomId: json['room_id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      avatarUrl: json['avatar_url'] as String?,
+      bumpTs: (json['bump_ts'] as num?)?.toInt(),
+      notificationCount: (json['notification_count'] as num?)?.toInt() ?? 0,
+      highlightCount: (json['highlight_count'] as num?)?.toInt() ?? 0,
+      isMarkedUnread: json['is_marked_unread'] == true,
+    );
+  }
+
+  final String roomId;
+  final String name;
+  final String? avatarUrl;
+  final int? bumpTs;
+  final int notificationCount;
+  final int highlightCount;
+  final bool isMarkedUnread;
 }
 
 class _RustBindings {
@@ -416,14 +444,11 @@ class _RustBindings {
         _roomListStream =
             library.lookupFunction<_NativeRoomListStream, _DartRoomListStream>(
                 'messie_ffi_room_list_stream'),
-        _setHpRooms =
-            library.lookupFunction<_NativeSetHpRooms, _DartSetHpRooms>(
-                'messie_ffi_set_hp_rooms'),
-        _subscribeMoreLp = library.lookupFunction<_NativeSubscribeMoreLp,
-            _DartSubscribeMoreLp>('messie_ffi_subscribe_more_lp'),
-        _resubscribeAll =
-            library.lookupFunction<_NativeResubscribeAll, _DartResubscribeAll>(
-                'messie_ffi_resubscribe_all'),
+        _listJoinedRooms = library.lookupFunction<_NativeListJoinedRooms,
+            _DartListJoinedRooms>('messie_ffi_list_joined_rooms'),
+        _roomOverview =
+            library.lookupFunction<_NativeRoomOverview, _DartRoomOverview>(
+                'messie_ffi_room_overview'),
         _openRoom =
             library.lookupFunction<_NativeOpenRoom, _DartOpenRoom>(
                 'messie_ffi_open_room'),
@@ -443,9 +468,8 @@ class _RustBindings {
   final _DartLogout _logout;
   final _DartStartSlidingSync _startSlidingSync;
   final _DartRoomListStream _roomListStream;
-  final _DartSetHpRooms _setHpRooms;
-  final _DartSubscribeMoreLp _subscribeMoreLp;
-  final _DartResubscribeAll _resubscribeAll;
+  final _DartListJoinedRooms _listJoinedRooms;
+  final _DartRoomOverview _roomOverview;
   final _DartOpenRoom _openRoom;
   final _DartTimelineStream _timelineStream;
   final _DartLoadBackward _loadBackward;
@@ -531,38 +555,20 @@ class _RustBindings {
     }
   }
 
-  RustResult<AckData> setHpRooms(String handle, List<String> roomIds) {
-    final handlePtr = handle.toNativeUtf8();
-    final roomsPtr = jsonEncode(roomIds).toNativeUtf8();
-    try {
-      final result = _stringFromPointer(_setHpRooms(handlePtr, roomsPtr));
-      return _parse(
-          result, (json) => AckData.fromJson(json as Map<String, dynamic>));
-    } finally {
-      calloc.free(handlePtr);
-      calloc.free(roomsPtr);
-    }
+  RustResult<ListRoomsData> listJoinedRooms() {
+    final result = _stringFromPointer(_listJoinedRooms());
+    return _parse(
+        result, (json) => ListRoomsData.fromJson(json as Map<String, dynamic>));
   }
 
-  RustResult<AckData> subscribeMoreLp(String handle) {
-    final handlePtr = handle.toNativeUtf8();
+  RustResult<RoomOverviewData> roomOverview(String roomId) {
+    final roomPtr = roomId.toNativeUtf8();
     try {
-      final result = _stringFromPointer(_subscribeMoreLp(handlePtr));
+      final result = _stringFromPointer(_roomOverview(roomPtr));
       return _parse(
-          result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+          result, (json) => RoomOverviewData.fromJson(json as Map<String, dynamic>));
     } finally {
-      calloc.free(handlePtr);
-    }
-  }
-
-  RustResult<AckData> resubscribeAll(String handle) {
-    final handlePtr = handle.toNativeUtf8();
-    try {
-      final result = _stringFromPointer(_resubscribeAll(handlePtr));
-      return _parse(
-          result, (json) => AckData.fromJson(json as Map<String, dynamic>));
-    } finally {
-      calloc.free(handlePtr);
+      calloc.free(roomPtr);
     }
   }
 
@@ -720,26 +726,18 @@ class _RoomListStreamArgs {
   final int nativePort;
 }
 
-class _SetHpArgs {
-  const _SetHpArgs(this.config, this.handle, this.roomIds);
-
-  final _LibraryConfig config;
-  final String handle;
-  final List<String> roomIds;
-}
-
-class _HandleArgs {
-  const _HandleArgs(this.config, this.handle);
-
-  final _LibraryConfig config;
-  final String handle;
-}
-
 class _RoomHandleArgs {
   const _RoomHandleArgs(this.config, this.handle, this.roomId);
 
   final _LibraryConfig config;
   final String handle;
+  final String roomId;
+}
+
+class _RoomOverviewArgs {
+  const _RoomOverviewArgs(this.config, this.roomId);
+
+  final _LibraryConfig config;
   final String roomId;
 }
 
