@@ -1976,6 +1976,7 @@ dependencies = [
  "libsqlite3-sys",
  "log",
  "matrix-sdk",
+ "matrix-sdk-common",
  "once_cell",
  "serde",
  "serde_json",

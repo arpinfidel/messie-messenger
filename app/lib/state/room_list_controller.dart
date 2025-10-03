@@ -68,6 +68,7 @@ class RoomListController extends StateNotifier<RoomListState> {
       );
 
       if (!startResult.isOk) {
+        _stop();
         _setError(startResult.error ?? 'Failed to start sliding sync');
         return;
       }

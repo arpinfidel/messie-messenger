@@ -20,6 +20,7 @@ use tokio::runtime::{Builder, Runtime};
 use url::Url;
 
 mod sliding_sync;
+mod timeline;
 
 /// Simple ping function used for integration tests.
 pub fn ping() -> Result<String> {
@@ -296,7 +297,10 @@ pub fn logout(base_path: &Path) -> Result<()> {
     let runtime = runtime();
     let _guard = runtime.enter();
 
-    runtime.block_on(sliding_sync::reset_all());
+    runtime.block_on(async {
+        sliding_sync::reset_all().await;
+        timeline::reset_all().await;
+    });
 
     {
         let mut guard = ACTIVE_CLIENT.write().expect("ACTIVE_CLIENT lock poisoned");
@@ -306,6 +310,7 @@ pub fn logout(base_path: &Path) -> Result<()> {
 }
 
 pub use sliding_sync::{AckResponse, SlidingSyncConfig, StartSlidingSyncResponse};
+pub use timeline::{LoadBackwardResponse, OpenRoomResponse, TimelineAck};
 
 /// Start (or update) the sliding sync controller associated with the provided handle.
 pub fn start_sliding_sync(
@@ -315,6 +320,27 @@ pub fn start_sliding_sync(
     let runtime = runtime();
     let _guard = runtime.enter();
     runtime.block_on(sliding_sync::start_sliding_sync(handle, config))
+}
+
+/// Ensure that the given room has an active timeline controller.
+pub fn open_room(handle: &str, room_id: &str) -> Result<OpenRoomResponse> {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(timeline::open_room(handle, room_id))
+}
+
+/// Subscribe a Dart send port to timeline updates for the room.
+pub fn register_timeline_listener(handle: &str, room_id: &str, port: i64) -> Result<TimelineAck> {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(timeline::register_timeline_listener(handle, room_id, port))
+}
+
+/// Request a backwards pagination for the room timeline.
+pub fn load_backward(handle: &str, room_id: &str, limit: u32) -> Result<LoadBackwardResponse> {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(timeline::load_backward(handle, room_id, limit))
 }
 
 /// Register a Dart send port to receive room list updates for the given handle.

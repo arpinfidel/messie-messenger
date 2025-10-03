@@ -693,10 +693,9 @@ mod tests {
         ];
 
         let ops = SlidingSyncController::compute_diff(&prev, &next);
-        assert_eq!(ops.len(), 4);
-        matches!(
-            ops[0],
-            RoomListOp::Remove { index: 0 } | RoomListOp::Remove { index: 1 }
-        );
+        assert_eq!(ops.len(), 3);
+        assert!(matches!(ops[0], RoomListOp::Remove { index: 0 }));
+        assert!(matches!(ops[1], RoomListOp::Update { index: 0, .. }));
+        assert!(matches!(ops[2], RoomListOp::Insert { index: 1, .. }));
     }
 }

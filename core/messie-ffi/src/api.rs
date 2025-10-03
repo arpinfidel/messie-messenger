@@ -83,3 +83,18 @@ pub fn subscribe_more_lp(handle: String) -> String {
 pub fn resubscribe_all(handle: String) -> String {
     to_response_json(matrix::resubscribe_all(&handle))
 }
+
+/// Ensure a room timeline controller exists for the handle/room pair.
+pub fn open_room(handle: String, room_id: String) -> String {
+    to_response_json(matrix::open_room(&handle, &room_id))
+}
+
+/// Register a Dart send port for timeline updates.
+pub fn timeline_stream(handle: String, room_id: String, port: i64) -> String {
+    to_response_json(matrix::register_timeline_listener(&handle, &room_id, port))
+}
+
+/// Paginate backwards through the room timeline.
+pub fn load_backward(handle: String, room_id: String, limit: u32) -> String {
+    to_response_json(matrix::load_backward(&handle, &room_id, limit))
+}
