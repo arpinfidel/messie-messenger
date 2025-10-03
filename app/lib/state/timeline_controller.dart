@@ -34,7 +34,7 @@ class TimelineController extends StateNotifier<TimelineState> {
     _roomId = roomId;
     state = state.copyWith(
       roomId: roomId,
-      events: <TimelineItem>[],
+      events: const <TimelineItem>[],
       isLoading: true,
       error: null,
       lastChange: null,
@@ -99,7 +99,7 @@ class TimelineController extends StateNotifier<TimelineState> {
       limit: limit,
     );
 
-    if (!result.isOk) {
+    if (!result.isOk || result.data == null) {
       state = state.copyWith(
         isLoadingMore: false,
         error: result.error ?? 'Failed to load older messages',
@@ -108,10 +108,29 @@ class TimelineController extends StateNotifier<TimelineState> {
       return;
     }
 
-    final data = result.data;
+    final data = result.data!;
+    final items = data.events
+        .map(_parseTimelineEvent)
+        .whereType<TimelineItem>()
+        .toList(growable: false);
+
+    if (items.isNotEmpty) {
+      final events = List<TimelineItem>.from(state.events);
+      for (final item in items.reversed) {
+        if (_contains(events, item.key)) {
+          continue;
+        }
+        events.insert(0, item);
+      }
+      state = state.copyWith(
+        events: events,
+        lastChange: TimelineChange(op: TimelineOp.prepend, count: items.length),
+      );
+    }
+
     state = state.copyWith(
       isLoadingMore: false,
-      reachedStart: data?.reachedStart ?? state.reachedStart,
+      reachedStart: data.reachedStart,
     );
     _loadingOlder = false;
   }
@@ -132,68 +151,90 @@ class TimelineController extends StateNotifier<TimelineState> {
   }
 
   void _handleMessage(dynamic message) {
-    if (message is! String) {
+    if (_roomId == null || message is! String) {
       return;
     }
 
     try {
       final decoded = jsonDecode(message) as Map<String, dynamic>;
-      final envelope = TimelineEnvelope.fromJson(decoded);
-      if (_roomId != envelope.roomId) {
+      final roomId = decoded['room_id'] as String?;
+      if (roomId != _roomId) {
         return;
       }
-      _applyEnvelope(envelope);
+      final kind = decoded['kind'] as String? ?? '';
+      final eventsRaw = (decoded['events'] as List<dynamic>? ?? [])
+          .map((value) => value as String)
+          .toList(growable: false);
+
+      switch (kind) {
+        case 'timeline_snapshot':
+        case 'timeline_initial':
+          _applySnapshot(eventsRaw);
+          break;
+        case 'timeline_append':
+          _appendEvents(eventsRaw);
+          break;
+        default:
+          break;
+      }
     } catch (err) {
       state = state.copyWith(error: 'Failed to parse timeline payload: $err');
     }
   }
 
-  void _applyEnvelope(TimelineEnvelope envelope) {
-    var events = List<TimelineItem>.from(state.events);
-    TimelineChange? lastChange;
+  void _applySnapshot(List<String> rawEvents) {
+    final items = rawEvents
+        .map(_parseTimelineEvent)
+        .whereType<TimelineItem>()
+        .toList(growable: false);
 
-    for (final update in envelope.updates) {
-      switch (update.op) {
-        case TimelineOp.reset:
-          events = update.items.map(TimelineItem.fromEntry).toList();
-          lastChange = TimelineChange(op: TimelineOp.reset, count: events.length);
-          break;
-        case TimelineOp.append:
-          final appended = <TimelineItem>[];
-          for (final entry in update.items) {
-            final item = TimelineItem.fromEntry(entry);
-            if (!_contains(events, item.key)) {
-              events.add(item);
-              appended.add(item);
-            }
-          }
-          if (appended.isNotEmpty) {
-            lastChange = TimelineChange(op: TimelineOp.append, count: appended.length);
-          }
-          break;
-        case TimelineOp.prepend:
-          final prepended = <TimelineItem>[];
-          for (final entry in update.items) {
-            final item = TimelineItem.fromEntry(entry);
-            if (_contains(events, item.key)) {
-              continue;
-            }
-            events.insert(prepended.length, item);
-            prepended.add(item);
-          }
-          if (prepended.isNotEmpty) {
-            lastChange = TimelineChange(op: TimelineOp.prepend, count: prepended.length);
-          }
-          break;
+    state = state.copyWith(
+      events: items,
+      isLoading: false,
+      error: null,
+      lastChange: TimelineChange(op: TimelineOp.reset, count: items.length),
+    );
+  }
+
+  void _appendEvents(List<String> rawEvents) {
+    final parsed = rawEvents
+        .map(_parseTimelineEvent)
+        .whereType<TimelineItem>()
+        .toList(growable: false);
+
+    if (parsed.isEmpty) {
+      return;
+    }
+
+    final events = List<TimelineItem>.from(state.events);
+    final appended = <TimelineItem>[];
+    for (final item in parsed) {
+      if (_contains(events, item.key)) {
+        continue;
       }
+      events.add(item);
+      appended.add(item);
+    }
+
+    if (appended.isEmpty) {
+      return;
     }
 
     state = state.copyWith(
       events: events,
       isLoading: false,
       error: null,
-      lastChange: lastChange ?? state.lastChange,
+      lastChange: TimelineChange(op: TimelineOp.append, count: appended.length),
     );
+  }
+
+  TimelineItem? _parseTimelineEvent(String raw) {
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      return TimelineItem.fromRaw(map);
+    } catch (_) {
+      return null;
+    }
   }
 
   bool _contains(List<TimelineItem> items, TimelineEventKey key) {
@@ -260,18 +301,35 @@ class TimelineItem {
     required this.timestamp,
     required this.msgtype,
     required this.isOwn,
+    required this.raw,
   });
 
-  factory TimelineItem.fromEntry(TimelineEntry entry) {
+  factory TimelineItem.fromRaw(Map<String, dynamic> json) {
+    final eventId = json['event_id'] as String?;
+    final unsigned = json['unsigned'] as Map<String, dynamic>? ?? const {};
+    final txnId = unsigned['transaction_id'] as String?;
+    final sender = json['sender'] as String? ?? 'Unknown';
+    final ts = (json['origin_server_ts'] as num?)?.toInt();
+    final content = json['content'] as Map<String, dynamic>? ?? const {};
+    final msgtype = content['msgtype'] as String?;
+    final body = _extractBody(json['type'] as String? ?? '', content);
+
     return TimelineItem(
-      key: entry.eventKey,
-      sender: entry.sender,
-      body: entry.body,
-      timestamp:
-          entry.timestamp != null ? DateTime.fromMillisecondsSinceEpoch(entry.timestamp!) : null,
-      msgtype: entry.msgtype,
-      isOwn: entry.isOwn,
+      key: TimelineEventKey(eventId: eventId, transactionId: txnId),
+      sender: sender,
+      body: body,
+      timestamp: ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : null,
+      msgtype: msgtype,
+      isOwn: false,
+      raw: json,
     );
+  }
+
+  static String? _extractBody(String eventType, Map<String, dynamic> content) {
+    if (eventType == 'm.room.message') {
+    return content['body'] as String? ?? content['formatted_body'] as String?;
+  }
+    return "[${eventType.replaceAll('m.', '')}]";
   }
 
   final TimelineEventKey key;
@@ -280,17 +338,11 @@ class TimelineItem {
   final DateTime? timestamp;
   final String? msgtype;
   final bool isOwn;
+  final Map<String, dynamic> raw;
 }
 
 class TimelineEventKey {
   const TimelineEventKey({this.eventId, this.transactionId});
-
-  factory TimelineEventKey.fromJson(Map<String, dynamic> json) {
-    return TimelineEventKey(
-      eventId: json['event_id'] as String?,
-      transactionId: json['txn_id'] as String?,
-    );
-  }
 
   final String? eventId;
   final String? transactionId;
@@ -304,72 +356,6 @@ class TimelineEventKey {
 
   @override
   int get hashCode => Object.hash(eventId, transactionId);
-}
-
-class TimelineEnvelope {
-  TimelineEnvelope({required this.roomId, required this.updates});
-
-  factory TimelineEnvelope.fromJson(Map<String, dynamic> json) {
-    return TimelineEnvelope(
-      roomId: json['room_id'] as String? ?? '',
-      updates: (json['updates'] as List<dynamic>? ?? [])
-          .map((entry) => TimelineUpdate.fromJson(entry as Map<String, dynamic>))
-          .toList(),
-    );
-  }
-
-  final String roomId;
-  final List<TimelineUpdate> updates;
-}
-
-class TimelineUpdate {
-  TimelineUpdate({required this.op, required this.items});
-
-  factory TimelineUpdate.fromJson(Map<String, dynamic> json) {
-    final opRaw = (json['op'] as String? ?? 'RESET').toUpperCase();
-    return TimelineUpdate(
-      op: TimelineOp.values
-          .firstWhere((value) => value.name.toUpperCase() == opRaw, orElse: () => TimelineOp.reset),
-      items: (json['items'] as List<dynamic>? ?? [])
-          .map((item) => TimelineEntry.fromJson(item as Map<String, dynamic>))
-          .toList(),
-    );
-  }
-
-  final TimelineOp op;
-  final List<TimelineEntry> items;
-}
-
-class TimelineEntry {
-  const TimelineEntry({
-    required this.eventKey,
-    required this.timestamp,
-    required this.sender,
-    required this.body,
-    required this.msgtype,
-    required this.isOwn,
-  });
-
-  factory TimelineEntry.fromJson(Map<String, dynamic> json) {
-    final keyJson = json['event_key'];
-    return TimelineEntry(
-      eventKey: keyJson is Map<String, dynamic>
-          ? TimelineEventKey.fromJson(keyJson)
-          : const TimelineEventKey(),
-      timestamp: (json['timestamp'] as num?)?.toInt(),
-      sender: json['sender'] as String? ?? 'Unknown',
-      body: json['body'] as String?,
-      msgtype: json['msgtype'] as String?,
-      isOwn: json['is_own'] as bool? ?? false,
-    );
-  }
-
-  final TimelineEventKey eventKey;
-  final int? timestamp;
-  final String sender;
-  final String? body;
-  final String? msgtype;
-  final bool isOwn;
 }
 
 enum TimelineOp { reset, append, prepend }

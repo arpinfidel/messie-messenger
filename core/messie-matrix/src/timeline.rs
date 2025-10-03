@@ -1,19 +1,12 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-    time::Duration,
-};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::Duration;
 
 use allo_isolate::Isolate;
 use anyhow::{anyhow, Context, Result};
 use log::{debug, warn};
 use matrix_sdk::room::{Messages, MessagesOptions, Room as MatrixRoom};
-use matrix_sdk::ruma::events::room::message::{MessageType, RoomMessageEventContent};
-use matrix_sdk::ruma::events::{
-    AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent,
-};
 use matrix_sdk::ruma::{OwnedRoomId, UInt};
-use matrix_sdk_common::deserialized_responses::TimelineEvent;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
@@ -24,9 +17,6 @@ use crate::{client, runtime};
 
 static TIMELINES: Lazy<AsyncRwLock<HashMap<String, Arc<TimelineController>>>> =
     Lazy::new(|| AsyncRwLock::new(HashMap::new()));
-
-const DEFAULT_PAGE_SIZE: u32 = 30;
-const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 #[derive(Debug, Clone, Serialize)]
 pub struct OpenRoomResponse {
@@ -42,44 +32,18 @@ pub struct TimelineAck {
 #[derive(Debug, Clone, Serialize)]
 pub struct LoadBackwardResponse {
     pub reached_start: bool,
-    pub loaded: u32,
+    pub events: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
-struct TimelineEnvelope {
+struct TimelinePayload {
+    kind: &'static str,
     room_id: String,
-    updates: Vec<TimelineUpdate>,
+    events: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct TimelineUpdate {
-    op: TimelineOpKind,
-    items: Vec<TimelineEntry>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum TimelineOpKind {
-    Reset,
-    Append,
-    Prepend,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq, Hash)]
-struct TimelineKey {
-    event_id: Option<String>,
-    txn_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct TimelineEntry {
-    event_key: TimelineKey,
-    timestamp: Option<u64>,
-    sender: String,
-    body: Option<String>,
-    msgtype: Option<String>,
-    is_own: bool,
-}
+const DEFAULT_PAGE_SIZE: u32 = 30;
+const POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 pub async fn open_room(handle: &str, room_id: &str) -> Result<OpenRoomResponse> {
     let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
@@ -101,7 +65,7 @@ pub async fn open_room(handle: &str, room_id: &str) -> Result<OpenRoomResponse> 
         });
     }
 
-    let controller = TimelineController::create(handle.to_owned(), room).await?;
+    let controller = TimelineController::create(room).await?;
     timelines.insert(key, controller);
 
     Ok(OpenRoomResponse {
@@ -144,7 +108,7 @@ pub async fn load_backward(
         .cloned()
         .ok_or_else(|| anyhow!("timeline for room {room_id} not opened"))?;
 
-    controller.load_older(limit).await
+    controller.load_backward(limit).await
 }
 
 pub async fn reset_all() {
@@ -162,43 +126,30 @@ fn timeline_key(handle: &str, room_id: &OwnedRoomId) -> String {
 struct TimelineController {
     room_id: OwnedRoomId,
     room: MatrixRoom,
-    snapshot: AsyncMutex<Vec<TimelineEntry>>,
     listeners: AsyncMutex<HashSet<i64>>,
     backward_token: AsyncMutex<Option<String>>,
+    seen_event_ids: AsyncMutex<HashSet<String>>,
+    seen_event_hashes: AsyncMutex<HashSet<String>>,
     cancel_token: CancellationToken,
 }
 
 impl TimelineController {
-    async fn create(_handle: String, room: MatrixRoom) -> Result<Arc<Self>> {
+    async fn create(room: MatrixRoom) -> Result<Arc<Self>> {
         let room_id = room.room_id().to_owned();
         let cancel_token = CancellationToken::new();
 
         let controller = Arc::new(Self {
             room_id,
-            room: room.clone(),
-            snapshot: AsyncMutex::new(Vec::new()),
+            room,
             listeners: AsyncMutex::new(HashSet::new()),
             backward_token: AsyncMutex::new(None),
+            seen_event_ids: AsyncMutex::new(HashSet::new()),
+            seen_event_hashes: AsyncMutex::new(HashSet::new()),
             cancel_token: cancel_token.clone(),
         });
 
-        controller.initialise().await?;
         controller.spawn_background(cancel_token);
-
         Ok(controller)
-    }
-
-    async fn initialise(&self) -> Result<()> {
-        let entries = self.fetch_latest(DEFAULT_PAGE_SIZE, true).await?;
-        *self.snapshot.lock().await = entries.clone();
-        let envelope = TimelineEnvelope {
-            room_id: self.room_id.as_str().to_owned(),
-            updates: vec![TimelineUpdate {
-                op: TimelineOpKind::Reset,
-                items: entries,
-            }],
-        };
-        self.broadcast(envelope).await
     }
 
     fn spawn_background(self: &Arc<Self>, cancel_token: CancellationToken) {
@@ -221,35 +172,19 @@ impl TimelineController {
         });
     }
 
-    fn shutdown(&self) {
-        self.cancel_token.cancel();
-    }
-
     async fn register_listener(&self, port: i64) -> Result<()> {
-        let mut listeners = self.listeners.lock().await;
-        listeners.insert(port);
-
-        let snapshot = self.snapshot.lock().await.clone();
-        if snapshot.is_empty() {
-            return Ok(());
-        }
-
-        let envelope = TimelineEnvelope {
-            room_id: self.room_id.as_str().to_owned(),
-            updates: vec![TimelineUpdate {
-                op: TimelineOpKind::Reset,
-                items: snapshot,
-            }],
-        };
-        self.send_to(port, envelope).await
+        self.listeners.lock().await.insert(port);
+        let events = self.collect_latest(DEFAULT_PAGE_SIZE, true).await?;
+        self.record_seen(&events).await;
+        self.send_to(port, "timeline_snapshot", events).await
     }
 
-    async fn load_older(&self, limit: u32) -> Result<LoadBackwardResponse> {
+    async fn load_backward(&self, limit: u32) -> Result<LoadBackwardResponse> {
         let token = { self.backward_token.lock().await.clone() };
         if token.is_none() {
             return Ok(LoadBackwardResponse {
                 reached_start: true,
-                loaded: 0,
+                events: Vec::new(),
             });
         }
 
@@ -262,106 +197,32 @@ impl TimelineController {
             .await
             .context("failed to load older messages")?;
 
-        if messages.chunk.is_empty() {
-            *self.backward_token.lock().await = None;
-            return Ok(LoadBackwardResponse {
-                reached_start: true,
-                loaded: 0,
-            });
-        }
-
-        let own_user_id = self.room.client().user_id().map(|id| id.to_string());
-        let mut entries = collect_entries(&messages, own_user_id.as_deref());
-        entries.reverse();
-
-        let mut snapshot = self.snapshot.lock().await;
-        let mut items = Vec::new();
-        for entry in entries.into_iter().rev() {
-            if snapshot
-                .iter()
-                .any(|existing| existing.event_key == entry.event_key)
-            {
-                continue;
-            }
-            snapshot.insert(0, entry.clone());
-            items.push(entry);
-        }
-
-        items.reverse();
-
         *self.backward_token.lock().await = messages.end.clone();
 
-        if items.is_empty() {
-            return Ok(LoadBackwardResponse {
-                reached_start: messages.end.is_none(),
-                loaded: 0,
-            });
-        }
+        let events = Self::extract_events(&messages)?;
+        let reached_start = messages.end.is_none();
+        self.record_seen(&events).await;
 
-        let envelope = TimelineEnvelope {
-            room_id: self.room_id.as_str().to_owned(),
-            updates: vec![TimelineUpdate {
-                op: TimelineOpKind::Prepend,
-                items: items.clone(),
-            }],
-        };
-        drop(snapshot);
-        self.broadcast(envelope).await?;
         Ok(LoadBackwardResponse {
-            reached_start: messages.end.is_none(),
-            loaded: items.len() as u32,
+            reached_start,
+            events: events.into_iter().map(|event| event.raw).collect(),
         })
     }
 
     async fn poll_latest(&self) -> Result<()> {
-        let latest = self.fetch_latest(DEFAULT_PAGE_SIZE, false).await?;
-        if latest.is_empty() {
+        let events = self.collect_latest(DEFAULT_PAGE_SIZE, false).await?;
+        let new_events = self.filter_new(events).await;
+        if new_events.is_empty() {
             return Ok(());
         }
-
-        let mut snapshot = self.snapshot.lock().await;
-        if snapshot.is_empty() {
-            *snapshot = latest.clone();
-            let envelope = TimelineEnvelope {
-                room_id: self.room_id.as_str().to_owned(),
-                updates: vec![TimelineUpdate {
-                    op: TimelineOpKind::Reset,
-                    items: latest,
-                }],
-            };
-            drop(snapshot);
-            return self.broadcast(envelope).await;
-        }
-
-        let known: HashSet<_> = snapshot
-            .iter()
-            .map(|entry| entry.event_key.clone())
-            .collect();
-        let mut new_items = Vec::new();
-        for entry in latest.iter() {
-            if !known.contains(&entry.event_key) {
-                new_items.push(entry.clone());
-            }
-        }
-
-        if new_items.is_empty() {
-            return Ok(());
-        }
-
-        snapshot.extend(new_items.clone());
-        drop(snapshot);
-
-        let envelope = TimelineEnvelope {
-            room_id: self.room_id.as_str().to_owned(),
-            updates: vec![TimelineUpdate {
-                op: TimelineOpKind::Append,
-                items: new_items,
-            }],
-        };
-        self.broadcast(envelope).await
+        self.broadcast("timeline_append", new_events).await
     }
 
-    async fn fetch_latest(&self, limit: u32, update_token: bool) -> Result<Vec<TimelineEntry>> {
+    async fn collect_latest(
+        &self,
+        limit: u32,
+        update_backward: bool,
+    ) -> Result<Vec<CollectedEvent>> {
         let options = MessagesOptions::backward().with_limit(limit);
         let messages = self
             .room
@@ -369,24 +230,63 @@ impl TimelineController {
             .await
             .context("failed to load recent messages")?;
 
-        if update_token {
+        if update_backward {
             *self.backward_token.lock().await = messages.end.clone();
         } else if self.backward_token.lock().await.is_none() {
             *self.backward_token.lock().await = messages.end.clone();
         }
 
-        let own_user_id = self.room.client().user_id().map(|id| id.to_string());
-        let mut entries = collect_entries(&messages, own_user_id.as_deref());
-        entries.reverse();
-        Ok(entries)
+        Self::extract_events(&messages)
     }
 
-    async fn broadcast(&self, envelope: TimelineEnvelope) -> Result<()> {
-        let payload = serde_json::to_string(&envelope)?;
+    async fn record_seen(&self, events: &[CollectedEvent]) {
+        let mut ids = self.seen_event_ids.lock().await;
+        let mut hashes = self.seen_event_hashes.lock().await;
+        for event in events {
+            if let Some(id) = &event.id {
+                ids.insert(id.clone());
+            } else {
+                hashes.insert(event.raw.clone());
+            }
+        }
+    }
+
+    async fn filter_new(&self, events: Vec<CollectedEvent>) -> Vec<String> {
+        let mut ids = self.seen_event_ids.lock().await;
+        let mut hashes = self.seen_event_hashes.lock().await;
+        let mut result = Vec::new();
+
+        for event in events {
+            let is_new = if let Some(id) = event.id {
+                ids.insert(id)
+            } else {
+                hashes.insert(event.raw.clone())
+            };
+
+            if is_new {
+                result.push(event.raw);
+            }
+        }
+
+        result
+    }
+
+    async fn broadcast(&self, kind: &'static str, events: Vec<String>) -> Result<()> {
+        if events.is_empty() {
+            return Ok(());
+        }
+
+        let payload = TimelinePayload {
+            kind,
+            room_id: self.room_id.as_str().to_owned(),
+            events,
+        };
+
+        let json = serde_json::to_string(&payload)?;
         let mut listeners = self.listeners.lock().await;
         let mut stale = Vec::new();
         for &port in listeners.iter() {
-            if !Isolate::new(port).post(payload.clone()) {
+            if !Self::post_to_port(port, json.clone()) {
                 stale.push(port);
             }
         }
@@ -396,74 +296,48 @@ impl TimelineController {
         Ok(())
     }
 
-    async fn send_to(&self, port: i64, envelope: TimelineEnvelope) -> Result<()> {
-        let payload = serde_json::to_string(&envelope)?;
-        if !Isolate::new(port).post(payload) {
-            let mut listeners = self.listeners.lock().await;
-            listeners.remove(&port);
+    async fn send_to(
+        &self,
+        port: i64,
+        kind: &'static str,
+        events: Vec<CollectedEvent>,
+    ) -> Result<()> {
+        let payload = TimelinePayload {
+            kind,
+            room_id: self.room_id.as_str().to_owned(),
+            events: events.into_iter().map(|event| event.raw).collect(),
+        };
+        let json = serde_json::to_string(&payload)?;
+        if !Self::post_to_port(port, json) {
+            self.listeners.lock().await.remove(&port);
         }
         Ok(())
     }
-}
 
-fn collect_entries(messages: &Messages, own_user_id: Option<&str>) -> Vec<TimelineEntry> {
-    messages
-        .chunk
-        .iter()
-        .filter_map(|event| build_entry(event, own_user_id).ok())
-        .collect()
-}
-
-fn build_entry(event: &TimelineEvent, own_user_id: Option<&str>) -> Result<TimelineEntry> {
-    let raw = event.raw();
-    let timeline_event: AnySyncTimelineEvent = raw.clone().deserialize()?;
-
-    let (event_id, sender, content, timestamp, txn_id, is_own) = match timeline_event {
-        AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(message)) => {
-            match message {
-                SyncMessageLikeEvent::Original(ev) => {
-                    let ts = Some(u64::from(ev.origin_server_ts.get()));
-                    let txn_id = ev.unsigned.transaction_id.clone().map(|id| id.to_string());
-                    (
-                        Some(ev.event_id.to_string()),
-                        ev.sender.to_string(),
-                        ev.content,
-                        ts,
-                        txn_id,
-                        own_user_id
-                            .map(|id| id == ev.sender.as_str())
-                            .unwrap_or(false),
-                    )
-                }
-                SyncMessageLikeEvent::Redacted(_) => return Err(anyhow!("redacted message")),
-            }
-        }
-        _ => return Err(anyhow!("unsupported event type")),
-    };
-
-    let (body, msgtype) = extract_body(&content);
-
-    Ok(TimelineEntry {
-        event_key: TimelineKey { event_id, txn_id },
-        timestamp,
-        sender,
-        body,
-        msgtype,
-        is_own,
-    })
-}
-
-fn extract_body(content: &RoomMessageEventContent) -> (Option<String>, Option<String>) {
-    match &content.msgtype {
-        MessageType::Text(text) => (Some(text.body.clone()), Some("m.text".to_owned())),
-        MessageType::Notice(notice) => (Some(notice.body.clone()), Some("m.notice".to_owned())),
-        MessageType::Emote(emote) => (Some(emote.body.clone()), Some("m.emote".to_owned())),
-        MessageType::Image(image) => (Some(image.body.clone()), Some("m.image".to_owned())),
-        MessageType::Video(video) => (Some(video.body.clone()), Some("m.video".to_owned())),
-        MessageType::Audio(audio) => (Some(audio.body.clone()), Some("m.audio".to_owned())),
-        MessageType::File(file) => (Some(file.body.clone()), Some("m.file".to_owned())),
-        _ => (None, None),
+    fn post_to_port(port: i64, payload: String) -> bool {
+        Isolate::new(port).post(payload)
     }
+
+    fn extract_events(messages: &Messages) -> Result<Vec<CollectedEvent>> {
+        let mut events = Vec::new();
+        for event in messages.chunk.iter() {
+            let raw =
+                serde_json::to_string(event.raw()).context("failed to serialise timeline event")?;
+            let id = event.event_id().map(|id| id.to_string());
+            events.push(CollectedEvent { id, raw });
+        }
+        events.reverse();
+        Ok(events)
+    }
+
+    fn shutdown(&self) {
+        self.cancel_token.cancel();
+    }
+}
+
+struct CollectedEvent {
+    id: Option<String>,
+    raw: String,
 }
 
 trait MessagesOptionsExt {

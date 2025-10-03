@@ -9,10 +9,11 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
+use log::warn;
 use matrix_sdk::{
     authentication::matrix::MatrixSession,
-    ruma::{OwnedDeviceId, OwnedUserId},
-    Client, SessionMeta, SessionTokens,
+    ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
+    Client, Room as MatrixRoom, RoomDisplayName, RoomState, SessionMeta, SessionTokens,
 };
 use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
@@ -350,23 +351,80 @@ pub fn register_room_list_listener(handle: &str, port: i64) -> Result<AckRespons
     runtime.block_on(sliding_sync::register_room_list_listener(handle, port))
 }
 
-/// Update the pinned high-priority rooms for the sliding sync handle.
-pub fn set_hp_rooms(handle: &str, rooms: Vec<String>) -> Result<AckResponse> {
-    let runtime = runtime();
-    let _guard = runtime.enter();
-    runtime.block_on(sliding_sync::set_hp_rooms(handle, rooms))
+/// Return the list of joined or invited room IDs.
+pub fn list_joined_rooms() -> Result<RoomListResponse> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    let rooms = client.rooms();
+    let mut result = Vec::new();
+    for room in rooms {
+        if matches!(room.state(), RoomState::Joined | RoomState::Invited) {
+            result.push(room.room_id().to_string());
+        }
+    }
+    Ok(RoomListResponse { rooms: result })
 }
 
-/// Grow the low-priority window for the given sliding sync handle.
-pub fn subscribe_more_lp(handle: &str) -> Result<AckResponse> {
+/// Return overview details for a given room ID.
+pub fn room_overview(room_id: &str) -> Result<RoomOverview> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
     let runtime = runtime();
     let _guard = runtime.enter();
-    runtime.block_on(sliding_sync::subscribe_more_lp(handle))
+
+    let room_id: OwnedRoomId = room_id
+        .parse()
+        .map_err(|_| anyhow!("invalid room id '{room_id}'"))?;
+
+    runtime.block_on(async move {
+        let room = client
+            .get_room(&room_id)
+            .ok_or_else(|| anyhow!("room {room_id} not found"))?;
+        build_room_overview(&room).await
+    })
 }
 
-/// Force the sliding sync controller to resubscribe and reset position.
-pub fn resubscribe_all(handle: &str) -> Result<AckResponse> {
-    let runtime = runtime();
-    let _guard = runtime.enter();
-    runtime.block_on(sliding_sync::resubscribe_all(handle))
+#[derive(Debug, Clone, Serialize)]
+pub struct RoomOverview {
+    pub room_id: String,
+    pub name: String,
+    pub avatar_url: Option<String>,
+    pub bump_ts: Option<u64>,
+    pub notification_count: u64,
+    pub highlight_count: u64,
+    pub is_marked_unread: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RoomListResponse {
+    pub rooms: Vec<String>,
+}
+
+async fn build_room_overview(room: &MatrixRoom) -> Result<RoomOverview> {
+    let room_id = room.room_id().to_owned();
+
+    let display_name = match room.display_name().await {
+        Ok(RoomDisplayName::Named(name))
+        | Ok(RoomDisplayName::Calculated(name))
+        | Ok(RoomDisplayName::Aliased(name))
+        | Ok(RoomDisplayName::EmptyWas(name)) => name,
+        Ok(RoomDisplayName::Empty) => room_id.as_str().to_owned(),
+        Err(err) => {
+            warn!("failed to resolve display name for {}: {err:?}", room_id);
+            room_id.as_str().to_owned()
+        }
+    };
+
+    let avatar_url = room.avatar_url().map(|url| url.to_string());
+    let bump_ts = room.recency_stamp();
+    let notification_counts = room.unread_notification_counts();
+    let is_marked_unread = room.is_marked_unread();
+
+    Ok(RoomOverview {
+        room_id: room_id.as_str().to_owned(),
+        name: display_name,
+        avatar_url,
+        bump_ts,
+        notification_count: notification_counts.notification_count,
+        highlight_count: notification_counts.highlight_count,
+        is_marked_unread,
+    })
 }

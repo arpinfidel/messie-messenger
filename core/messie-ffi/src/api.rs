@@ -65,23 +65,14 @@ pub fn room_list_stream(handle: String, port: i64) -> String {
     to_response_json(matrix::register_room_list_listener(&handle, port))
 }
 
-/// Update the pinned high priority rooms for the sliding sync controller.
-pub fn set_hp_rooms(handle: String, rooms_json: String) -> String {
-    let rooms: anyhow::Result<Vec<String>> = serde_json::from_str(&rooms_json).map_err(Into::into);
-    match rooms {
-        Ok(rooms) => to_response_json(matrix::set_hp_rooms(&handle, rooms)),
-        Err(err) => to_response_json::<matrix::AckResponse>(Err(err)),
-    }
+/// Return the list of joined or invited room IDs.
+pub fn list_joined_rooms() -> String {
+    to_response_json(matrix::list_joined_rooms())
 }
 
-/// Request more low priority rooms.
-pub fn subscribe_more_lp(handle: String) -> String {
-    to_response_json(matrix::subscribe_more_lp(&handle))
-}
-
-/// Force a sliding sync resubscribe cycle.
-pub fn resubscribe_all(handle: String) -> String {
-    to_response_json(matrix::resubscribe_all(&handle))
+/// Fetch overview information for a room by ID.
+pub fn room_overview(room_id: String) -> String {
+    to_response_json(matrix::room_overview(&room_id))
 }
 
 /// Ensure a room timeline controller exists for the handle/room pair.
