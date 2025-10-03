@@ -195,6 +195,44 @@ pub extern "C" fn messie_ffi_resubscribe_all(handle: *const c_char) -> *mut c_ch
 }
 
 #[no_mangle]
+pub extern "C" fn messie_ffi_open_room(
+    handle: *const c_char,
+    room_id: *const c_char,
+) -> *mut c_char {
+    ffi_safe(|| {
+        let handle = read_c_string(handle, "handle")?;
+        let room_id = read_c_string(room_id, "roomId")?;
+        Ok(api::open_room(handle, room_id))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_timeline_stream(
+    handle: *const c_char,
+    room_id: *const c_char,
+    port: i64,
+) -> *mut c_char {
+    ffi_safe(|| {
+        let handle = read_c_string(handle, "handle")?;
+        let room_id = read_c_string(room_id, "roomId")?;
+        Ok(api::timeline_stream(handle, room_id, port))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_load_backward(
+    handle: *const c_char,
+    room_id: *const c_char,
+    limit: u32,
+) -> *mut c_char {
+    ffi_safe(|| {
+        let handle = read_c_string(handle, "handle")?;
+        let room_id = read_c_string(room_id, "roomId")?;
+        Ok(api::load_backward(handle, room_id, limit))
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn messie_ffi_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;

@@ -39,6 +39,19 @@ typedef _DartSubscribeMoreLp = _PointerUtf8 Function(_PointerUtf8);
 typedef _NativeResubscribeAll = _PointerUtf8 Function(_PointerUtf8);
 typedef _DartResubscribeAll = _PointerUtf8 Function(_PointerUtf8);
 
+typedef _NativeOpenRoom = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+typedef _DartOpenRoom = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+
+typedef _NativeTimelineStream = _PointerUtf8 Function(
+    _PointerUtf8, _PointerUtf8, ffi.Int64);
+typedef _DartTimelineStream = _PointerUtf8 Function(
+    _PointerUtf8, _PointerUtf8, int);
+
+typedef _NativeLoadBackward = _PointerUtf8 Function(
+    _PointerUtf8, _PointerUtf8, ffi.Uint32);
+typedef _DartLoadBackward = _PointerUtf8 Function(
+    _PointerUtf8, _PointerUtf8, int);
+
 typedef _NativeFreeString = ffi.Void Function(_PointerUtf8);
 typedef _DartFreeString = void Function(_PointerUtf8);
 
@@ -170,6 +183,43 @@ Future<RustResult<AckData>> rustResubscribeAll({required String handle}) {
   return Isolate.run(() => _resubscribeAllIsolate(args));
 }
 
+Future<RustResult<OpenRoomData>> rustOpenRoom({
+  required String handle,
+  required String roomId,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _RoomHandleArgs(config, handle, roomId);
+  return Isolate.run(() => _openRoomIsolate(args));
+}
+
+Future<RustResult<AckData>> rustTimelineStream({
+  required String handle,
+  required String roomId,
+  required SendPort port,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _TimelineStreamArgs(
+    config,
+    handle,
+    roomId,
+    port.nativePort,
+  );
+  return Isolate.run(() => _timelineStreamIsolate(args));
+}
+
+Future<RustResult<LoadBackwardData>> rustLoadBackward({
+  required String handle,
+  required String roomId,
+  required int limit,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _LoadBackwardArgs(config, handle, roomId, limit);
+  return Isolate.run(() => _loadBackwardIsolate(args));
+}
+
 String _pingIsolate(_LibraryConfig config) {
   final bindings = _RustBindings(_loadLibrary(config));
   return bindings.ping();
@@ -224,6 +274,21 @@ RustResult<AckData> _subscribeMoreLpIsolate(_HandleArgs args) {
 RustResult<AckData> _resubscribeAllIsolate(_HandleArgs args) {
   final bindings = _RustBindings(_loadLibrary(args.config));
   return bindings.resubscribeAll(args.handle);
+}
+
+RustResult<OpenRoomData> _openRoomIsolate(_RoomHandleArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.openRoom(args.handle, args.roomId);
+}
+
+RustResult<AckData> _timelineStreamIsolate(_TimelineStreamArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.timelineStream(args.handle, args.roomId, args.nativePort);
+}
+
+RustResult<LoadBackwardData> _loadBackwardIsolate(_LoadBackwardArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.loadBackward(args.handle, args.roomId, args.limit);
 }
 
 class RustResult<T> {
@@ -306,6 +371,34 @@ class AckData {
   final bool ok;
 }
 
+class OpenRoomData {
+  const OpenRoomData({required this.roomId, required this.initialized});
+
+  factory OpenRoomData.fromJson(Map<String, dynamic> json) {
+    return OpenRoomData(
+      roomId: json['room_id'] as String? ?? '',
+      initialized: json['initialized'] as bool? ?? false,
+    );
+  }
+
+  final String roomId;
+  final bool initialized;
+}
+
+class LoadBackwardData {
+  const LoadBackwardData({required this.reachedStart, required this.loaded});
+
+  factory LoadBackwardData.fromJson(Map<String, dynamic> json) {
+    return LoadBackwardData(
+      reachedStart: json['reached_start'] as bool? ?? false,
+      loaded: (json['loaded'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  final bool reachedStart;
+  final int loaded;
+}
+
 class _RustBindings {
   _RustBindings(ffi.DynamicLibrary library)
       : _ping =
@@ -331,6 +424,15 @@ class _RustBindings {
         _resubscribeAll =
             library.lookupFunction<_NativeResubscribeAll, _DartResubscribeAll>(
                 'messie_ffi_resubscribe_all'),
+        _openRoom =
+            library.lookupFunction<_NativeOpenRoom, _DartOpenRoom>(
+                'messie_ffi_open_room'),
+        _timelineStream =
+            library.lookupFunction<_NativeTimelineStream, _DartTimelineStream>(
+                'messie_ffi_timeline_stream'),
+        _loadBackward =
+            library.lookupFunction<_NativeLoadBackward, _DartLoadBackward>(
+                'messie_ffi_load_backward'),
         _freeString =
             library.lookupFunction<_NativeFreeString, _DartFreeString>(
                 'messie_ffi_free_string');
@@ -344,6 +446,9 @@ class _RustBindings {
   final _DartSetHpRooms _setHpRooms;
   final _DartSubscribeMoreLp _subscribeMoreLp;
   final _DartResubscribeAll _resubscribeAll;
+  final _DartOpenRoom _openRoom;
+  final _DartTimelineStream _timelineStream;
+  final _DartLoadBackward _loadBackward;
   final _DartFreeString _freeString;
 
   String ping() => _stringFromPointer(_ping());
@@ -458,6 +563,57 @@ class _RustBindings {
           result, (json) => AckData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(handlePtr);
+    }
+  }
+
+  RustResult<OpenRoomData> openRoom(String handle, String roomId) {
+    final handlePtr = handle.toNativeUtf8();
+    final roomPtr = roomId.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_openRoom(handlePtr, roomPtr));
+      return _parse(
+          result, (json) => OpenRoomData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(handlePtr);
+      calloc.free(roomPtr);
+    }
+  }
+
+  RustResult<AckData> timelineStream(
+    String handle,
+    String roomId,
+    int nativePort,
+  ) {
+    final handlePtr = handle.toNativeUtf8();
+    final roomPtr = roomId.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(
+        _timelineStream(handlePtr, roomPtr, nativePort),
+      );
+      return _parse(
+          result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(handlePtr);
+      calloc.free(roomPtr);
+    }
+  }
+
+  RustResult<LoadBackwardData> loadBackward(
+    String handle,
+    String roomId,
+    int limit,
+  ) {
+    final handlePtr = handle.toNativeUtf8();
+    final roomPtr = roomId.toNativeUtf8();
+    try {
+      final result =
+          _stringFromPointer(_loadBackward(handlePtr, roomPtr, limit));
+      return _parse(
+          result,
+          (json) => LoadBackwardData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(handlePtr);
+      calloc.free(roomPtr);
     }
   }
 
@@ -577,6 +733,33 @@ class _HandleArgs {
 
   final _LibraryConfig config;
   final String handle;
+}
+
+class _RoomHandleArgs {
+  const _RoomHandleArgs(this.config, this.handle, this.roomId);
+
+  final _LibraryConfig config;
+  final String handle;
+  final String roomId;
+}
+
+class _TimelineStreamArgs {
+  const _TimelineStreamArgs(
+      this.config, this.handle, this.roomId, this.nativePort);
+
+  final _LibraryConfig config;
+  final String handle;
+  final String roomId;
+  final int nativePort;
+}
+
+class _LoadBackwardArgs {
+  const _LoadBackwardArgs(this.config, this.handle, this.roomId, this.limit);
+
+  final _LibraryConfig config;
+  final String handle;
+  final String roomId;
+  final int limit;
 }
 
 class Unit {
