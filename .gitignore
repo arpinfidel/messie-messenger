@@ -6,6 +6,10 @@ node_modules/
 dist/
 build/
 jira-tasks.yaml
+scripts/matrix/node_modules/
+scripts/matrix/dist/
+scripts/matrix/.state/
+scripts/matrix/scripts/matrix/.state/
 
 # Flutter tooling / IDE artifacts
 app/.dart_tool/
@@ -26,3 +30,8 @@ frontend/.svelte-kit/
 
 # Local SDK config
 frontend/android/local.properties
+
+.venv-matrix-seed/
+__pycache__/
+*.pyc
+*.pyo

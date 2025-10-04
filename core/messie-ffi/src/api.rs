@@ -43,6 +43,21 @@ pub fn logout(base_path: String) -> String {
     to_response_json(matrix::logout(Path::new(&base_path)))
 }
 
+/// Recover encrypted secrets using a recovery key.
+pub fn recover_with_key(recovery_key: String) -> String {
+    to_response_json(matrix::recover_with_key(&recovery_key))
+}
+
+/// Download room keys for a room using the configured backup.
+pub fn download_room_keys_for_room(room_id: String) -> String {
+    to_response_json(matrix::download_room_keys_for_room(&room_id))
+}
+
+/// Dump diagnostic information for a room's crypto state.
+pub fn dump_room_crypto(room_id: String) -> String {
+    to_response_json(matrix::dump_room_crypto(&room_id))
+}
+
 /// Start or update the sliding sync controller for the provided handle.
 pub fn start_sliding_sync(
     handle: String,

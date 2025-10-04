@@ -3,21 +3,29 @@
 //! so the Flutter app can manage session lifecycles from Dart.
 
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
+    time::Duration,
 };
 
 use anyhow::{anyhow, Context, Result};
-use log::warn;
+use log::{info, warn};
 use matrix_sdk::{
     authentication::matrix::MatrixSession,
+    config::SyncSettings,
+    encryption::{BackupDownloadStrategy, EncryptionSettings},
+    room::MessagesOptions,
     ruma::{OwnedDeviceId, OwnedRoomId, OwnedUserId},
     Client, Room as MatrixRoom, RoomDisplayName, RoomState, SessionMeta, SessionTokens,
 };
 use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
-use tokio::runtime::{Builder, Runtime};
+use tokio::{
+    runtime::{Builder, Runtime},
+    time::timeout,
+};
 use url::Url;
 
 mod sliding_sync;
@@ -73,9 +81,16 @@ fn client_builder(homeserver_url: &Url, base_path: &Path) -> Result<Client> {
     let homeserver = homeserver_url.clone();
     runtime
         .block_on(async move {
+            let encryption_settings = EncryptionSettings {
+                auto_enable_cross_signing: false,
+                backup_download_strategy: BackupDownloadStrategy::OneShot,
+                auto_enable_backups: true,
+            };
+
             Client::builder()
                 .homeserver_url(homeserver.as_ref())
                 .sqlite_store_with_cache_path(&database_path, &cache_path, None)
+                .with_encryption_settings(encryption_settings)
                 .build()
                 .await
         })
@@ -242,11 +257,39 @@ pub fn restore_or_login(
         let session = runtime
             .block_on(async {
                 client.restore_session(session.clone()).await?;
+                let sync = client
+                    .sync_once(SyncSettings::default().full_state(true))
+                    .await?;
+                let joined: Vec<_> = sync
+                    .rooms
+                    .joined
+                    .keys()
+                    .take(5)
+                    .cloned()
+                    .map(|room_id| room_id.to_string())
+                    .collect();
+                info!(
+                    "restore_or_login: initial sync after restore returned {} joined / {} invited rooms (sample: {:?})",
+                    sync.rooms.joined.len(),
+                    sync.rooms.invited.len(),
+                    joined
+                );
                 Result::<_, anyhow::Error>::Ok(session)
             })
             .context("failed to restore existing session")?;
 
         let arc = store_client(client);
+        let rooms = arc.rooms();
+        let known_room_count = rooms.len();
+        let known_rooms: Vec<_> = rooms
+            .iter()
+            .take(5)
+            .map(|room| room.room_id().to_string())
+            .collect();
+        info!(
+            "restore_or_login: client cache after restore includes {} rooms (sample: {:?})",
+            known_room_count, known_rooms
+        );
         let meta = arc
             .session_meta()
             .cloned()
@@ -271,6 +314,23 @@ pub fn restore_or_login(
                     .initial_device_display_name("Messie Flutter")
                     .send()
                     .await?;
+                let sync = client
+                    .sync_once(SyncSettings::default().full_state(true))
+                    .await?;
+                let joined: Vec<_> = sync
+                    .rooms
+                    .joined
+                    .keys()
+                    .take(5)
+                    .cloned()
+                    .map(|room_id| room_id.to_string())
+                    .collect();
+                info!(
+                    "restore_or_login: initial sync after login returned {} joined / {} invited rooms (sample: {:?})",
+                    sync.rooms.joined.len(),
+                    sync.rooms.invited.len(),
+                    joined
+                );
                 Result::<_, anyhow::Error>::Ok(response)
             })
             .context("failed to login with username/password")?;
@@ -278,6 +338,17 @@ pub fn restore_or_login(
         let session: MatrixSession = (&response).into();
         persist_session(&base_path, &session, &homeserver_url)?;
         let arc = store_client(client);
+        let rooms = arc.rooms();
+        let known_room_count = rooms.len();
+        let known_rooms: Vec<_> = rooms
+            .iter()
+            .take(5)
+            .map(|room| room.room_id().to_string())
+            .collect();
+        info!(
+            "restore_or_login: client cache after login includes {} rooms (sample: {:?})",
+            known_room_count, known_rooms
+        );
         let meta = arc
             .session_meta()
             .cloned()
@@ -308,6 +379,156 @@ pub fn logout(base_path: &Path) -> Result<()> {
         *guard = None;
     }
     wipe_store(base_path)
+}
+
+/// Recover encrypted secrets (cross-signing keys, key backup, etc.) using the
+/// provided recovery key.
+pub fn recover_with_key(recovery_key: &str) -> Result<()> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    let runtime = runtime();
+    let _guard = runtime.enter();
+
+    runtime.block_on(async {
+        info!("recover_with_key: starting recovery workflow");
+        println!("recover_with_key: starting recovery workflow");
+        client.encryption().recovery().recover(recovery_key).await?;
+        let encryption = client.encryption();
+        encryption.wait_for_e2ee_initialization_tasks().await;
+        let recovery_state = encryption.recovery().state();
+        info!("recover_with_key: recovery state {recovery_state:?}");
+        println!("recover_with_key: recovery state {recovery_state:?}");
+        if let Err(err) = encryption.recovery().enable_backup().await {
+            warn!("recover_with_key: failed to enable backup after recovery: {err:?}");
+            println!("recover_with_key: failed to enable backup after recovery: {err:?}");
+        }
+        let backups = encryption.backups();
+        let enabled = backups.are_enabled().await;
+        let exists = backups.fetch_exists_on_server().await.unwrap_or(false);
+        info!("recover_with_key: backups enabled={enabled}, exists_on_server={exists}");
+        println!("recover_with_key: backups enabled={enabled}, exists_on_server={exists}");
+        if exists && !enabled {
+            use matrix_sdk::ruma::{events::GlobalAccountDataEventType, serde::Raw};
+            println!("recover_with_key: forcing backup disabled flag to false");
+            let raw = Raw::from_json_string("{\"disabled\":false}".to_owned())?;
+            client
+                .account()
+                .set_account_data_raw(
+                    GlobalAccountDataEventType::from("m.org.matrix.custom.backup_disabled"),
+                    raw,
+                )
+                .await?;
+        }
+        match timeout(Duration::from_secs(10), backups.wait_for_steady_state()).await {
+            Ok(Ok(())) => {
+                info!("recover_with_key: backup reached steady state");
+                println!("recover_with_key: backup reached steady state");
+            }
+            Ok(Err(err)) => {
+                warn!("recover_with_key: backup steady state failed: {err:?}");
+                println!("recover_with_key: backup steady state failed: {err:?}");
+            }
+            Err(_) => {
+                warn!("recover_with_key: waiting for backup steady state timed out");
+                println!("recover_with_key: waiting for backup steady state timed out");
+            }
+        }
+
+        if exists {
+            let joined_rooms: Vec<_> = client
+                .rooms()
+                .into_iter()
+                .filter(|room| matches!(room.state(), RoomState::Joined))
+                .map(|room| room.room_id().to_owned())
+                .collect();
+
+            info!(
+                "recover_with_key: attempting backup download for {} joined rooms",
+                joined_rooms.len()
+            );
+            println!(
+                "recover_with_key: attempting backup download for {} joined rooms",
+                joined_rooms.len()
+            );
+
+            for room_id in joined_rooms {
+                match backups.download_room_keys_for_room(&room_id).await {
+                    Ok(()) => {
+                        info!("recover_with_key: downloaded backup for {room_id}");
+                        println!("recover_with_key: downloaded backup for {room_id}");
+                    }
+                    Err(err) => {
+                        warn!("recover_with_key: failed to download backup for {room_id}: {err:?}");
+                        println!(
+                            "recover_with_key: failed to download backup for {room_id}: {err:?}"
+                        );
+                    }
+                }
+            }
+        }
+        Result::<_, anyhow::Error>::Ok(())
+    })
+}
+
+/// Download room keys for the provided room if a backup exists.
+pub fn download_room_keys_for_room(room_id: &str) -> Result<()> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    let runtime = runtime();
+    let _guard = runtime.enter();
+
+    let room_id: OwnedRoomId = room_id
+        .parse()
+        .map_err(|_| anyhow!("invalid room id '{room_id}'"))?;
+
+    runtime.block_on(async move {
+        client
+            .encryption()
+            .backups()
+            .download_room_keys_for_room(&room_id)
+            .await?;
+        Result::<_, anyhow::Error>::Ok(())
+    })
+}
+
+/// Emit diagnostic information about a room's encryption/backup state.
+pub fn dump_room_crypto(room_id: &str) -> Result<()> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    let runtime = runtime();
+    let _guard = runtime.enter();
+
+    let room_id: OwnedRoomId = room_id
+        .parse()
+        .map_err(|_| anyhow!("invalid room id '{room_id}'"))?;
+
+    runtime.block_on(async move { dump_room_crypto_async(&client, &room_id).await })
+}
+
+async fn dump_room_crypto_async(client: &Client, room_id: &OwnedRoomId) -> Result<()> {
+    let Some(room) = client.get_room(room_id) else {
+        println!("[crypto] room {room_id} not found in client");
+        return Ok(());
+    };
+
+    println!("[crypto] inspecting room {room_id}");
+
+    let backups = client.encryption().backups();
+    let exists = backups.fetch_exists_on_server().await.unwrap_or(false);
+    let enabled = backups.are_enabled().await;
+    println!("[crypto] backups exists_on_server={exists}, enabled={enabled}");
+
+    let recovery_state = client.encryption().recovery().state();
+    println!("[crypto] recovery_state={recovery_state:?}");
+
+    let mut options = MessagesOptions::backward();
+    options.limit = matrix_sdk::ruma::UInt::from(1u32);
+    if let Ok(messages) = room.messages(options).await {
+        if let Some(event) = messages.chunk.first() {
+            if let Ok(raw) = event.raw().deserialize() {
+                println!("[crypto] sample event type={:?}", raw.event_type());
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub use sliding_sync::{AckResponse, SlidingSyncConfig, StartSlidingSyncResponse};
@@ -354,14 +575,23 @@ pub fn register_room_list_listener(handle: &str, port: i64) -> Result<AckRespons
 /// Return the list of joined or invited room IDs.
 pub fn list_joined_rooms() -> Result<RoomListResponse> {
     let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
-    let rooms = client.rooms();
-    let mut result = Vec::new();
-    for room in rooms {
+    let mut unique = HashSet::new();
+
+    for room in client.rooms() {
         if matches!(room.state(), RoomState::Joined | RoomState::Invited) {
-            result.push(room.room_id().to_string());
+            unique.insert(room.room_id().to_string());
         }
     }
-    Ok(RoomListResponse { rooms: result })
+
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    let sliding_rooms = runtime.block_on(sliding_sync::joined_room_ids());
+    unique.extend(sliding_rooms);
+
+    let mut rooms: Vec<String> = unique.into_iter().collect();
+    rooms.sort();
+
+    Ok(RoomListResponse { rooms })
 }
 
 /// Return overview details for a given room ID.

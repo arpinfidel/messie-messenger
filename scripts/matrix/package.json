@@ -1,0 +1,23 @@
+{
+  "name": "messie-matrix-seeder",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Seed a Synapse instance using matrix-js-sdk",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "seed": "npm run build --silent && node ./dist/seed_synapse.js"
+  },
+  "dependencies": {
+    "@matrix-org/olm": "3.2.15",
+    "matrix-js-sdk": "^37.13.0",
+    "node-fetch": "^3.3.2",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@types/node-fetch": "2.6.4",
+    "@types/yargs": "17.0.32",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.0"
+  }
+}

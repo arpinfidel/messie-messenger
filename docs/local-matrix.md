@@ -1,6 +1,6 @@
-# Local Matrix Homeserver
+# Local Matrix Homeserver (native Simplified Sliding Sync)
 
-Messie Messenger ships with an opt-in [Synapse](https://github.com/matrix-org/synapse) container for realistic local testing without depending on a public homeserver.
+Messie Messenger ships with an opt-in [Synapse](https://github.com/matrix-org/synapse) container that now enables the **native Simplified Sliding Sync (MSC4186)** endpoints. The same Postgres instance defined in `docker-compose.dev.yml` is reused; no additional proxy containers are required.
 
 ## Prerequisites
 
@@ -16,36 +16,84 @@ Messie Messenger ships with an opt-in [Synapse](https://github.com/matrix-org/sy
    ```
 
    Override the shared registration secret by exporting `MATRIX_REGISTRATION_SHARED_SECRET=your-secret` before running the command.
-2. Bring the homeserver online:
+2. Bring the homeserver online with the sliding-sync profile enabled:
 
    ```bash
-   make matrix-up
+   make matrix-up matrix
    ```
 
-   The service listens on `http://localhost:8008` by default. Change the external port via `MATRIX_PORT` in `.env` if needed.
+   The service listens on `http://localhost:8008` by default. Change the external port via `MATRIX_PORT` in `.env` if needed. The container mounts `infra/matrix/conf.d/simplified-sliding-sync.yaml` and runs Synapse `v1.114.0` so the unstable simplified sliding-sync endpoint is exposed at `/_matrix/client/unstable/org.matrix.simplified_msc3575/sync`.
 
-## Creating accounts
+## Seeding a bridge-friendly dataset
 
-Use Synapse's helper to provision users via the Makefile wrapper:
+The repo contains a small Node-based seeder (`scripts/matrix/src/seed_synapse.ts`) that provisions a deterministic dataset for bridge validation via the `matrix-js-sdk`:
+
+- Creates or reuses an admin (`bridge-admin`) and bridge test user (`bridge-tester`) via the shared-secret registration API.
+- Logs in as the test user with device ID `MESSIE_BRIDGE_SEEDER`, uploads device/one-time keys, and enables the Rust crypto store.
+- Ensures **400 encrypted rooms** named `#messie-seed-0001…0400:<server>` exist and that the bridge user is a member.
+- Injects an encrypted seed message in each room exactly once (`Seed message #0001 ready for Simplified Sliding Sync`).
+
+Run the seeder with Synapse already running:
 
 ```bash
-make matrix-register ARGS="-u user-a -p Pass1234 --no-admin"
-make matrix-register ARGS="-u user-b -p Pass1234 --no-admin"
+make matrix-seed
 ```
 
-- Append `--admin` when you need an administrator for provisioning rooms or inspecting server state.
-- The wrapper automatically passes the shared secret (`-k ...`) so you do not have to edit `homeserver.yaml` manually.
+The make target installs local dependencies inside `scripts/matrix/` (if
+needed), compiles the TypeScript entrypoint, and executes it with the same
+`MATRIX_SEED_*` overrides as before. Pass additional CLI arguments with the
+`ARGS` variable, e.g. `ARGS="--room-count 100" make matrix-seed`. Inside the
+compose network the seeder reaches Synapse at `http://matrix:8008`; set
+`MATRIX_SEED_SERVER_URL` if you need to connect to a remote homeserver instead.
 
-Once users exist, sign in from the Messie login screen using `http://localhost:8008` as the homeserver URL.
+Prefer a single command? `make matrix-setup` (or `./scripts/matrix/setup.sh`)
+wraps init → up → build → seed and respects the same environment overrides. Pass
+`init-only` if you just need to regenerate config/secrets without starting the
+stack.
 
-## Stopping and troubleshooting
+## Manual validation flow (developer-run)
+
+Manual verification uses the existing Flutter shell talking to the seeded homeserver. Codex does **not** execute these steps automatically.
+
+1. Ensure Synapse is running and seeded as described above.
+2. Start the Flutter app normally (Chrome/iOS/Android) and point it at `http://localhost:8008`.
+3. Log in with the seeded bridge account (defaults: `bridge-tester` / `bridgeTesterPass!`).
+4. Confirm success criteria:
+   - The room list contains 400 encrypted rooms delivered via the Simplified Sliding Sync endpoint.
+   - Room timelines populate immediately and display the seeded `Seed message #XXXX…` texts.
+   - Messages decrypt without manual key share prompts (the seeder uploads keys upfront).
+   - Sliding Sync diffs continue to stream when navigating between rooms.
+5. When you are done, stop the homeserver with `make matrix-down` (or `docker compose … stop matrix`).
+
+## Automated Flutter bridge test (headless)
+
+A headless test lives under `app/test/bridge/` and exercises the existing Flutter↔Rust bridge against the local Synapse without requiring an emulator:
+
+- `test/bridge/sliding_sync_bridge_test.dart` covers login + session restore, Simplified Sliding Sync list pagination, opening a room timeline, streaming new events, and decrypting the seeded ciphertext.
+- The test talks to the FRB layer directly; ensure your native library is available for the host platform when running locally (see README’s “Headless bridge integration test”).
+
+Run the test after Synapse has been seeded:
+
+```bash
+# from repo root
+make flutter-bridge-test
+```
+
+By default the test targets `http://127.0.0.1:8008`. You can override homeserver and credentials via env vars like `MESSIE_MATRIX_HOMESERVER`, `MESSIE_MATRIX_USERNAME`, `MESSIE_MATRIX_PASSWORD`, and `MESSIE_BRIDGE_STORE_PATH`. The Make target will build the Rust FFI (release) if needed and set `MESSIE_FFI_LIB_PATH` automatically.
+
+Expected room count: the test reads `scripts/matrix/.state/seed_state.json` and asserts the exact number of seeded rooms. For custom locations or counts, set `MESSIE_SEED_STATE_FILE` or `MESSIE_SEEDED_ROOM_COUNT`.
+
+Recovery key handling: `make matrix-seed` writes a `recovery_key.json` to `scripts/matrix/.state/`. The headless test auto-discovers this path; otherwise set `MESSIE_MATRIX_RECOVERY_FILE` or `MESSIE_MATRIX_RECOVERY_KEY` explicitly.
+
+## Resetting / cleanup
 
 - Stop only the homeserver: `make matrix-down`
-- Start the full stack plus Synapse: `COMPOSE_PROFILES=matrix make up`
+- Reset the dataset (keep keys): `rm -rf scripts/matrix/.state`
+- Full cleanup (containers/volumes/state): `make matrix-cleanup` (or
+  `./scripts/matrix/cleanup.sh`)
+- Manual reset alternative: `docker compose -f docker-compose.dev.yml down -v` (removes the `matrix_data` volume). Re-run the init + seed steps afterwards.
 - Inspect logs: `docker compose -f docker-compose.dev.yml --profile matrix logs matrix`
 
-If you need a clean slate, remove the volume with `docker volume rm messie-messenger_matrix_data` and repeat the init steps above.
+## Pairing with other automated flows
 
-## Pairing with Playwright tests
-
-For multi-user end-to-end flows, keep the homeserver running while you record storage states with Playwright. Refer to `frontend/README.md#multi-user-flows` for the recorder workflow.
+For multi-user frontend E2E suites (Playwright, etc.) reuse the same seeded homeserver so Matrix, email, and todo timelines stay consistent. Refer to `frontend/README.md#multi-user-flows` for additional orchestration tips.

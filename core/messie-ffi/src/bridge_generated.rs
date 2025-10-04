@@ -139,6 +139,30 @@ pub extern "C" fn messie_ffi_logout(base_path: *const c_char) -> *mut c_char {
 }
 
 #[no_mangle]
+pub extern "C" fn messie_ffi_download_room_keys_for_room(room_id: *const c_char) -> *mut c_char {
+    ffi_safe(|| {
+        let room_id = read_c_string(room_id, "roomId")?;
+        Ok(api::download_room_keys_for_room(room_id))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_dump_room_crypto(room_id: *const c_char) -> *mut c_char {
+    ffi_safe(|| {
+        let room_id = read_c_string(room_id, "roomId")?;
+        Ok(api::dump_room_crypto(room_id))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_recover_with_key(recovery_key: *const c_char) -> *mut c_char {
+    ffi_safe(|| {
+        let recovery_key = read_c_string(recovery_key, "recoveryKey")?;
+        Ok(api::recover_with_key(recovery_key))
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn messie_ffi_start_sliding_sync(
     handle: *const c_char,
     hp_size: u32,

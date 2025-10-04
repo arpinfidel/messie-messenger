@@ -29,6 +29,21 @@ pub struct SlidingSyncConfig {
     pub lp_timeline: u32,
 }
 
+pub async fn joined_room_ids() -> Vec<String> {
+    let controllers_guard = CONTROLLERS.read().await;
+    let controllers: Vec<_> = controllers_guard.values().cloned().collect();
+    drop(controllers_guard);
+
+    let mut rooms = HashSet::new();
+    for controller in controllers {
+        rooms.extend(controller.room_ids().await);
+    }
+
+    let mut rooms: Vec<String> = rooms.into_iter().collect();
+    rooms.sort();
+    rooms
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct StartSlidingSyncResponse {
     pub started: bool,
@@ -91,6 +106,7 @@ struct SlidingSyncController {
     handle: String,
     sliding_sync: SlidingSync,
     listeners: AsyncMutex<HashSet<i64>>,
+    room_ids: AsyncRwLock<HashSet<String>>,
     command_tx: mpsc::UnboundedSender<Command>,
     cancel_token: CancellationToken,
 }
@@ -109,6 +125,7 @@ impl SlidingSyncController {
             handle,
             sliding_sync,
             listeners: AsyncMutex::new(std::collections::HashSet::new()),
+            room_ids: AsyncRwLock::new(HashSet::new()),
             command_tx,
             cancel_token: cancel_token.clone(),
         });
@@ -174,14 +191,20 @@ impl SlidingSyncController {
     }
 
     async fn publish_summary(&self, summary: UpdateSummary) -> Result<()> {
+        let UpdateSummary { lists, rooms } = summary;
+        let rooms: Vec<String> = rooms.into_iter().map(|room| room.to_string()).collect();
+
+        if !rooms.is_empty() {
+            let mut known = self.room_ids.write().await;
+            for room in &rooms {
+                known.insert(room.clone());
+            }
+        }
+
         let update = SlidingSyncUpdate {
             kind: "sliding_sync_update",
-            lists: summary.lists,
-            rooms: summary
-                .rooms
-                .into_iter()
-                .map(|room| room.to_string())
-                .collect(),
+            lists,
+            rooms: rooms.clone(),
         };
         self.broadcast(update).await
     }
@@ -214,6 +237,10 @@ impl SlidingSyncController {
 
     fn post_to_port(port: i64, payload: String) -> bool {
         Isolate::new(port).post(payload)
+    }
+
+    async fn room_ids(&self) -> Vec<String> {
+        self.room_ids.read().await.iter().cloned().collect()
     }
 
     async fn build_sliding_sync(

@@ -148,12 +148,16 @@ The native client lives under `app/` with its shared Rust core inside `core/`.
 2. Generate flutter_rust_bridge bindings:
 
    ```bash
+   # script
    ./bindings/generate.sh
+   # or Make target
+   make bridge-generate
    ```
 
 3. Build the Rust crates for your platform as needed:
-   - Android: `./bindings/android/build.sh`
-   - iOS/macOS: `./bindings/ios/build.sh`
+   - Host (for headless tests): `make flutter-bridge-build-lib`
+   - Android: `./bindings/android/build.sh` or `make bridge-build-android`
+   - iOS/macOS: `./bindings/ios/build.sh` or `make bridge-build-ios`
 
 4. Run the Flutter app:
 
@@ -179,7 +183,47 @@ Multi-user storage guidance and recorder workflows live in `frontend/README.md`.
 
 ### Local Matrix Homeserver
 
-A Synapse container is available behind the optional `matrix` Compose profile. Run `make matrix-init` once to generate config, `make matrix-up` to start it on `http://localhost:8008`, and `make matrix-register ARGS="-u user -p secret"` to create accounts (append `--admin` for elevated users). Stop it with `make matrix-down`. Full walkthrough: `docs/local-matrix.md`.
+An opt-in Synapse service (profile `matrix`) exposes the unstable Simplified Sliding Sync endpoint without any proxy. Quick start:
+
+- `make matrix-init` generates config and pins the shared secret.
+- `make matrix-up matrix` boots Synapse `v1.114.0`.
+- `make matrix-seed` (or `make matrix-setup` / `./scripts/matrix/setup.sh`) seeds 400 encrypted rooms/messages.
+- `make matrix-cleanup` (or `./scripts/matrix/cleanup.sh`) stops containers and clears the Matrix data/state.
+
+Full walkthrough—including Flutter bridge tests—is in `docs/local-matrix.md`.
+
+### Headless bridge integration test
+
+Run the Flutter <-> Rust bridge test without an emulator. A Make target builds
+the Rust FFI for your host and runs the headless test in `app/`.
+
+Quick start (after seeding Synapse):
+
+```bash
+make flutter-bridge-test
+```
+
+The Make target:
+- Builds `core` in release if needed.
+- Sets `MESSIE_FFI_LIB_PATH` to the built library.
+- Runs `flutter test test/bridge/sliding_sync_bridge_test.dart` in `app/`.
+
+Environment overrides (optional):
+- `MESSIE_MATRIX_HOMESERVER` (default `http://127.0.0.1:8008`)
+- `MESSIE_MATRIX_USERNAME` / `MESSIE_MATRIX_PASSWORD`
+- `MESSIE_BRIDGE_STORE_PATH` (where the test stores state)
+- `MESSIE_MATRIX_RECOVERY_KEY` or `MESSIE_MATRIX_RECOVERY_FILE`
+  - The test auto-detects `scripts/matrix/.state/recovery_key.json` produced by `make matrix-seed`. You only need to set this if you keep state elsewhere.
+- `MESSIE_SEEDED_ROOM_COUNT` or `MESSIE_SEED_STATE_FILE` (optional)
+  - By default, the test reads `scripts/matrix/.state/seed_state.json` and asserts the exact number of seeded rooms. Set these to override in custom setups.
+
+Example with overrides:
+
+```bash
+MESSIE_MATRIX_HOMESERVER=http://localhost:8008 \
+MESSIE_BRIDGE_STORE_PATH=$PWD/app/build/matrix-store \
+make flutter-bridge-test
+```
 
 ## Operations & Tooling
 
