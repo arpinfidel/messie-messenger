@@ -1,0 +1,72 @@
+# ===============================================================
+# Relaxed rate limits for local development / seeding
+# DO NOT USE IN PRODUCTION
+# ===============================================================
+
+rc_message:
+  per_second: 20000
+  burst_count: 20000
+
+rc_registration:
+  per_second: 10000
+  burst_count: 40000
+
+rc_login:
+  address:
+    per_second: 10000
+    burst_count: 40000
+  account:
+    per_second: 10000
+    burst_count: 40000
+  failed_attempts:
+    per_second: 10000
+    burst_count: 40000
+
+rc_invites:
+  per_user:
+    per_second: 10000
+    burst_count: 40000
+  per_room:
+    per_second: 10000
+    burst_count: 40000
+  per_issuer:
+    per_second: 10000
+    burst_count: 40000
+
+rc_joins:
+  local:
+    per_second: 10000
+    burst_count: 40000
+  remote:
+    per_second: 10000
+    burst_count: 40000
+
+# Needed if you join many users into the same room
+rc_joins_per_room:
+  per_second: 10000
+  burst_count: 40000
+
+rc_rooms:
+  per_second: 10000
+  burst_count: 40000
+
+rc_admin:
+  per_second: 10000
+  burst_count: 40000
+
+rc_third_party_invites:
+  per_second: 10000
+  burst_count: 40000
+
+# Underdocumented E2EE key-share limiter
+rc_key_requests:
+  per_second: 10000
+  burst_count: 10000
+
+# Optional: Federation rate caps (protects outbound / inbound joins, pushes, etc.)
+federation_rcs:
+  window_size: 1000s
+  sleep_limit: 1000000
+  sleep_delay: 0
+  reject_limit: 1000000
+  concurrent: 100000

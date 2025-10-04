@@ -62,7 +62,7 @@ services:
     restart: unless-stopped
 
   matrix:
-    image: matrixdotorg/synapse:latest
+    image: matrixdotorg/synapse:v1.114.0
     profiles: ["matrix"]
     environment:
       SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME:-messie.localhost}
@@ -70,10 +70,12 @@ services:
       SYNAPSE_NO_TLS: "true"
       SYNAPSE_ENABLE_REGISTRATION: ${MATRIX_ENABLE_REGISTRATION:-true}
       SYNAPSE_REGISTRATION_SHARED_SECRET: ${MATRIX_REGISTRATION_SHARED_SECRET:-dev_matrix_shared_secret}
+      SYNAPSE_ADDITIONAL_CONFIG_DIR: /etc/synapse/conf.d
       UID: "991"
       GID: "991"
     volumes:
       - matrix_data:/data
+      - ./infra/matrix/conf.d:/etc/synapse/conf.d:ro
     ports:
       - "${MATRIX_PORT:-8008}:8008"
     restart: unless-stopped

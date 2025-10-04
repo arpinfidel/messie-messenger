@@ -21,6 +21,12 @@ typedef _DartRestoreOrLogin = _PointerUtf8 Function(
 
 typedef _NativeLogout = _PointerUtf8 Function(_PointerUtf8);
 typedef _DartLogout = _PointerUtf8 Function(_PointerUtf8);
+typedef _NativeRecoverWithKey = _PointerUtf8 Function(_PointerUtf8);
+typedef _DartRecoverWithKey = _PointerUtf8 Function(_PointerUtf8);
+typedef _NativeDownloadRoomKeys = _PointerUtf8 Function(_PointerUtf8);
+typedef _DartDownloadRoomKeys = _PointerUtf8 Function(_PointerUtf8);
+typedef _NativeDumpRoomCrypto = _PointerUtf8 Function(_PointerUtf8);
+typedef _DartDumpRoomCrypto = _PointerUtf8 Function(_PointerUtf8);
 
 typedef _NativeStartSlidingSync = _PointerUtf8 Function(
     _PointerUtf8, ffi.Uint32, ffi.Uint32, ffi.Uint32, ffi.Uint32);
@@ -33,7 +39,6 @@ typedef _NativeListJoinedRooms = _PointerUtf8 Function();
 typedef _DartListJoinedRooms = _PointerUtf8 Function();
 typedef _NativeRoomOverview = _PointerUtf8 Function(_PointerUtf8);
 typedef _DartRoomOverview = _PointerUtf8 Function(_PointerUtf8);
-
 
 typedef _NativeOpenRoom = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
 typedef _DartOpenRoom = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
@@ -115,6 +120,29 @@ Future<RustResult<Unit>> rustLogout({required String basePath}) {
   _ensurePostCObjectRegistered(config);
   final args = _LogoutArgs(config, basePath);
   return Isolate.run(() => _logoutIsolate(args));
+}
+
+Future<RustResult<Unit>> rustRecoverWithKey({required String recoveryKey}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _RecoverArgs(config, recoveryKey);
+  return Isolate.run(() => _recoverWithKeyIsolate(args));
+}
+
+Future<RustResult<Unit>> rustDownloadRoomKeysForRoom({
+  required String roomId,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _DownloadRoomKeysArgs(config, roomId);
+  return Isolate.run(() => _downloadRoomKeysIsolate(args));
+}
+
+Future<RustResult<Unit>> rustDumpRoomCrypto({required String roomId}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _DumpRoomCryptoArgs(config, roomId);
+  return Isolate.run(() => _dumpRoomCryptoIsolate(args));
 }
 
 Future<RustResult<StartSlidingSyncData>> rustStartSlidingSync({
@@ -226,6 +254,21 @@ RustResult<LoginData> _restoreOrLoginIsolate(_RestoreArgs args) {
 RustResult<Unit> _logoutIsolate(_LogoutArgs args) {
   final bindings = _RustBindings(_loadLibrary(args.config));
   return bindings.logout(args.basePath);
+}
+
+RustResult<Unit> _recoverWithKeyIsolate(_RecoverArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.recoverWithKey(args.recoveryKey);
+}
+
+RustResult<Unit> _downloadRoomKeysIsolate(_DownloadRoomKeysArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.downloadRoomKeysForRoom(args.roomId);
+}
+
+RustResult<Unit> _dumpRoomCryptoIsolate(_DumpRoomCryptoArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.dumpRoomCrypto(args.roomId);
 }
 
 RustResult<StartSlidingSyncData> _startSlidingSyncIsolate(_StartSyncArgs args) {
@@ -439,6 +482,14 @@ class _RustBindings {
                 'messie_ffi_restore_or_login'),
         _logout = library
             .lookupFunction<_NativeLogout, _DartLogout>('messie_ffi_logout'),
+        _recoverWithKey =
+            library.lookupFunction<_NativeRecoverWithKey, _DartRecoverWithKey>(
+                'messie_ffi_recover_with_key'),
+        _downloadRoomKeys = library.lookupFunction<_NativeDownloadRoomKeys,
+            _DartDownloadRoomKeys>('messie_ffi_download_room_keys_for_room'),
+        _dumpRoomCrypto =
+            library.lookupFunction<_NativeDumpRoomCrypto, _DartDumpRoomCrypto>(
+                'messie_ffi_dump_room_crypto'),
         _startSlidingSync = library.lookupFunction<_NativeStartSlidingSync,
             _DartStartSlidingSync>('messie_ffi_start_sliding_sync'),
         _roomListStream =
@@ -449,9 +500,8 @@ class _RustBindings {
         _roomOverview =
             library.lookupFunction<_NativeRoomOverview, _DartRoomOverview>(
                 'messie_ffi_room_overview'),
-        _openRoom =
-            library.lookupFunction<_NativeOpenRoom, _DartOpenRoom>(
-                'messie_ffi_open_room'),
+        _openRoom = library.lookupFunction<_NativeOpenRoom, _DartOpenRoom>(
+            'messie_ffi_open_room'),
         _timelineStream =
             library.lookupFunction<_NativeTimelineStream, _DartTimelineStream>(
                 'messie_ffi_timeline_stream'),
@@ -466,6 +516,9 @@ class _RustBindings {
   final _DartInitClient _initClient;
   final _DartRestoreOrLogin _restoreOrLogin;
   final _DartLogout _logout;
+  final _DartRecoverWithKey _recoverWithKey;
+  final _DartDownloadRoomKeys _downloadRoomKeys;
+  final _DartDumpRoomCrypto _dumpRoomCrypto;
   final _DartStartSlidingSync _startSlidingSync;
   final _DartRoomListStream _roomListStream;
   final _DartListJoinedRooms _listJoinedRooms;
@@ -523,6 +576,36 @@ class _RustBindings {
     }
   }
 
+  RustResult<Unit> recoverWithKey(String recoveryKey) {
+    final keyPtr = recoveryKey.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_recoverWithKey(keyPtr));
+      return _parse(result, (_) => Unit.instance);
+    } finally {
+      calloc.free(keyPtr);
+    }
+  }
+
+  RustResult<Unit> downloadRoomKeysForRoom(String roomId) {
+    final roomPtr = roomId.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_downloadRoomKeys(roomPtr));
+      return _parse(result, (_) => Unit.instance);
+    } finally {
+      calloc.free(roomPtr);
+    }
+  }
+
+  RustResult<Unit> dumpRoomCrypto(String roomId) {
+    final roomPtr = roomId.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_dumpRoomCrypto(roomPtr));
+      return _parse(result, (_) => Unit.instance);
+    } finally {
+      calloc.free(roomPtr);
+    }
+  }
+
   RustResult<StartSlidingSyncData> startSlidingSync(
     String handle,
     int hpSize,
@@ -565,8 +648,8 @@ class _RustBindings {
     final roomPtr = roomId.toNativeUtf8();
     try {
       final result = _stringFromPointer(_roomOverview(roomPtr));
-      return _parse(
-          result, (json) => RoomOverviewData.fromJson(json as Map<String, dynamic>));
+      return _parse(result,
+          (json) => RoomOverviewData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(roomPtr);
     }
@@ -577,8 +660,8 @@ class _RustBindings {
     final roomPtr = roomId.toNativeUtf8();
     try {
       final result = _stringFromPointer(_openRoom(handlePtr, roomPtr));
-      return _parse(
-          result, (json) => OpenRoomData.fromJson(json as Map<String, dynamic>));
+      return _parse(result,
+          (json) => OpenRoomData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(handlePtr);
       calloc.free(roomPtr);
@@ -614,8 +697,7 @@ class _RustBindings {
     try {
       final result =
           _stringFromPointer(_loadBackward(handlePtr, roomPtr, limit));
-      return _parse(
-          result,
+      return _parse(result,
           (json) => LoadBackwardData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(handlePtr);
@@ -647,6 +729,11 @@ class _LibraryConfig {
   final String? libraryPath;
 
   static _LibraryConfig detect() {
+    final override = Platform.environment['MESSIE_FFI_LIB_PATH'];
+    if (override != null && override.isNotEmpty) {
+      return _LibraryConfig(useProcess: false, libraryPath: override);
+    }
+
     const base = 'messie_ffi';
     if (Platform.isIOS || Platform.isMacOS) {
       return const _LibraryConfig(useProcess: true);
@@ -698,6 +785,27 @@ class _LogoutArgs {
 
   final _LibraryConfig config;
   final String basePath;
+}
+
+class _RecoverArgs {
+  const _RecoverArgs(this.config, this.recoveryKey);
+
+  final _LibraryConfig config;
+  final String recoveryKey;
+}
+
+class _DownloadRoomKeysArgs {
+  const _DownloadRoomKeysArgs(this.config, this.roomId);
+
+  final _LibraryConfig config;
+  final String roomId;
+}
+
+class _DumpRoomCryptoArgs {
+  const _DumpRoomCryptoArgs(this.config, this.roomId);
+
+  final _LibraryConfig config;
+  final String roomId;
 }
 
 class _StartSyncArgs {

@@ -4,9 +4,13 @@ use std::time::Duration;
 
 use allo_isolate::Isolate;
 use anyhow::{anyhow, Context, Result};
-use log::{debug, warn};
+use log::{debug, trace, warn};
 use matrix_sdk::room::{Messages, MessagesOptions, Room as MatrixRoom};
-use matrix_sdk::ruma::{OwnedRoomId, UInt};
+use matrix_sdk::ruma::{
+    events::room::encrypted::{OriginalRoomEncryptedEvent, OriginalSyncRoomEncryptedEvent},
+    serde::Raw,
+    OwnedRoomId, UInt,
+};
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
@@ -181,16 +185,10 @@ impl TimelineController {
 
     async fn load_backward(&self, limit: u32) -> Result<LoadBackwardResponse> {
         let token = { self.backward_token.lock().await.clone() };
-        if token.is_none() {
-            return Ok(LoadBackwardResponse {
-                reached_start: true,
-                events: Vec::new(),
-            });
-        }
-
-        let options = MessagesOptions::backward()
-            .from(token.as_deref())
-            .with_limit(limit);
+        let options = match token.as_deref() {
+            Some(token) => MessagesOptions::backward().from(token).with_limit(limit),
+            None => MessagesOptions::backward().with_limit(limit),
+        };
         let messages = self
             .room
             .messages(options)
@@ -199,7 +197,8 @@ impl TimelineController {
 
         *self.backward_token.lock().await = messages.end.clone();
 
-        let events = Self::extract_events(&messages)?;
+        let mut events = Self::extract_events(&messages)?;
+        self.maybe_decrypt_events(&mut events).await;
         let reached_start = messages.end.is_none();
         self.record_seen(&events).await;
 
@@ -236,7 +235,9 @@ impl TimelineController {
             *self.backward_token.lock().await = messages.end.clone();
         }
 
-        Self::extract_events(&messages)
+        let mut events = Self::extract_events(&messages)?;
+        self.maybe_decrypt_events(&mut events).await;
+        Ok(events)
     }
 
     async fn record_seen(&self, events: &[CollectedEvent]) {
@@ -321,6 +322,12 @@ impl TimelineController {
     fn extract_events(messages: &Messages) -> Result<Vec<CollectedEvent>> {
         let mut events = Vec::new();
         for event in messages.chunk.iter() {
+            if let Ok(Some(event_type)) = event.raw().get_field::<String>("type") {
+                trace!(
+                    "timeline {} collected event of type {event_type}",
+                    messages.start
+                );
+            }
             let raw =
                 serde_json::to_string(event.raw()).context("failed to serialise timeline event")?;
             let id = event.event_id().map(|id| id.to_string());
@@ -328,6 +335,40 @@ impl TimelineController {
         }
         events.reverse();
         Ok(events)
+    }
+
+    async fn maybe_decrypt_events(&self, events: &mut [CollectedEvent]) {
+        for event in events.iter_mut() {
+            if !event.raw.contains("\"m.room.encrypted\"") {
+                continue;
+            }
+
+            let raw_event: Raw<OriginalRoomEncryptedEvent> =
+                match Raw::from_json_string(event.raw.clone()) {
+                    Ok(raw) => raw,
+                    Err(err) => {
+                        warn!("failed to parse encrypted event for decryption: {err:?}");
+                        continue;
+                    }
+                };
+
+            let sync_event = raw_event.cast::<OriginalSyncRoomEncryptedEvent>();
+
+            match self.room.decrypt_event(&sync_event, None).await {
+                Ok(decrypted) => {
+                    if let Ok(serialized) = serde_json::to_string(decrypted.raw()) {
+                        event.raw = serialized;
+                    }
+                    if let Some(event_id) = decrypted.event_id() {
+                        event.id = Some(event_id.to_string());
+                    }
+                }
+                Err(err) => {
+                    warn!("decryption retry failed for room {}: {err:?}", self.room_id);
+                    println!("decryption retry failed for room {}: {err:?}", self.room_id);
+                }
+            }
+        }
     }
 
     fn shutdown(&self) {
