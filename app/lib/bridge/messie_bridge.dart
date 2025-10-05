@@ -27,6 +27,12 @@ typedef _NativeDownloadRoomKeys = _PointerUtf8 Function(_PointerUtf8);
 typedef _DartDownloadRoomKeys = _PointerUtf8 Function(_PointerUtf8);
 typedef _NativeDumpRoomCrypto = _PointerUtf8 Function(_PointerUtf8);
 typedef _DartDumpRoomCrypto = _PointerUtf8 Function(_PointerUtf8);
+typedef _NativeBackupStatus = _PointerUtf8 Function();
+typedef _DartBackupStatus = _PointerUtf8 Function();
+typedef _NativeImportRecoveryKey = _PointerUtf8 Function(_PointerUtf8);
+typedef _DartImportRecoveryKey = _PointerUtf8 Function(_PointerUtf8);
+typedef _NativeBackupStatusStream = _PointerUtf8 Function(_PointerUtf8, ffi.Int64);
+typedef _DartBackupStatusStream = _PointerUtf8 Function(_PointerUtf8, int);
 
 typedef _NativeStartSlidingSync = _PointerUtf8 Function(
     _PointerUtf8, ffi.Uint32, ffi.Uint32, ffi.Uint32, ffi.Uint32);
@@ -143,6 +149,29 @@ Future<RustResult<Unit>> rustDumpRoomCrypto({required String roomId}) {
   _ensurePostCObjectRegistered(config);
   final args = _DumpRoomCryptoArgs(config, roomId);
   return Isolate.run(() => _dumpRoomCryptoIsolate(args));
+}
+
+Future<RustResult<BackupStatusData>> rustBackupStatus() {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  return Isolate.run(() => _backupStatusIsolate(config));
+}
+
+Future<RustResult<Unit>> rustImportRecoveryKey({required String recoveryKey}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _RecoverArgs(config, recoveryKey);
+  return Isolate.run(() => _importRecoveryKeyIsolate(args));
+}
+
+Future<RustResult<AckData>> rustBackupStatusStream({
+  required String handle,
+  required SendPort port,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _RoomListStreamArgs(config, handle, port.nativePort);
+  return Isolate.run(() => _backupStatusStreamIsolate(args));
 }
 
 Future<RustResult<StartSlidingSyncData>> rustStartSlidingSync({
@@ -271,6 +300,21 @@ RustResult<Unit> _dumpRoomCryptoIsolate(_DumpRoomCryptoArgs args) {
   return bindings.dumpRoomCrypto(args.roomId);
 }
 
+RustResult<BackupStatusData> _backupStatusIsolate(_LibraryConfig config) {
+  final bindings = _RustBindings(_loadLibrary(config));
+  return bindings.backupStatus();
+}
+
+RustResult<Unit> _importRecoveryKeyIsolate(_RecoverArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.importRecoveryKey(args.recoveryKey);
+}
+
+RustResult<AckData> _backupStatusStreamIsolate(_RoomListStreamArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.backupStatusStream(args.handle, args.nativePort);
+}
+
 RustResult<StartSlidingSyncData> _startSlidingSyncIsolate(_StartSyncArgs args) {
   final bindings = _RustBindings(_loadLibrary(args.config));
   return bindings.startSlidingSync(
@@ -324,6 +368,23 @@ class RustResult<T> {
   final String? error;
 
   bool get isOk => ok;
+}
+
+class BackupStatusData {
+  const BackupStatusData({
+    required this.enabled,
+    required this.existsOnServer,
+  });
+
+  factory BackupStatusData.fromJson(Map<String, dynamic> json) {
+    return BackupStatusData(
+      enabled: json['enabled'] as bool? ?? false,
+      existsOnServer: json['exists_on_server'] as bool? ?? false,
+    );
+  }
+
+  final bool enabled;
+  final bool existsOnServer;
 }
 
 class InitClientData {
@@ -472,7 +533,8 @@ class RoomOverviewData {
 
 class _RustBindings {
   _RustBindings(ffi.DynamicLibrary library)
-      : _ping =
+      : _library = library,
+        _ping =
             library.lookupFunction<_NativePing, _DartPing>('messie_ffi_ping'),
         _initClient =
             library.lookupFunction<_NativeInitClient, _DartInitClient>(
@@ -512,6 +574,7 @@ class _RustBindings {
             library.lookupFunction<_NativeFreeString, _DartFreeString>(
                 'messie_ffi_free_string');
 
+  final ffi.DynamicLibrary _library;
   final _DartPing _ping;
   final _DartInitClient _initClient;
   final _DartRestoreOrLogin _restoreOrLogin;
@@ -519,6 +582,9 @@ class _RustBindings {
   final _DartRecoverWithKey _recoverWithKey;
   final _DartDownloadRoomKeys _downloadRoomKeys;
   final _DartDumpRoomCrypto _dumpRoomCrypto;
+  _DartBackupStatus? _backupStatusOpt;
+  _DartImportRecoveryKey? _importRecoveryKeyOpt;
+  _DartBackupStatusStream? _backupStatusStreamOpt;
   final _DartStartSlidingSync _startSlidingSync;
   final _DartRoomListStream _roomListStream;
   final _DartListJoinedRooms _listJoinedRooms;
@@ -586,6 +652,22 @@ class _RustBindings {
     }
   }
 
+  RustResult<Unit> importRecoveryKey(String recoveryKey) {
+    try {
+      _importRecoveryKeyOpt ??= _library.lookupFunction<_NativeImportRecoveryKey, _DartImportRecoveryKey>(
+          'messie_ffi_import_recovery_key');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'import_recovery_key not available in FFI');
+    }
+    final keyPtr = recoveryKey.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_importRecoveryKeyOpt!(keyPtr));
+      return _parse(result, (_) => Unit.instance);
+    } finally {
+      calloc.free(keyPtr);
+    }
+  }
+
   RustResult<Unit> downloadRoomKeysForRoom(String roomId) {
     final roomPtr = roomId.toNativeUtf8();
     try {
@@ -603,6 +685,34 @@ class _RustBindings {
       return _parse(result, (_) => Unit.instance);
     } finally {
       calloc.free(roomPtr);
+    }
+  }
+
+  RustResult<BackupStatusData> backupStatus() {
+    try {
+      _backupStatusOpt ??= _library.lookupFunction<_NativeBackupStatus, _DartBackupStatus>(
+          'messie_ffi_backup_status');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'backup_status not available in FFI');
+    }
+    final result = _stringFromPointer(_backupStatusOpt!());
+    return _parse(
+        result, (json) => BackupStatusData.fromJson(json as Map<String, dynamic>));
+  }
+
+  RustResult<AckData> backupStatusStream(String handle, int nativePort) {
+    try {
+      _backupStatusStreamOpt ??= _library.lookupFunction<_NativeBackupStatusStream, _DartBackupStatusStream>(
+          'messie_ffi_backup_status_stream');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'backup_status_stream not available in FFI');
+    }
+    final handlePtr = handle.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_backupStatusStreamOpt!(handlePtr, nativePort));
+      return _parse(result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(handlePtr);
     }
   }
 

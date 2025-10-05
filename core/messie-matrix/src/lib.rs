@@ -30,6 +30,7 @@ use url::Url;
 
 mod sliding_sync;
 mod timeline;
+mod backup;
 
 /// Simple ping function used for integration tests.
 pub fn ping() -> Result<String> {
@@ -199,6 +200,13 @@ pub struct LoginResponse {
     pub access_token: String,
     pub homeserver_url: String,
     pub did_restore: bool,
+}
+
+/// Backup status summary for UI.
+#[derive(Debug, Clone, Serialize)]
+pub struct BackupStatusResponse {
+    pub enabled: bool,
+    pub exists_on_server: bool,
 }
 
 /// Initialise the Matrix client from a homeserver URL and stored session
@@ -372,6 +380,7 @@ pub fn logout(base_path: &Path) -> Result<()> {
     runtime.block_on(async {
         sliding_sync::reset_all().await;
         timeline::reset_all().await;
+        backup::reset_all().await;
     });
 
     {
@@ -500,6 +509,35 @@ pub fn dump_room_crypto(room_id: &str) -> Result<()> {
         .map_err(|_| anyhow!("invalid room id '{room_id}'"))?;
 
     runtime.block_on(async move { dump_room_crypto_async(&client, &room_id).await })
+}
+
+/// Return the current backup status for the active client.
+pub fn backup_status() -> Result<BackupStatusResponse> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    let runtime = runtime();
+    let _guard = runtime.enter();
+
+    runtime.block_on(async move {
+        let backups = client.encryption().backups();
+        let enabled = backups.are_enabled().await;
+        let exists_on_server = backups.fetch_exists_on_server().await.unwrap_or(false);
+        Ok(BackupStatusResponse {
+            enabled,
+            exists_on_server,
+        })
+    })
+}
+
+/// Import a recovery key (alias for recover_with_key for FRB naming).
+pub fn import_recovery_key(recovery_key: &str) -> Result<()> {
+    recover_with_key(recovery_key)
+}
+
+/// Register a Dart send port to receive backup status updates.
+pub fn register_backup_status_listener(handle: &str, port: i64) -> Result<sliding_sync::AckResponse> {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(backup::register_listener(handle, port))
 }
 
 async fn dump_room_crypto_async(client: &Client, room_id: &OwnedRoomId) -> Result<()> {

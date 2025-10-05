@@ -223,6 +223,8 @@ void main() {
   ReceivePort? roomListPort;
   Stream<dynamic>? roomListStream;
   late List<String> roomIds;
+  ReceivePort? backupPort;
+  Stream<dynamic>? backupStream;
 
   setUpAll(() async {
     storePath = _env(
@@ -332,6 +334,7 @@ void main() {
   });
 
   tearDownAll(() async {
+    backupPort?.close();
     roomListPort?.close();
     await rustLogout(basePath: storePath);
   });
@@ -522,5 +525,34 @@ void main() {
         ((decoded.first['content'] as Map<String, dynamic>)['body']) as String?;
     expect(body, isNotNull);
     expect(body!, contains('Seed message'));
+  });
+
+  test('import_recovery_key alias works and backup status stream emits', () async {
+    final key = _loadRecoveryKey();
+    expect(key, isNotNull);
+
+    final importResult = await rustImportRecoveryKey(recoveryKey: key!);
+    expect(importResult.isOk, isTrue, reason: importResult.error);
+
+    backupPort = ReceivePort('bridge_backup_status_headless');
+    backupStream = backupPort!.asBroadcastStream();
+    final streamResult = await rustBackupStatusStream(
+      handle: slidingHandle,
+      port: backupPort!.sendPort,
+    );
+    expect(streamResult.isOk, isTrue, reason: streamResult.error);
+
+    final payload = await _waitForPayload(
+      backupStream!,
+      <String>{'backup_status'},
+      timeout: const Duration(seconds: 30),
+      label: 'backup',
+    );
+    expect(payload['kind'], equals('backup_status'));
+    expect(payload.containsKey('enabled'), isTrue);
+    expect(payload.containsKey('exists_on_server'), isTrue);
+
+    backupPort?.close();
+    backupPort = null;
   });
 }

@@ -23,6 +23,7 @@ class TimelineController extends StateNotifier<TimelineState> {
   String? _roomId;
   bool _isStarting = false;
   bool _loadingOlder = false;
+  final Set<String> _attemptedKeyDownload = <String>{};
 
   Future<void> openRoom(String roomId) async {
     if (_isStarting) return;
@@ -53,6 +54,24 @@ class TimelineController extends StateNotifier<TimelineState> {
     }
 
     await _startStream(roomId);
+
+    // Opportunistically attempt to fetch room keys from backup once per room.
+    // This helps make encrypted history readable without manual recovery.
+    if (!_attemptedKeyDownload.contains(roomId)) {
+      _attemptedKeyDownload.add(roomId);
+      // Fire-and-forget; on success, refresh the snapshot to benefit from
+      // decryption on the Rust side.
+      unawaited(() async {
+        final download = await rustDownloadRoomKeysForRoom(roomId: roomId);
+        if (download.isOk) {
+          // Re-registering the stream triggers a fresh snapshot which should
+          // now contain decrypted events.
+          if (_roomId == roomId) {
+            await _startStream(roomId);
+          }
+        }
+      }());
+    }
     _isStarting = false;
   }
 
@@ -170,6 +189,20 @@ class TimelineController extends StateNotifier<TimelineState> {
         case 'timeline_snapshot':
         case 'timeline_initial':
           _applySnapshot(eventsRaw);
+          // If after snapshot we still have no readable messages, try a
+          // one-off room keys download and refresh the stream.
+          if ((state.events.isEmpty) && _roomId != null) {
+            final roomId = _roomId!;
+            if (!_attemptedKeyDownload.contains(roomId)) {
+              _attemptedKeyDownload.add(roomId);
+              unawaited(() async {
+                final download = await rustDownloadRoomKeysForRoom(roomId: roomId);
+                if (download.isOk && _roomId == roomId) {
+                  await _startStream(roomId);
+                }
+              }());
+            }
+          }
           break;
         case 'timeline_append':
           _appendEvents(eventsRaw);
@@ -231,6 +264,11 @@ class TimelineController extends StateNotifier<TimelineState> {
   TimelineItem? _parseTimelineEvent(String raw) {
     try {
       final map = jsonDecode(raw) as Map<String, dynamic>;
+      // Keep user-visible events: plain messages and encrypted (until decrypted).
+      final type = map['type'] as String?;
+      if (type != 'm.room.message' && type != 'm.room.encrypted') {
+        return null;
+      }
       return TimelineItem.fromRaw(map);
     } catch (_) {
       return null;
@@ -326,10 +364,15 @@ class TimelineItem {
   }
 
   static String? _extractBody(String eventType, Map<String, dynamic> content) {
+    // For message events, prefer plain body and fall back to formatted.
     if (eventType == 'm.room.message') {
-    return content['body'] as String? ?? content['formatted_body'] as String?;
-  }
-    return "[${eventType.replaceAll('m.', '')}]";
+      return content['body'] as String? ?? content['formatted_body'] as String?;
+    }
+    if (eventType == 'm.room.encrypted') {
+      return '[encrypted]';
+    }
+    // Other events were filtered earlier.
+    return null;
   }
 
   final TimelineEventKey key;

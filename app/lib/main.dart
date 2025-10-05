@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'bridge/messie_bridge.dart';
 import 'state/room_list_controller.dart';
 import 'state/timeline_controller.dart';
+import 'state/backup_controller.dart';
 import 'theme/app_theme.dart';
 import 'theme/messie_tokens.dart';
 
@@ -546,6 +547,9 @@ class LoggedInView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final pingState = ref.watch(pingProvider);
+    // Ensure backup status stream is running post-login
+    ref.read(backupControllerProvider.notifier).ensureStarted();
+    final backupState = ref.watch(backupControllerProvider);
     final roomListState = ref.watch(roomListControllerProvider);
     final timelineState = ref.watch(timelineControllerProvider);
     final selectedRoomId = ref.watch(selectedRoomIdProvider);
@@ -637,6 +641,95 @@ class LoggedInView extends ConsumerWidget {
                 ],
               ),
             ],
+            SizedBox(height: spacing.gap.lg),
+            Row(
+              children: [
+                Icon(Icons.key_rounded, color: colorScheme.primary),
+                SizedBox(width: spacing.gap.sm),
+                Expanded(
+                  child: Text(
+                    'Recovery & Backup',
+                    style: textTheme.titleSmall,
+                  ),
+                ),
+                if (backupState.enabled == true)
+                  Chip(
+                    label: const Text('Enabled'),
+                    backgroundColor: colorScheme.primaryContainer,
+                    labelStyle: textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onPrimaryContainer,
+                    ),
+                  )
+                else if (backupState.enabled == false)
+                  Chip(
+                    label: const Text('Disabled'),
+                    backgroundColor: colorScheme.errorContainer,
+                    labelStyle: textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onErrorContainer,
+                    ),
+                  )
+                else
+                  const SizedBox.shrink(),
+              ],
+            ),
+            SizedBox(height: spacing.gap.sm),
+            if (backupState.enabled != true)
+              FilledButton.icon(
+                onPressed: () async {
+                  final controller = TextEditingController();
+                  final result = await showDialog<bool>(
+                    context: context,
+                    builder: (context) {
+                      return AlertDialog(
+                        title: const Text('Restore from Recovery Key'),
+                      content: TextField(
+                        controller: controller,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          hintText: 'Enter your recovery key…',
+                        ),
+                        autofocus: true,
+                      ),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () async {
+                            final raw = controller.text.trim();
+                            if (raw.isEmpty) {
+                              return;
+                            }
+                            // Try both spaced and compact variants.
+                            var ok = await rustRecoverWithKey(recoveryKey: raw);
+                            if (!ok.isOk && raw.contains(' ')) {
+                              final compact = raw.replaceAll(RegExp('\\s+'), '');
+                              ok = await rustRecoverWithKey(recoveryKey: compact);
+                            }
+                            if (context.mounted) {
+                              Navigator.of(context).pop(ok.isOk);
+                            }
+                          },
+                          child: const Text('Restore'),
+                        ),
+                      ],
+                    );
+                  },
+                );
+                if (result == true && context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Recovery complete – backups enabled')),
+                  );
+                  final rid = ref.read(selectedRoomIdProvider);
+                  if (rid != null) {
+                    await ref.read(timelineControllerProvider.notifier).openRoom(rid);
+                  }
+                }
+              },
+              icon: const Icon(Icons.lock_reset_rounded),
+              label: const Text('Restore from Recovery Key'),
+            ),
             SizedBox(height: spacing.gap.xl),
             FilledButton.icon(
               onPressed: () => ref.read(authControllerProvider.notifier).logout(),

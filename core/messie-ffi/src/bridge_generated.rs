@@ -155,6 +155,27 @@ pub extern "C" fn messie_ffi_dump_room_crypto(room_id: *const c_char) -> *mut c_
 }
 
 #[no_mangle]
+pub extern "C" fn messie_ffi_backup_status() -> *mut c_char {
+    ffi_safe(|| Ok(api::backup_status()))
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_import_recovery_key(recovery_key: *const c_char) -> *mut c_char {
+    ffi_safe(|| {
+        let recovery_key = read_c_string(recovery_key, "recoveryKey")?;
+        Ok(api::import_recovery_key(recovery_key))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_backup_status_stream(handle: *const c_char, port: i64) -> *mut c_char {
+    ffi_safe(|| {
+        let handle = read_c_string(handle, "handle")?;
+        Ok(api::backup_status_stream(handle, port))
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn messie_ffi_recover_with_key(recovery_key: *const c_char) -> *mut c_char {
     ffi_safe(|| {
         let recovery_key = read_c_string(recovery_key, "recoveryKey")?;

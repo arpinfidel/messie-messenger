@@ -187,6 +187,18 @@ impl SlidingSyncController {
         if !Self::post_to_port(port, ready) {
             self.listeners.lock().await.remove(&port);
         }
+        // Also emit a lightweight snapshot so late subscribers don't block
+        // waiting for the next server-side diff.
+        let rooms: Vec<String> = self.room_ids().await;
+        let snapshot = SlidingSyncUpdate {
+            kind: "sliding_sync_update",
+            lists: vec!["all".to_string()],
+            rooms,
+        };
+        let json = serde_json::to_string(&snapshot)?;
+        if !Self::post_to_port(port, json) {
+            self.listeners.lock().await.remove(&port);
+        }
         Ok(())
     }
 
