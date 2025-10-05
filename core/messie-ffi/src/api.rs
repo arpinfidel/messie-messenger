@@ -74,6 +74,33 @@ pub fn backup_status() -> String {
     to_response_json(matrix::backup_status())
 }
 
+/// Attempt to enable online backup. Returns current status; may include a
+/// generated recovery key in future.
+pub fn enable_online_backup(generate_new: bool) -> String {
+    to_response_json(matrix::enable_online_backup(generate_new))
+}
+
+/// Export the recovery key for the current account (not yet implemented).
+pub fn export_recovery_key() -> String {
+    to_response_json(matrix::export_recovery_key())
+}
+
+/// Import an existing SSSS recovery key (bech32).
+pub fn ssss_import_recovery_key(recovery_key: String) -> String {
+    to_response_json(matrix::ssss_import_recovery_key(&recovery_key))
+}
+
+/// Bootstrap SSSS (secret storage). On this SDK version this returns a clear
+/// error noting that key generation/export isn't available.
+pub fn ssss_bootstrap(generate_new_key: bool, passphrase: Option<String>) -> String {
+    to_response_json(matrix::ssss_bootstrap(generate_new_key, passphrase.as_deref()))
+}
+
+/// Export the SSSS recovery key (not supported on this SDK version).
+pub fn ssss_export_recovery_key() -> String {
+    to_response_json(matrix::ssss_export_recovery_key())
+}
+
 /// Start or update the sliding sync controller for the provided handle.
 pub fn start_sliding_sync(
     handle: String,

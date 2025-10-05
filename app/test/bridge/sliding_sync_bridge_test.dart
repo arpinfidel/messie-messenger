@@ -555,4 +555,16 @@ void main() {
     backupPort?.close();
     backupPort = null;
   });
+
+  test('enable_online_backup returns status; export_recovery_key placeholder', () async {
+    final enable = await rustEnableOnlineBackup(generateNew: false);
+    expect(enable.isOk, isTrue, reason: enable.error);
+    expect(enable.data!.enabled, isTrue);
+
+    // Export not yet implemented: allow either success with a key or a clear error.
+    final export = await rustExportRecoveryKey();
+    if (!export.isOk) {
+      expect(export.error, isNotNull);
+    }
+  });
 }
