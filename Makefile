@@ -63,40 +63,19 @@ jira-push:
 	@echo "Pushing local YAML changes to Jira (then refreshing YAML)..."
 	cd backend && go run ./cmd/jira-sync push
 
-.PHONY: mobile-assets mobile-sync mobile-run-android mobile-run-ios mobile-open-android mobile-open-ios mobile-add-android mobile-add-ios test-e2e-codegen matrix-init matrix-up matrix-down matrix-register matrix-seed matrix-setup matrix-cleanup flutter-bridge-build-lib flutter-bridge-test bridge-generate bridge-build-android bridge-build-ios
+.PHONY: test-e2e-codegen matrix-init matrix-up matrix-down matrix-register matrix-seed matrix-setup matrix-cleanup flutter-bridge-build-lib flutter-bridge-test bridge-generate bridge-build-android bridge-build-ios flutter-run-android flutter-run-ios
 
-mobile-assets:
-	cd frontend && npm run mobile:assets
+flutter-run-android:
+	# Ensure Rust Android FFI is built and copied into app/android
+	make bridge-build-android
+	cd app && flutter pub get
+	cd app && flutter run -d emulator-5554
 
-mobile-sync:
-	cd frontend && npm run mobile:sync
-
-mobile-run-android:
-	cd frontend && npm run mobile:run:android
-
-mobile-run-ios:
-	cd frontend && npm run mobile:run:ios
-
-mobile-build-android:
-	cd frontend/android && ./gradlew assembleDebug
-
-mobile-open-android:
-	cd frontend && npm run mobile:android
-
-mobile-open-ios:
-	cd frontend && npm run mobile:ios
-
-mobile-add-android:
-	cd frontend && npm run mobile:add:android
-
-mobile-add-ios:
-	cd frontend && npm run mobile:add:ios
-
-mobile-emu-list-android:
-	$(ANDROID_SDK_ROOT)/emulator/emulator -list-avds
-
-mobile-emu-start-android:
-	$(ANDROID_SDK_ROOT)/emulator/emulator -avd $(ARGS)
+flutter-run-ios:
+	# Ensure Rust iOS/macOS libraries are built (if needed for your flow)
+	make bridge-build-ios
+	cd app && flutter pub get
+	cd app && flutter run -d ios
 
 test-e2e-codegen:
 	cd frontend && npm run test:e2e:codegen

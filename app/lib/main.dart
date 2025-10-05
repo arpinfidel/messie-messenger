@@ -504,8 +504,31 @@ class _LoginViewState extends ConsumerState<LoginView> {
       return;
     }
     FocusScope.of(context).unfocus();
+    var homeserverText = _homeserverController.text.trim();
+
+    // On Android emulator, rewrite localhost/127.0.0.1 to 10.0.2.2 and inform the user.
+    try {
+      final uri = Uri.parse(homeserverText);
+      if (Platform.isAndroid && (uri.host == 'localhost' || uri.host == '127.0.0.1')) {
+        final rewritten = uri.replace(host: '10.0.2.2').toString();
+        if (rewritten != homeserverText) {
+          homeserverText = rewritten;
+          _homeserverController.text = homeserverText;
+          final messenger = ScaffoldMessenger.maybeOf(context);
+          messenger?.showSnackBar(
+            const SnackBar(
+              content: Text('Using 10.0.2.2 to reach host from Android emulator'),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      // If parse fails, proceed without rewrite.
+    }
+
     await ref.read(authControllerProvider.notifier).login(
-          homeserverUrl: _homeserverController.text,
+          homeserverUrl: homeserverText,
           username: _usernameController.text,
           password: _passwordController.text,
         );
