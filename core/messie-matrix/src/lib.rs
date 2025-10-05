@@ -207,6 +207,22 @@ pub struct LoginResponse {
 pub struct BackupStatusResponse {
     pub enabled: bool,
     pub exists_on_server: bool,
+    pub recovery_state: String,
+    pub needs_recovery: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EnableBackupResponse {
+    pub enabled: bool,
+    pub exists_on_server: bool,
+    pub generated_recovery_key: Option<String>,
+}
+
+/// Result of bootstrapping SSSS. If a new recovery key was generated, it is
+/// returned as a bech32 string so the UI can display and store it.
+#[derive(Debug, Clone, Serialize)]
+pub struct SsssBootstrapResponse {
+    pub generated_recovery_key: Option<String>,
 }
 
 /// Initialise the Matrix client from a homeserver URL and stored session
@@ -518,14 +534,95 @@ pub fn backup_status() -> Result<BackupStatusResponse> {
     let _guard = runtime.enter();
 
     runtime.block_on(async move {
-        let backups = client.encryption().backups();
+        let encryption = client.encryption();
+        let backups = encryption.backups();
         let enabled = backups.are_enabled().await;
         let exists_on_server = backups.fetch_exists_on_server().await.unwrap_or(false);
-        Ok(BackupStatusResponse {
-            enabled,
-            exists_on_server,
-        })
+        // Derive recovery state from recovery service as a string for telemetry/UX
+        let state_enum = encryption.recovery().state();
+        let recovery_state = format!("{:?}", state_enum);
+        // Need recovery if server has backup and we're not enabled locally OR
+        // if the recovery service itself is not fully enabled yet.
+        let needs_recovery = (exists_on_server && !enabled)
+            || !matches!(state_enum, matrix_sdk::encryption::recovery::RecoveryState::Enabled);
+        Ok(BackupStatusResponse { enabled, exists_on_server, recovery_state, needs_recovery })
     })
+}
+
+/// Attempt to enable online backup. If `generate_new` is true and no backup
+/// exists server-side, this build does not generate a new recovery key yet and
+/// will return `generated_recovery_key = None` (follow-up work).
+pub fn enable_online_backup(generate_new: bool) -> Result<EnableBackupResponse> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    let runtime = runtime();
+    let _guard = runtime.enter();
+
+    runtime.block_on(async move {
+        let encryption = client.encryption();
+        let backups = encryption.backups();
+        let exists_on_server = backups.fetch_exists_on_server().await.unwrap_or(false);
+
+        if generate_new {
+            // Create a new backup version on the server and persist its key (stored in SSSS).
+            backups
+                .create()
+                .await
+                .map_err(|e| anyhow!(format!("failed to create backup version: {e:?}")))?;
+        } else if !backups.are_enabled().await {
+            // Convenience helper to enable/attach to an existing backup version.
+            encryption
+                .recovery()
+                .enable_backup()
+                .await
+                .map_err(|e| anyhow!(format!("failed to enable backup: {e:?}")))?;
+        }
+
+        // Optionally wait for a steady state; keep it non-blocking for now.
+        let enabled = backups.are_enabled().await;
+        Ok(EnableBackupResponse { enabled, exists_on_server, generated_recovery_key: None })
+    })
+}
+
+/// Export the recovery key for the current account. Not supported in this
+/// build yet.
+pub fn export_recovery_key() -> Result<String> {
+    Err(anyhow!(
+        "export_recovery_key is not supported by the current matrix-sdk version"
+    ))
+}
+
+/// Import an existing SSSS recovery key (bech32) to unlock local secret
+/// storage. This is equivalent to calling `recover_with_key`, but exposed under
+/// an SSSS-oriented name for clarity in the FRB surface.
+pub fn ssss_import_recovery_key(recovery_key_bech32: &str) -> Result<()> {
+    recover_with_key(recovery_key_bech32)
+}
+
+/// Bootstrap secret storage. On SDK 0.14.x we do not expose recovery key
+/// generation; return a clear error so callers can branch accordingly.
+pub fn ssss_bootstrap(_generate_new_key: bool, _passphrase: Option<&str>) -> Result<SsssBootstrapResponse> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    let runtime = runtime();
+    let _guard = runtime.enter();
+
+    runtime.block_on(async move {
+        let recovery = client.encryption().recovery();
+        // Build the enable flow, optionally with passphrase; if no passphrase provided, a
+        // random recovery key will be generated and returned.
+        // Note: The recovery key string must be shown/saved by the caller.
+        let recovery_key = recovery
+            .enable()
+            .await
+            .map_err(|e| anyhow!(format!("failed to bootstrap SSSS: {e:?}")))?;
+        Ok(SsssBootstrapResponse { generated_recovery_key: Some(recovery_key) })
+    })
+}
+
+/// Export the SSSS recovery key. Not supported on SDK 0.14.x in this build.
+pub fn ssss_export_recovery_key() -> Result<String> {
+    Err(anyhow!(
+        "exporting the SSSS recovery key is not supported by the current matrix-sdk version"
+    ))
 }
 
 /// Import a recovery key (alias for recover_with_key for FRB naming).

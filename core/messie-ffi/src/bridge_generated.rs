@@ -176,6 +176,37 @@ pub extern "C" fn messie_ffi_backup_status_stream(handle: *const c_char, port: i
 }
 
 #[no_mangle]
+pub extern "C" fn messie_ffi_enable_online_backup(generate_new: bool) -> *mut c_char {
+    ffi_safe(|| Ok(api::enable_online_backup(generate_new)))
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_export_recovery_key() -> *mut c_char {
+    ffi_safe(|| Ok(api::export_recovery_key()))
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_ssss_import_recovery_key(recovery_key: *const c_char) -> *mut c_char {
+    ffi_safe(|| {
+        let recovery_key = read_c_string(recovery_key, "recoveryKey")?;
+        Ok(api::ssss_import_recovery_key(recovery_key))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_ssss_bootstrap(generate_new_key: bool, passphrase: *const c_char) -> *mut c_char {
+    ffi_safe(|| {
+        let passphrase = if passphrase.is_null() { None } else { Some(read_c_string(passphrase, "passphrase")?) };
+        Ok(api::ssss_bootstrap(generate_new_key, passphrase))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_ssss_export_recovery_key() -> *mut c_char {
+    ffi_safe(|| Ok(api::ssss_export_recovery_key()))
+}
+
+#[no_mangle]
 pub extern "C" fn messie_ffi_recover_with_key(recovery_key: *const c_char) -> *mut c_char {
     ffi_safe(|| {
         let recovery_key = read_c_string(recovery_key, "recoveryKey")?;

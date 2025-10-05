@@ -9,6 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tokio::{sync::RwLock as AsyncRwLock, sync::Mutex as AsyncMutex};
 
 use crate::{client, runtime, sliding_sync::AckResponse};
+use matrix_sdk::encryption::recovery::RecoveryState;
 
 static CONTROLLERS: Lazy<AsyncRwLock<HashMap<String, Arc<BackupStatusController>>>> =
     Lazy::new(|| AsyncRwLock::new(HashMap::new()));
@@ -20,6 +21,8 @@ pub struct BackupStatusPayload {
     pub kind: &'static str,
     pub enabled: bool,
     pub exists_on_server: bool,
+    pub recovery_state: String,
+    pub needs_recovery: bool,
 }
 
 
@@ -112,10 +115,23 @@ impl BackupStatusController {
 
     async fn snapshot(&self) -> Result<BackupStatusPayload> {
         let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
-        let backups = client.encryption().backups();
+        let encryption = client.encryption();
+        let backups = encryption.backups();
         let enabled = backups.are_enabled().await;
         let exists = backups.fetch_exists_on_server().await.unwrap_or(false);
-        Ok(BackupStatusPayload { kind: "backup_status", enabled, exists_on_server: exists })
+        let state_enum = encryption.recovery().state();
+        let recovery_state = format!("{:?}", state_enum);
+        // Need recovery if server has a backup but we are not locally enabled,
+        // OR if the recovery service itself is not in Enabled state yet.
+        let needs_recovery = (exists && !enabled)
+            || !matches!(state_enum, RecoveryState::Enabled);
+        Ok(BackupStatusPayload {
+            kind: "backup_status",
+            enabled,
+            exists_on_server: exists,
+            recovery_state,
+            needs_recovery,
+        })
     }
 
     fn post(port: i64, payload: String) -> bool { Isolate::new(port).post(payload) }

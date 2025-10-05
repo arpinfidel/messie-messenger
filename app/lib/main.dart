@@ -11,6 +11,7 @@ import 'bridge/messie_bridge.dart';
 import 'state/room_list_controller.dart';
 import 'state/timeline_controller.dart';
 import 'state/backup_controller.dart';
+import 'state/secure_secrets.dart';
 import 'theme/app_theme.dart';
 import 'theme/messie_tokens.dart';
 
@@ -587,6 +588,62 @@ class LoggedInView extends ConsumerWidget {
       }
     }
 
+    Future<void> _enableBackupFlow(BuildContext context) async {
+      final messenger = ScaffoldMessenger.of(context);
+      // 1) Bootstrap SSSS to obtain a recovery key
+      final bootstrap = await rustSsssBootstrap(generateNewKey: true);
+      if (!bootstrap.isOk || bootstrap.data?.generatedRecoveryKey == null) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(bootstrap.error ?? 'Failed to create recovery key')),
+        );
+        return;
+      }
+      final recoveryKey = bootstrap.data!.generatedRecoveryKey!;
+
+      // 2) Offer to copy/save the key before enabling backup
+      final secrets = SecureSecrets();
+      if (context.mounted) {
+        await showDialog<void>(
+          context: context,
+          builder: (context) {
+            return _RecoveryKeyDialog(
+              recoveryKey: recoveryKey,
+              onCopy: () async {
+                await secrets.copyToClipboard(recoveryKey);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Copied recovery key')),
+                  );
+                }
+              },
+              onSave: () async {
+                final ok = await secrets.saveRecoveryKey(recoveryKey);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text(ok
+                        ? 'Recovery key saved securely'
+                        : 'Failed to save recovery key'),
+                  ));
+                }
+              },
+            );
+          },
+        );
+      }
+
+      // 3) Enable backup on the server
+      final enable = await rustEnableOnlineBackup(generateNew: true);
+      if (!enable.isOk) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(enable.error ?? 'Failed to enable backup')),
+        );
+        return;
+      }
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Key backup enabled')),
+      );
+    }
+
     final accountCard = Card(
       child: Padding(
         padding: EdgeInsets.all(spacing.gap.xl),
@@ -642,22 +699,44 @@ class LoggedInView extends ConsumerWidget {
               ),
             ],
             SizedBox(height: spacing.gap.lg),
-            Row(
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              runSpacing: spacing.gap.xs,
               children: [
-                Icon(Icons.key_rounded, color: colorScheme.primary),
-                SizedBox(width: spacing.gap.sm),
-                Expanded(
-                  child: Text(
-                    'Recovery & Backup',
-                    style: textTheme.titleSmall,
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.key_rounded, color: colorScheme.primary),
+                    SizedBox(width: spacing.gap.sm),
+                    Text(
+                      'Recovery & Backup',
+                      style: textTheme.titleSmall,
+                    ),
+                  ],
                 ),
-                if (backupState.enabled == true)
+                if (backupState.enabled == true && backupState.needsRecovery == false)
                   Chip(
                     label: const Text('Enabled'),
                     backgroundColor: colorScheme.primaryContainer,
                     labelStyle: textTheme.labelSmall?.copyWith(
                       color: colorScheme.onPrimaryContainer,
+                    ),
+                  )
+                else if (backupState.enabled == true && backupState.needsRecovery != false)
+                  Chip(
+                    label: const Text('Locked'),
+                    backgroundColor: colorScheme.tertiaryContainer,
+                    labelStyle: textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onTertiaryContainer,
+                    ),
+                  )
+                else if (backupState.enabled == false && backupState.existsOnServer == true)
+                  Chip(
+                    label: const Text('Available (restore)'),
+                    backgroundColor: colorScheme.surfaceVariant,
+                    labelStyle: textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
                     ),
                   )
                 else if (backupState.enabled == false)
@@ -672,10 +751,27 @@ class LoggedInView extends ConsumerWidget {
                   const SizedBox.shrink(),
               ],
             ),
-            SizedBox(height: spacing.gap.sm),
-            if (backupState.enabled != true)
-              FilledButton.icon(
-                onPressed: () async {
+            SizedBox(height: spacing.gap.md),
+            if (backupState.enabled == false && backupState.existsOnServer != true)
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => _enableBackupFlow(context),
+                      icon: const Icon(Icons.cloud_upload_rounded),
+                      label: const Text('Turn on Key Backup'),
+                    ),
+                  ),
+                ],
+              ),
+            if (backupState.enabled == false && backupState.existsOnServer != true)
+              SizedBox(height: spacing.gap.sm),
+            if (backupState.enabled != true || backupState.needsRecovery == true)
+              Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () async {
                   final controller = TextEditingController();
                   final result = await showDialog<bool>(
                     context: context,
@@ -707,6 +803,21 @@ class LoggedInView extends ConsumerWidget {
                               final compact = raw.replaceAll(RegExp('\\s+'), '');
                               ok = await rustRecoverWithKey(recoveryKey: compact);
                             }
+                            if (ok.isOk) {
+                              // Offer to save the key securely after a successful recovery
+                              final secrets = SecureSecrets();
+                              final keyToSave = raw.isNotEmpty ? raw : null;
+                              if (keyToSave != null) {
+                                final saveOk = await secrets.saveRecoveryKey(keyToSave);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                                    content: Text(saveOk
+                                        ? 'Recovery key saved securely'
+                                        : 'Failed to save recovery key'),
+                                  ));
+                                }
+                              }
+                            }
                             if (context.mounted) {
                               Navigator.of(context).pop(ok.isOk);
                             }
@@ -726,10 +837,13 @@ class LoggedInView extends ConsumerWidget {
                     await ref.read(timelineControllerProvider.notifier).openRoom(rid);
                   }
                 }
-              },
-              icon: const Icon(Icons.lock_reset_rounded),
-              label: const Text('Restore from Recovery Key'),
-            ),
+                      },
+                      icon: const Icon(Icons.lock_reset_rounded),
+                      label: const Text('Restore from Recovery Key'),
+                    ),
+                  ),
+                ],
+              ),
             SizedBox(height: spacing.gap.xl),
             FilledButton.icon(
               onPressed: () => ref.read(authControllerProvider.notifier).logout(),
@@ -1466,6 +1580,75 @@ class _TimelineBubble extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _RecoveryKeyDialog extends StatelessWidget {
+  const _RecoveryKeyDialog({
+    required this.recoveryKey,
+    required this.onCopy,
+    required this.onSave,
+  });
+
+  final String recoveryKey;
+  final Future<void> Function() onCopy;
+  final Future<void> Function() onSave;
+
+  @override
+  Widget build(BuildContext context) {
+    final spacing = MessieSpacing.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final colors = Theme.of(context).colorScheme;
+    return AlertDialog(
+      title: const Text('Your Recovery Key'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Save this key somewhere safe. It can decrypt your message history on new devices. Do not share it with anyone.',
+            style: textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+          ),
+          SizedBox(height: spacing.gap.md),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: colors.surfaceVariant,
+              borderRadius: BorderRadius.circular(MessieRadii.of(context).md),
+            ),
+            child: Padding(
+              padding: EdgeInsets.all(spacing.gap.md),
+              child: SelectableText(
+                recoveryKey,
+                style: textTheme.bodyMedium?.copyWith(
+                  fontFamily: 'monospace',
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+        TextButton.icon(
+          onPressed: () async {
+            await onCopy();
+          },
+          icon: const Icon(Icons.copy_rounded),
+          label: const Text('Copy'),
+        ),
+        FilledButton.icon(
+          onPressed: () async {
+            await onSave();
+          },
+          icon: const Icon(Icons.save_rounded),
+          label: const Text('Save securely'),
+        ),
+      ],
     );
   }
 }

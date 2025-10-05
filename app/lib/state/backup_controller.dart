@@ -28,6 +28,8 @@ class BackupController extends StateNotifier<BackupState> {
       state = state.copyWith(
         enabled: initial.data!.enabled,
         existsOnServer: initial.data!.existsOnServer,
+        needsRecovery: initial.data!.needsRecovery,
+        recoveryState: initial.data!.recoveryState,
         error: null,
       );
     }
@@ -52,7 +54,15 @@ class BackupController extends StateNotifier<BackupState> {
       if (map['kind'] == 'backup_status') {
         final enabled = map['enabled'] == true;
         final exists = map['exists_on_server'] == true;
-        state = state.copyWith(enabled: enabled, existsOnServer: exists, error: null);
+        final needsRecovery = map['needs_recovery'] == true;
+        final recoveryState = map['recovery_state'] as String?;
+        state = state.copyWith(
+          enabled: enabled,
+          existsOnServer: exists,
+          needsRecovery: needsRecovery,
+          recoveryState: recoveryState,
+          error: null,
+        );
       }
     } catch (_) {
       // ignore
@@ -71,20 +81,23 @@ class BackupController extends StateNotifier<BackupState> {
 }
 
 class BackupState {
-  const BackupState({this.enabled, this.existsOnServer, this.error});
+  const BackupState({this.enabled, this.existsOnServer, this.needsRecovery, this.recoveryState, this.error});
 
-  const BackupState.initial() : this(enabled: null, existsOnServer: null, error: null);
+  const BackupState.initial() : this(enabled: null, existsOnServer: null, needsRecovery: null, recoveryState: null, error: null);
 
   final bool? enabled;
   final bool? existsOnServer;
+  final bool? needsRecovery;
+  final String? recoveryState;
   final String? error;
 
-  BackupState copyWith({bool? enabled, bool? existsOnServer, String? error}) {
+  BackupState copyWith({bool? enabled, bool? existsOnServer, bool? needsRecovery, String? recoveryState, String? error}) {
     return BackupState(
       enabled: enabled ?? this.enabled,
       existsOnServer: existsOnServer ?? this.existsOnServer,
+      needsRecovery: needsRecovery ?? this.needsRecovery,
+      recoveryState: recoveryState ?? this.recoveryState,
       error: error,
     );
   }
 }
-

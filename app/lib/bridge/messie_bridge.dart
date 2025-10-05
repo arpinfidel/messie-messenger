@@ -33,6 +33,16 @@ typedef _NativeImportRecoveryKey = _PointerUtf8 Function(_PointerUtf8);
 typedef _DartImportRecoveryKey = _PointerUtf8 Function(_PointerUtf8);
 typedef _NativeBackupStatusStream = _PointerUtf8 Function(_PointerUtf8, ffi.Int64);
 typedef _DartBackupStatusStream = _PointerUtf8 Function(_PointerUtf8, int);
+typedef _NativeEnableOnlineBackup = _PointerUtf8 Function(ffi.Uint8);
+typedef _DartEnableOnlineBackup = _PointerUtf8 Function(int);
+typedef _NativeExportRecoveryKey = _PointerUtf8 Function();
+typedef _DartExportRecoveryKey = _PointerUtf8 Function();
+typedef _NativeSsssImportRecoveryKey = _PointerUtf8 Function(_PointerUtf8);
+typedef _DartSsssImportRecoveryKey = _PointerUtf8 Function(_PointerUtf8);
+typedef _NativeSsssBootstrap = _PointerUtf8 Function(ffi.Uint8, _PointerUtf8);
+typedef _DartSsssBootstrap = _PointerUtf8 Function(int, _PointerUtf8);
+typedef _NativeSsssExportRecoveryKey = _PointerUtf8 Function();
+typedef _DartSsssExportRecoveryKey = _PointerUtf8 Function();
 
 typedef _NativeStartSlidingSync = _PointerUtf8 Function(
     _PointerUtf8, ffi.Uint32, ffi.Uint32, ffi.Uint32, ffi.Uint32);
@@ -172,6 +182,39 @@ Future<RustResult<AckData>> rustBackupStatusStream({
   _ensurePostCObjectRegistered(config);
   final args = _RoomListStreamArgs(config, handle, port.nativePort);
   return Isolate.run(() => _backupStatusStreamIsolate(args));
+}
+
+Future<RustResult<EnableBackupData>> rustEnableOnlineBackup({required bool generateNew}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _EnableBackupArgs(config, generateNew);
+  return Isolate.run(() => _enableOnlineBackupIsolate(args));
+}
+
+Future<RustResult<ExportRecoveryKeyData>> rustExportRecoveryKey() {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  return Isolate.run(() => _exportRecoveryKeyIsolate(config));
+}
+
+Future<RustResult<Unit>> rustSsssImportRecoveryKey({required String recoveryKeyBech32}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _RecoverArgs(config, recoveryKeyBech32);
+  return Isolate.run(() => _ssssImportRecoveryKeyIsolate(args));
+}
+
+Future<RustResult<SsssBootstrapData>> rustSsssBootstrap({required bool generateNewKey, String? passphrase}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _SsssBootstrapArgs(config, generateNewKey, passphrase ?? '');
+  return Isolate.run(() => _ssssBootstrapIsolate(args));
+}
+
+Future<RustResult<ExportRecoveryKeyData>> rustSsssExportRecoveryKey() {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  return Isolate.run(() => _ssssExportRecoveryKeyIsolate(config));
 }
 
 Future<RustResult<StartSlidingSyncData>> rustStartSlidingSync({
@@ -315,6 +358,31 @@ RustResult<AckData> _backupStatusStreamIsolate(_RoomListStreamArgs args) {
   return bindings.backupStatusStream(args.handle, args.nativePort);
 }
 
+RustResult<EnableBackupData> _enableOnlineBackupIsolate(_EnableBackupArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.enableOnlineBackup(args.generateNew);
+}
+
+RustResult<ExportRecoveryKeyData> _exportRecoveryKeyIsolate(_LibraryConfig config) {
+  final bindings = _RustBindings(_loadLibrary(config));
+  return bindings.exportRecoveryKey();
+}
+
+RustResult<Unit> _ssssImportRecoveryKeyIsolate(_RecoverArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.ssssImportRecoveryKey(args.recoveryKey);
+}
+
+RustResult<SsssBootstrapData> _ssssBootstrapIsolate(_SsssBootstrapArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.ssssBootstrap(args.generateNewKey, args.passphrase);
+}
+
+RustResult<ExportRecoveryKeyData> _ssssExportRecoveryKeyIsolate(_LibraryConfig config) {
+  final bindings = _RustBindings(_loadLibrary(config));
+  return bindings.ssssExportRecoveryKey();
+}
+
 RustResult<StartSlidingSyncData> _startSlidingSyncIsolate(_StartSyncArgs args) {
   final bindings = _RustBindings(_loadLibrary(args.config));
   return bindings.startSlidingSync(
@@ -374,17 +442,80 @@ class BackupStatusData {
   const BackupStatusData({
     required this.enabled,
     required this.existsOnServer,
+    this.recoveryState,
+    this.needsRecovery,
   });
 
   factory BackupStatusData.fromJson(Map<String, dynamic> json) {
     return BackupStatusData(
       enabled: json['enabled'] as bool? ?? false,
       existsOnServer: json['exists_on_server'] as bool? ?? false,
+      recoveryState: json['recovery_state'] as String?,
+      needsRecovery: json['needs_recovery'] as bool?,
     );
   }
 
   final bool enabled;
   final bool existsOnServer;
+  final String? recoveryState;
+  final bool? needsRecovery;
+}
+
+class EnableBackupData {
+  const EnableBackupData({
+    required this.enabled,
+    required this.existsOnServer,
+    this.generatedRecoveryKey,
+  });
+
+  factory EnableBackupData.fromJson(Map<String, dynamic> json) {
+    return EnableBackupData(
+      enabled: json['enabled'] as bool? ?? false,
+      existsOnServer: json['exists_on_server'] as bool? ?? false,
+      generatedRecoveryKey: json['generated_recovery_key'] as String?,
+    );
+  }
+
+  final bool enabled;
+  final bool existsOnServer;
+  final String? generatedRecoveryKey;
+}
+
+class ExportRecoveryKeyData {
+  const ExportRecoveryKeyData({this.recoveryKey});
+
+  factory ExportRecoveryKeyData.fromJson(Map<String, dynamic> json) {
+    return ExportRecoveryKeyData(recoveryKey: json['recovery_key'] as String?);
+  }
+
+  final String? recoveryKey;
+}
+
+class SsssBootstrapData {
+  const SsssBootstrapData({this.generatedRecoveryKey});
+
+  factory SsssBootstrapData.fromJson(Map<String, dynamic> json) {
+    return SsssBootstrapData(
+      generatedRecoveryKey: json['generated_recovery_key'] as String?,
+    );
+  }
+
+  final String? generatedRecoveryKey;
+}
+
+class _SsssBootstrapArgs {
+  const _SsssBootstrapArgs(this.config, this.generateNewKey, this.passphrase);
+
+  final _LibraryConfig config;
+  final bool generateNewKey;
+  final String passphrase;
+}
+
+class _EnableBackupArgs {
+  const _EnableBackupArgs(this.config, this.generateNew);
+
+  final _LibraryConfig config;
+  final bool generateNew;
 }
 
 class InitClientData {
@@ -585,6 +716,11 @@ class _RustBindings {
   _DartBackupStatus? _backupStatusOpt;
   _DartImportRecoveryKey? _importRecoveryKeyOpt;
   _DartBackupStatusStream? _backupStatusStreamOpt;
+  _DartEnableOnlineBackup? _enableOnlineBackupOpt;
+  _DartExportRecoveryKey? _exportRecoveryKeyOpt;
+  _DartSsssImportRecoveryKey? _ssssImportRecoveryKeyOpt;
+  _DartSsssBootstrap? _ssssBootstrapOpt;
+  _DartSsssExportRecoveryKey? _ssssExportRecoveryKeyOpt;
   final _DartStartSlidingSync _startSlidingSync;
   final _DartRoomListStream _roomListStream;
   final _DartListJoinedRooms _listJoinedRooms;
@@ -714,6 +850,73 @@ class _RustBindings {
     } finally {
       calloc.free(handlePtr);
     }
+  }
+
+  RustResult<EnableBackupData> enableOnlineBackup(bool generateNew) {
+    try {
+      _enableOnlineBackupOpt ??= _library.lookupFunction<_NativeEnableOnlineBackup, _DartEnableOnlineBackup>(
+          'messie_ffi_enable_online_backup');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'enable_online_backup not available in FFI');
+    }
+    final flag = generateNew ? 1 : 0;
+    final result = _stringFromPointer(_enableOnlineBackupOpt!(flag));
+    return _parse(result, (json) => EnableBackupData.fromJson(json as Map<String, dynamic>));
+  }
+
+  RustResult<ExportRecoveryKeyData> exportRecoveryKey() {
+    try {
+      _exportRecoveryKeyOpt ??= _library.lookupFunction<_NativeExportRecoveryKey, _DartExportRecoveryKey>(
+          'messie_ffi_export_recovery_key');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'export_recovery_key not available in FFI');
+    }
+    final result = _stringFromPointer(_exportRecoveryKeyOpt!());
+    return _parse(result, (json) => ExportRecoveryKeyData.fromJson(json as Map<String, dynamic>));
+  }
+
+  RustResult<Unit> ssssImportRecoveryKey(String recoveryKeyBech32) {
+    try {
+      _ssssImportRecoveryKeyOpt ??= _library.lookupFunction<_NativeSsssImportRecoveryKey, _DartSsssImportRecoveryKey>(
+          'messie_ffi_ssss_import_recovery_key');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'ssss_import_recovery_key not available in FFI');
+    }
+    final keyPtr = recoveryKeyBech32.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_ssssImportRecoveryKeyOpt!(keyPtr));
+      return _parse(result, (_) => Unit.instance);
+    } finally {
+      calloc.free(keyPtr);
+    }
+  }
+
+  RustResult<SsssBootstrapData> ssssBootstrap(bool generateNewKey, String? passphrase) {
+    try {
+      _ssssBootstrapOpt ??= _library.lookupFunction<_NativeSsssBootstrap, _DartSsssBootstrap>(
+          'messie_ffi_ssss_bootstrap');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'ssss_bootstrap not available in FFI');
+    }
+    final passPtr = (passphrase ?? '').toNativeUtf8();
+    try {
+      final flag = generateNewKey ? 1 : 0;
+      final result = _stringFromPointer(_ssssBootstrapOpt!(flag, passPtr));
+      return _parse(result, (json) => SsssBootstrapData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(passPtr);
+    }
+  }
+
+  RustResult<ExportRecoveryKeyData> ssssExportRecoveryKey() {
+    try {
+      _ssssExportRecoveryKeyOpt ??= _library.lookupFunction<_NativeSsssExportRecoveryKey, _DartSsssExportRecoveryKey>(
+          'messie_ffi_ssss_export_recovery_key');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'ssss_export_recovery_key not available in FFI');
+    }
+    final result = _stringFromPointer(_ssssExportRecoveryKeyOpt!());
+    return _parse(result, (json) => ExportRecoveryKeyData.fromJson(json as Map<String, dynamic>));
   }
 
   RustResult<StartSlidingSyncData> startSlidingSync(
