@@ -59,6 +59,21 @@ pub fn dump_room_crypto(room_id: String) -> String {
     to_response_json(matrix::dump_room_crypto(&room_id))
 }
 
+/// Import a recovery key (alias for recover_with_key for FRB naming).
+pub fn import_recovery_key(recovery_key: String) -> String {
+    to_response_json(matrix::import_recovery_key(&recovery_key))
+}
+
+/// Register a Dart send port to receive backup status updates.
+pub fn backup_status_stream(handle: String, port: i64) -> String {
+    to_response_json(matrix::register_backup_status_listener(&handle, port))
+}
+
+/// Query the current backup status (enabled flag and server existence).
+pub fn backup_status() -> String {
+    to_response_json(matrix::backup_status())
+}
+
 /// Start or update the sliding sync controller for the provided handle.
 pub fn start_sliding_sync(
     handle: String,
