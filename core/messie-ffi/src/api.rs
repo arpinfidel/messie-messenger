@@ -14,7 +14,8 @@ pub fn ping() -> String {
 fn to_response_json<T: Serialize>(result: anyhow::Result<T>) -> String {
     match result.and_then(|value| serde_json::to_value(value).map_err(Into::into)) {
         Ok(value) => json!({ "ok": true, "data": value }).to_string(),
-        Err(err) => json!({ "ok": false, "error": err.to_string() }).to_string(),
+        // Use pretty display to include error context chain for better diagnostics.
+        Err(err) => json!({ "ok": false, "error": format!("{:#}", err) }).to_string(),
     }
 }
 

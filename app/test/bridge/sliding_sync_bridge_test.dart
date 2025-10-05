@@ -1,4 +1,4 @@
-@Timeout(Duration(minutes: 5))
+@Timeout(Duration(minutes: 2))
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -19,26 +19,56 @@ Future<Map<String, dynamic>> _waitForPayload(
   Stream<dynamic> stream,
   Set<String> kinds, {
   Duration timeout = const Duration(seconds: 30),
+  String label = 'stream',
 }) async {
   final end = DateTime.now().add(timeout);
+  final recentKinds = <String>[];
+  final recentSamples = <Map<String, dynamic>>[];
   await for (final message in stream) {
     if (DateTime.now().isAfter(end)) {
-      throw TimeoutException('Timed out waiting for payload', timeout);
+      print('[$label] recent kinds before timeout: $recentKinds');
+      if (recentSamples.isNotEmpty) {
+        final sample = jsonEncode(recentSamples.last);
+        print('[$label] last sample payload: $sample');
+      }
+      throw TimeoutException('Timed out waiting for payload on $label', timeout);
     }
+
     if (message is! String) {
+      print('[$label] non-string message: ${message.runtimeType}');
       continue;
     }
     try {
       final decoded = jsonDecode(message) as Map<String, dynamic>;
-      final kind = decoded['kind'] as String? ?? '';
+      final kind = (decoded['kind'] as String?) ?? '';
+      if (kind.isNotEmpty) {
+        final ts = DateTime.now().toIso8601String();
+        // Print concise summary for known payloads.
+        if (kind == 'sliding_sync_update') {
+          final lists = decoded['lists'];
+          final rooms = decoded['rooms'];
+          final listsLen = (lists is List) ? lists.length : 0;
+          final roomsLen = (rooms is List) ? rooms.length : 0;
+          print('[$label][$ts] kind=$kind lists=$listsLen rooms=$roomsLen');
+        } else {
+          print('[$label][$ts] kind=$kind');
+        }
+        recentKinds.add(kind);
+        if (recentKinds.length > 20) recentKinds.removeAt(0);
+      } else {
+        print('[$label] decoded payload missing kind: ${jsonEncode(decoded)}');
+      }
+      recentSamples.add(decoded);
+      if (recentSamples.length > 3) recentSamples.removeAt(0);
+
       if (kinds.contains(kind)) {
         return decoded;
       }
-    } catch (_) {
-      // ignore malformed payloads
+    } catch (err) {
+      print('[$label] failed to decode message: $err');
     }
   }
-  throw StateError('Stream closed before payload was received');
+  throw StateError('Stream closed before payload was received on $label');
 }
 
 Future<List<String>> _waitForJoinedRooms({
@@ -222,6 +252,7 @@ void main() {
     );
     expect(loginResult.isOk, isTrue, reason: loginResult.error);
     initialSession = loginResult.data!;
+    print('[setup] logged in as ${initialSession.userId} on ${initialSession.homeserverUrl}');
 
     final recoveryKey = _loadRecoveryKey();
     expect(recoveryKey, isNotNull,
@@ -240,6 +271,7 @@ void main() {
       lpTimeline: 4,
     );
     expect(syncResult.isOk, isTrue, reason: syncResult.error);
+    print('[setup] started sliding sync handle=$slidingHandle hpSize=24 lpBatch=120 hpTimeline=10 lpTimeline=4');
 
     roomListPort = ReceivePort('bridge_room_list_headless');
     roomListStream = roomListPort!.asBroadcastStream();
@@ -248,11 +280,49 @@ void main() {
       port: roomListPort!.sendPort,
     );
     expect(streamResult.isOk, isTrue, reason: streamResult.error);
+    print('[setup] room list stream registered for handle=$slidingHandle');
+
+    // Attach a passive logger to the stream for the lifecycle of the suite.
+    roomListStream!.listen((msg) {
+      final now = DateTime.now().toIso8601String();
+      if (msg is String) {
+        try {
+          final decoded = jsonDecode(msg) as Map<String, dynamic>;
+          final kind = decoded['kind'];
+          if (kind is String) {
+            if (kind == 'sliding_sync_update') {
+              final lists = decoded['lists'];
+              final rooms = decoded['rooms'];
+              final listsLen = (lists is List) ? lists.length : 0;
+              final roomsLen = (rooms is List) ? rooms.length : 0;
+              print('[room-list][$now] kind=$kind lists=$listsLen rooms=$roomsLen');
+            } else if (kind == 'sliding_sync_error') {
+              final msg = decoded['message'];
+              print('[room-list][$now] kind=$kind message=$msg');
+            } else {
+              print('[room-list][$now] kind=$kind');
+            }
+          } else {
+            print('[room-list][$now] missing kind: ${jsonEncode(decoded)}');
+          }
+        } catch (e) {
+          print('[room-list][$now] failed to parse message: $e');
+        }
+      } else {
+        print('[room-list][$now] non-string message: ${msg.runtimeType}');
+      }
+    }, onError: (err, st) {
+      print('[room-list] stream error: $err');
+      if (st != null) {
+        print('[room-list] stack: $st');
+      }
+    });
 
     await _waitForPayload(
       roomListStream!,
       <String>{'sliding_sync_ready'},
       timeout: const Duration(seconds: 60),
+      label: 'room-list',
     );
 
     roomIds = await _waitForJoinedRooms(timeout: const Duration(seconds: 60));
@@ -285,7 +355,7 @@ void main() {
     final expected = _expectedSeededRoomCount();
     print('expecting seeded rooms: $expected');
     final rooms = await _waitForJoinedRooms(
-      timeout: const Duration(seconds: 180),
+      timeout: const Duration(seconds: 60),
       minCount: expected,
     );
     expect(rooms.length, equals(expected));
@@ -309,6 +379,40 @@ void main() {
       final overview = overviewResult.data!;
       expect(overview.name.isNotEmpty, isTrue);
     }
+  });
+
+  test('sliding sync emits an initial update', () async {
+    // Register a fresh listener to avoid missing early updates.
+    final port = ReceivePort('bridge_room_list_update_probe');
+    final stream = port.asBroadcastStream();
+    final streamResult = await rustRoomListStream(
+      handle: slidingHandle,
+      port: port.sendPort,
+    );
+    expect(streamResult.isOk, isTrue, reason: streamResult.error);
+    print('[probe] registered fresh room list listener');
+
+    // Wait for at least one update from the sliding sync stream.
+    // This validates that the simplified sliding sync endpoint accepts
+    // our request shape and returns a summary instead of 400-ing.
+    final payload = await _waitForPayload(
+      stream,
+      <String>{'sliding_sync_update', 'sliding_sync_error'},
+      timeout: const Duration(seconds: 60),
+      label: 'probe',
+    );
+    port.close();
+
+    // Basic sanity: payload contains the expected keys.
+    final kind = payload['kind'] as String? ?? '';
+    if (kind == 'sliding_sync_error') {
+      final msg = payload['message'] as String? ?? '<no message>';
+      fail('sliding sync stream error from server: $msg');
+    }
+    expect(payload.containsKey('lists'), isTrue,
+        reason: 'missing lists in payload: ${jsonEncode(payload)}');
+    expect(payload.containsKey('rooms'), isTrue,
+        reason: 'missing rooms in payload: ${jsonEncode(payload)}');
   });
 
   test('timeline snapshot contains events', () async {

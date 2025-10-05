@@ -61,6 +61,12 @@ struct SlidingSyncUpdate {
     rooms: Vec<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct SlidingSyncErrorPayload {
+    kind: &'static str,
+    message: String,
+}
+
 #[derive(Debug)]
 enum Command {
     Resubscribe,
@@ -162,6 +168,9 @@ impl SlidingSyncController {
                             }
                             Err(err) => {
                                 warn!("sliding sync '{}' stream error: {err:?}", controller.handle);
+                                if let Err(e2) = controller.broadcast_error(format!("{err:?}")).await {
+                                    warn!("sliding sync '{}' failed to broadcast error: {e2:?}", controller.handle);
+                                }
                                 controller.enqueue(Command::Resubscribe);
                             }
                         }
@@ -209,6 +218,11 @@ impl SlidingSyncController {
         self.broadcast(update).await
     }
 
+    async fn broadcast_error(&self, message: impl ToString) -> Result<()> {
+        let payload = SlidingSyncErrorPayload { kind: "sliding_sync_error", message: message.to_string() };
+        self.broadcast(payload).await
+    }
+
     async fn broadcast<T: Serialize>(&self, payload: T) -> Result<()> {
         let json = serde_json::to_string(&payload)?;
         let mut listeners = self.listeners.lock().await;
@@ -251,13 +265,18 @@ impl SlidingSyncController {
         let builder = client
             .sliding_sync(handle)
             .context("failed to initialise sliding sync builder")?
-            .version(Version::Native)
-            .with_all_extensions();
+            .version(Version::Native);
 
         let list = SlidingSyncList::builder("all")
             .sync_mode(SlidingSyncMode::new_growing(config.lp_batch.max(1)))
             .timeline_limit(config.lp_timeline.max(1))
-            .required_state(Vec::new());
+            .required_state(vec![
+                ("m.room.name".into(), "".to_string()),
+                ("m.room.avatar".into(), "".to_string()),
+                ("m.room.encryption".into(), "".to_string()),
+                ("com.beeper.room_type".into(), "".to_string()),
+                ("com.beeper.room_type.v2".into(), "".to_string()),
+            ]);
 
         builder
             .add_list(list)

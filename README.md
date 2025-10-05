@@ -238,8 +238,6 @@ cp .env.example .env
 
 Key variables: `NGINX_PORT`, `FRONTEND_PORT`, `BACKEND_PORT`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `JWT_SECRET`, `VITE_API_BASE_URL`.
 
-Mobile wrappers reuse the same values and fall back to `.env.mobile` (tracked) for deterministic build metadata such as `MATRIX_RUST_SDK_ANDROID_VERSION`.
-
 The frontend runs inside Docker in dev; in prod the SPA is built and served by nginx.
 
 ### Common Commands
@@ -257,7 +255,9 @@ make gen          # regenerate API stubs/clients
 - Use `make up`/`make down` to manage the full stack in Docker, or run the backend and frontend manually as shown above.
 - Regenerate OpenAPI clients whenever you touch `docs/openapi.yaml` (see **API and Code Generation**) so both the Go server and TypeScript client stay in sync.
 - Aside from the Playwright smoke tests, there are no automated regression suites yet—plan on manual verification for feature work.
-- Capacitor build and packaging instructions live in `frontend/README.md#mobile-wrapper`.
+- Mobile wrappers via Capacitor are deprecated. Use the Flutter app under `app/` instead (see "Flutter + Rust Mobile Stack" above). Quick start:
+  - `make bridge-generate` (first time) and `make bridge-build-android`/`make bridge-build-ios` as needed
+  - `cd app && flutter pub get && flutter run`
 
 ## Jira Task Sync Utility
 
