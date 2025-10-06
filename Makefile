@@ -120,6 +120,62 @@ matrix-seed:
 		--device-name "$(MATRIX_SEED_DEVICE_NAME)" \
 		--state-dir "$(SEED_STATE_DIR_ABS)" $(if $(strip $(ARGS)),$(strip $(ARGS)))
 
+matrix-verify-peer:
+	@echo "Starting SAS peer helper (matrix-js-sdk)"
+	npm --prefix scripts/matrix run --silent verify-peer -- \
+		--server-url "$(MATRIX_SEED_SERVER_URL)" \
+		--username "$(MATRIX_SEED_USER)" \
+		--password "$(MATRIX_SEED_PASSWORD)" \
+		--device-name "Messie SAS Peer"
+
+matrix-verify-peer-image:
+	@echo "Building SAS peer helper Docker image"
+	docker build -t messie-matrix-peer:latest scripts/matrix
+
+matrix-verify-peer-docker: matrix-verify-peer-image
+	@echo "Running SAS peer helper in Docker"
+	# Map host loopback for Docker-based peer
+	SERVER_URL=$(MATRIX_SEED_SERVER_URL); \
+	if echo "$$SERVER_URL" | grep -Eq "127.0.0.1|localhost"; then \
+	  SERVER_URL=$$(echo "$$SERVER_URL" | sed -E 's/127\.0\.0\.1|localhost/host.docker.internal/g'); \
+	fi; \
+	# Ensure predictable container name and clean previous instance
+	docker rm -f messie-matrix-peer >/dev/null 2>&1 || true; \
+	docker run --rm --name messie-matrix-peer --network host -v $(CURDIR)/scripts/matrix/scripts/matrix/.state:/state:ro messie-matrix-peer:latest \
+	  --server-url "$$SERVER_URL" \
+	  --username "$(MATRIX_SEED_USER)" \
+	  --password "$(MATRIX_SEED_PASSWORD)" \
+	  --device-name "Messie SAS Peer"
+
+matrix-verify-peer-up: matrix-verify-peer-image
+	@echo "Starting SAS peer helper container (detached)"
+	SERVER_URL=$(MATRIX_SEED_SERVER_URL); \
+	if echo "$$SERVER_URL" | grep -Eq "127.0.0.1|localhost"; then \
+	  SERVER_URL=$$(echo "$$SERVER_URL" | sed -E 's/127\.0\.0\.1|localhost/host.docker.internal/g'); \
+	fi; \
+	docker rm -f messie-matrix-peer >/dev/null 2>&1 || true; \
+	docker run -d --name messie-matrix-peer --network host --restart unless-stopped \
+	  -v $(CURDIR)/scripts/matrix/scripts/matrix/.state:/state:ro \
+	  messie-matrix-peer:latest \
+	  --server-url "$$SERVER_URL" \
+	  --username "$(MATRIX_SEED_USER)" \
+	  --password "$(MATRIX_SEED_PASSWORD)" \
+	  --device-name "Messie SAS Peer" >/dev/null
+
+matrix-token:
+	@echo "Generating access token file for seeded user (to avoid login 429s)"
+	npm --prefix scripts/matrix run --silent token -- \
+	  --server-url "$(MATRIX_SEED_SERVER_URL)" \
+	  --username "$(MATRIX_SEED_USER)" \
+	  --password "$(MATRIX_SEED_PASSWORD)" \
+	  --device-id "MESSIE_SAS_PEER" \
+	  --device-name "Messie SAS Peer" \
+	  --state-dir "$(SEED_STATE_DIR_ABS)"
+
+matrix-verify-peer-down:
+	@echo "Stopping SAS peer helper container"
+	docker rm -f messie-matrix-peer >/dev/null 2>&1 || true
+
 # -------- Flutter <-> Rust bridge (headless) --------
 # Derive host-specific lib extension for the Rust FFI
 UNAME_S := $(shell uname -s)

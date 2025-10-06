@@ -200,10 +200,19 @@ the Rust FFI for your host and runs the headless test in `app/`.
 Quick start (after seeding Synapse):
 
 ```bash
+make matrix-verify-peer-image      # build the SAS peer helper image (first time)
+make matrix-verify-peer-up         # start the helper container (detached)
+make flutter-bridge-test           # run the headless tests end-to-end
+```
+
+Alternatively, auto-start the peer helper during setup:
+
+```bash
+MATRIX_SAS_PEER=1 make matrix-setup
 make flutter-bridge-test
 ```
 
-The Make target:
+What the Make target does:
 - Builds `core` in release if needed.
 - Sets `MESSIE_FFI_LIB_PATH` to the built library.
 - Runs `flutter test test/bridge/sliding_sync_bridge_test.dart` in `app/`.
@@ -217,12 +226,10 @@ Environment overrides (optional):
 - `MESSIE_SEEDED_ROOM_COUNT` or `MESSIE_SEED_STATE_FILE` (optional)
   - By default, the test reads `scripts/matrix/.state/seed_state.json` and asserts the exact number of seeded rooms. Set these to override in custom setups.
 
-Example with overrides:
+Stop the peer helper:
 
 ```bash
-MESSIE_MATRIX_HOMESERVER=http://localhost:8008 \
-MESSIE_BRIDGE_STORE_PATH=$PWD/app/build/matrix-store \
-make flutter-bridge-test
+make matrix-verify-peer-down
 ```
 
 ## Operations & Tooling

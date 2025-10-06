@@ -215,6 +215,58 @@ pub extern "C" fn messie_ffi_recover_with_key(recovery_key: *const c_char) -> *m
 }
 
 #[no_mangle]
+pub extern "C" fn messie_ffi_request_sas_verification(user_id: *const c_char, device_id: *const c_char) -> *mut c_char {
+    ffi_safe(|| {
+        let user_id = read_c_string(user_id, "userId")?;
+        let device_id = if device_id.is_null() {
+            None
+        } else {
+            let s = read_c_string(device_id, "deviceId")?;
+            if s.is_empty() { None } else { Some(s) }
+        };
+        Ok(api::request_sas_verification(user_id, device_id))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_observe_sas(flow_id: *const c_char, port: i64) -> *mut c_char {
+    ffi_safe(|| {
+        let flow_id = read_c_string(flow_id, "flowId")?;
+        Ok(api::observe_sas(flow_id, port))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_confirm_sas(flow_id: *const c_char) -> *mut c_char {
+    ffi_safe(|| {
+        let flow_id = read_c_string(flow_id, "flowId")?;
+        Ok(api::confirm_sas(flow_id))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_cancel_sas(flow_id: *const c_char) -> *mut c_char {
+    ffi_safe(|| {
+        let flow_id = read_c_string(flow_id, "flowId")?;
+        Ok(api::cancel_sas(flow_id))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_trust_state(user_id: *const c_char, device_id: *const c_char) -> *mut c_char {
+    ffi_safe(|| {
+        let user_id = read_c_string(user_id, "userId")?;
+        let device_id = if device_id.is_null() {
+            None
+        } else {
+            let s = read_c_string(device_id, "deviceId")?;
+            if s.is_empty() { None } else { Some(s) }
+        };
+        Ok(api::trust_state(user_id, device_id))
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn messie_ffi_start_sliding_sync(
     handle: *const c_char,
     hp_size: u32,

@@ -567,4 +567,150 @@ void main() {
       expect(export.error, isNotNull);
     }
   });
+
+  test('sas verification end-to-end with peer process (emoji + done)', () async {
+    // Spawn peer process (Node helper) that accepts and confirms SAS.
+    final serverUrl = homeserverUrl.toString();
+    // Use Dockerized peer helper; remap loopback to host.docker.internal for container networking
+    var dockerServerUrl = serverUrl.replaceFirst('127.0.0.1', 'host.docker.internal');
+    dockerServerUrl = dockerServerUrl.replaceFirst('localhost', 'host.docker.internal');
+    // Mount seed state for access token reuse to avoid login rate limits
+    final stateFile = _env('MESSIE_SEED_STATE_FILE', fallback: '../scripts/matrix/.state/seed_state.json');
+    // Use an absolute host path for Docker volume mounts; if the configured path
+    // lacks the recovery key (older seeds), fall back to the Makefile’s verifier mount path.
+    var stateDir = File(stateFile).parent.absolute.path;
+    if (!File('$stateDir/recovery_key.json').existsSync()) {
+      final alt = File('../scripts/matrix/scripts/matrix/.state/seed_state.json').parent.absolute.path;
+      if (Directory(alt).existsSync() && File('$alt/recovery_key.json').existsSync()) {
+        stateDir = alt;
+      }
+    }
+    // Use a stable container name so it can be pruned or stopped consistently.
+    final peerName = _env('MESSIE_SAS_PEER_CONTAINER', fallback: 'messie-matrix-peer');
+    // Best-effort pre-remove any previous instance with the same name.
+    await Process.run('docker', ['rm', '-f', peerName]);
+    addTearDown(() async {
+      await Process.run('docker', ['rm', '-f', peerName]);
+    });
+
+    // Start peer container in detached mode so the docker client process exiting
+    // does not terminate the container prematurely.
+    final peerInfoPath = '$stateDir/sas_peer.json';
+    // // Best-effort remove stale peer info so we don't read an old device id
+    // try { final f = File(peerInfoPath); if (f.existsSync()) { f.deleteSync(); } } catch (_) {}
+    final launchTs = DateTime.now().millisecondsSinceEpoch;
+    final started = await Process.run('docker', [
+      'run', '-d', '--name', peerName, '--network', 'host',
+      '-e', 'RECOVERY_KEY_PATH=/state/recovery_key.json',
+      '-e', 'PEER_INFO_PATH=/state/sas_peer.json',
+      '-v', '$stateDir:/state',
+      'messie-matrix-peer:latest',
+      '--server-url', dockerServerUrl,
+      '--username', username,
+      '--password', password,
+      '--device-name', 'Messie SAS Peer',
+    ]);
+    expect(started.exitCode, 0, reason: 'failed to start peer container: ${started.stderr}\n${started.stdout}');
+    // Start a background monitor to dump logs if the container dies early.
+    var monitorCancelled = false;
+    () async {
+      while (!monitorCancelled) {
+        final inspect = await Process.run('docker', ['inspect', '--type', 'container', '-f', '{{.State.Running}}', peerName]);
+        final running = inspect.exitCode == 0 && (inspect.stdout as String?)?.trim() == 'true';
+        if (!running) {
+          final details = await Process.run('docker', ['inspect', '--type', 'container', peerName]);
+          final ps = await Process.run('docker', ['ps', '-a', '--filter', 'name='+peerName]);
+          final logs = await Process.run('docker', ['logs', '--tail', '200', peerName]);
+          // Print helpful diagnostics
+          // ignore: avoid_print
+          print('[peer-container] not running. inspect: ${details.stdout}\n${details.stderr}\nps: ${ps.stdout}\n${ps.stderr}');
+          // ignore: avoid_print
+          print('[peer-container] logs (tail):\n${logs.stdout}\n${logs.stderr}');
+          break;
+        }
+        await Future<void>.delayed(const Duration(seconds: 1));
+      }
+    }();
+
+    // Do not pipe peer output to keep test logs quiet
+
+    // Wait for peer to be ready and for a fresh (post-launch) device id
+    final deviceId = await _waitForPeerReadyDevice(peerInfoPath, minTimestamp: launchTs);
+
+    final start = await rustRequestSasVerification(userId: initialSession.userId, deviceId: deviceId);
+    expect(start.isOk, isTrue, reason: start.error);
+    final flowId = start.data!.flowId;
+    expect(flowId, isNotEmpty);
+
+    final port = ReceivePort('bridge_sas_observer');
+    final stream = port.asBroadcastStream();
+    final observe = await rustObserveSas(flowId: flowId, port: port.sendPort);
+    expect(observe.isOk, isTrue, reason: observe.error);
+
+    // Wait until keys_exchanged with emoji provided
+    Map<String, dynamic> payload;
+    while (true) {
+      payload = await _waitForPayload(
+        stream,
+        <String>{'sas_update'},
+        timeout: const Duration(seconds: 60),
+        label: 'sas',
+      );
+      if (payload['state'] == 'keys_exchanged') break;
+    }
+    expect((payload['emoji'] as List?)?.isNotEmpty, isTrue,
+        reason: 'Expected emoji tuple in keys_exchanged');
+
+    final confirmed = await rustConfirmSas(flowId: flowId);
+    expect(confirmed.isOk, isTrue, reason: confirmed.error);
+
+    // Expect final done state
+    Map<String, dynamic> donePayload;
+    while (true) {
+      donePayload = await _waitForPayload(
+        stream,
+        <String>{'sas_update'},
+        timeout: const Duration(seconds: 60),
+        label: 'sas',
+      );
+      if (donePayload['state'] == 'done') break;
+    }
+
+    port.close();
+    // Container cleanup handled by tearDown via `docker rm -f`.
+    monitorCancelled = true;
+  });
+
+  test('trust_state returns data for own user/device', () async {
+    final deviceId = initialSession.deviceId;
+    final state = await rustTrustState(userId: initialSession.userId, deviceId: deviceId);
+    expect(state.isOk, isTrue, reason: state.error);
+    expect(state.data, isNotNull);
+    // We don't assert specific booleans (env-dependent), only presence and types
+    expect(state.data!.userVerified is bool, isTrue);
+  });
+}
+
+// Utility: wait up to a few seconds for the peer to write its device id file.
+Future<String> _waitForPeerReadyDevice(String jsonPath, {required int minTimestamp, Duration timeout = const Duration(seconds: 30)}) async {
+  final start = DateTime.now();
+  while (DateTime.now().difference(start) < timeout) {
+    final f = File(jsonPath);
+    if (await f.exists()) {
+      try {
+        final raw = await f.readAsString();
+        final obj = jsonDecode(raw) as Map<String, dynamic>;
+        final did = obj['device_id'] as String?;
+        final ready = obj['ready'] as bool?;
+        final ts = (obj['ts'] is num) ? (obj['ts'] as num).toInt() : -1;
+        if (did != null && did.isNotEmpty && ready == true && ts >= minTimestamp) {
+          return did;
+        }
+      } catch (_) {
+        // ignore parse errors; retry
+      }
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+  }
+  throw StateError('Peer not ready with fresh device id at $jsonPath');
 }

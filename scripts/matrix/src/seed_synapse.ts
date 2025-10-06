@@ -405,6 +405,25 @@ async function createMatrixClient(
     },
   });
 
+  // Some SDK versions ignore the constructor-supplied cryptoCallbacks until set explicitly.
+  // Ensure the callback is registered before initRustCrypto so SSSS can pull the key.
+  (client as any).setCryptoCallbacks?.({
+    getSecretStorageKey: async ({ keys }: { keys: Record<string, any> }, _name: string) => {
+      if (!secretStorageContext.privateKey) {
+        throw new Error("Secret storage key requested before it was generated");
+      }
+      let keyId = secretStorageContext.keyId;
+      if (!keyId || !keys[keyId]) {
+        keyId = Object.keys(keys)[0];
+      }
+      if (!keyId) {
+        throw new Error("No secret storage keys available");
+      }
+      secretStorageContext.keyId = keyId;
+      return [keyId, secretStorageContext.privateKey];
+    },
+  });
+
   // Initialize the modern Rust crypto backend (no olm dependency)
   await (client as any).initRustCrypto({ useIndexedDB: false } as any);
   const ready = waitForClientReady(client);
@@ -760,6 +779,19 @@ async function seedHomeserver(config: SeederConfig): Promise<void> {
     config.deviceId,
     config.deviceName,
   );
+
+  // Persist access token for test peer helper to avoid login rate limits.
+  try {
+    const tokenPath = path.join(config.stateDir, "access_token.json");
+    await fs.promises.mkdir(config.stateDir, { recursive: true });
+    await fs.promises.writeFile(
+      tokenPath,
+      JSON.stringify({ user_id: auth.userId, device_id: auth.deviceId, access_token: auth.accessToken }, null, 2),
+      { encoding: "utf-8" },
+    );
+  } catch (e) {
+    console.warn(`[seed] failed to persist access token: ${e}`);
+  }
 
   // Use admin token to precreate many rooms quickly and force-join the test user
   const adminToken = await adminLoginToken(config.serverUrl, config.adminUsername, config.adminPassword, "MESSIE_ADMIN_SEED");

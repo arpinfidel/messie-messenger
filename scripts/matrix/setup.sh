@@ -74,6 +74,10 @@ if (( RUN_SEED )); then
 fi
 
 if (( RUN_START )); then
+  if [[ "${MATRIX_SAS_PEER:-}" == "1" ]]; then
+    printf '==> Starting SAS peer helper container…\n'
+    make -C "$ROOT" STACK="$STACK" matrix-verify-peer-up
+  fi
   printf '\nDone. Homeserver available at %s.\n' "${MATRIX_SERVER_URL:-http://localhost:8008}"
 else
   printf '\nDone. Synapse config prepared in matrix_data. Run `make matrix-up` when ready.\n'
