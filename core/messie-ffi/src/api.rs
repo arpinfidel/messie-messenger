@@ -147,3 +147,28 @@ pub fn timeline_stream(handle: String, room_id: String, port: i64) -> String {
 pub fn load_backward(handle: String, room_id: String, limit: u32) -> String {
     to_response_json(matrix::load_backward(&handle, &room_id, limit))
 }
+
+/// Request a SAS verification with a user (and optional device).
+pub fn request_sas_verification(user_id: String, device_id: Option<String>) -> String {
+    to_response_json(matrix::request_sas_verification(&user_id, device_id.as_deref()))
+}
+
+/// Observe SAS verification updates for a given flow id.
+pub fn observe_sas(flow_id: String, port: i64) -> String {
+    to_response_json(matrix::observe_sas(&flow_id, port))
+}
+
+/// Confirm a SAS verification flow.
+pub fn confirm_sas(flow_id: String) -> String {
+    to_response_json(matrix::confirm_sas(&flow_id))
+}
+
+/// Cancel a SAS verification flow.
+pub fn cancel_sas(flow_id: String) -> String {
+    to_response_json(matrix::cancel_sas(&flow_id))
+}
+
+/// Get cross-signing trust state for a user/device.
+pub fn trust_state(user_id: String, device_id: Option<String>) -> String {
+    to_response_json(matrix::trust_state(&user_id, device_id.as_deref()))
+}

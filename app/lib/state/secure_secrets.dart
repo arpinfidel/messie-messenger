@@ -7,64 +7,98 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-class SecureSecrets {
-  SecureSecrets({FlutterSecureStorage? storage})
+// Abstraction for storing/loading the recovery key. Production should use
+// SecureStorageRecoveryKeyStore. Tests/CI can inject FileRecoveryKeyStore.
+abstract class RecoveryKeyStore {
+  Future<void> write(String key);
+  Future<String?> read();
+}
+
+class SecureStorageRecoveryKeyStore implements RecoveryKeyStore {
+  SecureStorageRecoveryKeyStore({FlutterSecureStorage? storage})
       : _storage = storage ?? const FlutterSecureStorage();
 
   static const String _kRecoveryKey = 'messie.ssss.recovery_key';
-
   final FlutterSecureStorage _storage;
 
+  @override
+  Future<void> write(String key) async {
+    await _storage.write(key: _kRecoveryKey, value: key);
+  }
+
+  @override
+  Future<String?> read() async {
+    final value = await _storage.read(key: _kRecoveryKey);
+    return (value != null && value.isNotEmpty) ? value : null;
+  }
+}
+
+// Plaintext file implementation intended for CI/headless usage only.
+class FileRecoveryKeyStore implements RecoveryKeyStore {
+  FileRecoveryKeyStore({Directory? baseDir}) : _baseDir = baseDir;
+
+  final Directory? _baseDir;
+
+  @override
+  Future<void> write(String key) async {
+    final file = await _recoveryKeyFile();
+    await file.parent.create(recursive: true);
+    final payload = jsonEncode({
+      'format': 'bech32',
+      'created_ms': DateTime.now().millisecondsSinceEpoch,
+      'key': key,
+    });
+    await file.writeAsString(payload, flush: true);
+  }
+
+  @override
+  Future<String?> read() async {
+    final file = await _recoveryKeyFile();
+    if (!await file.exists()) return null;
+    final text = await file.readAsString();
+    try {
+      final map = jsonDecode(text) as Map<String, dynamic>;
+      final key = map['key'] as String?;
+      return (key != null && key.isNotEmpty) ? key : null;
+    } catch (_) {
+      // Allow plain text as a convenience in CI.
+      final trimmed = text.trim();
+      return trimmed.isNotEmpty ? trimmed : null;
+    }
+  }
+
+  Future<File> _recoveryKeyFile() async {
+    final dir = _baseDir ?? await getApplicationSupportDirectory();
+    return File(p.join(dir.path, 'messie', 'matrix', 'recovery_key.json'));
+  }
+}
+
+class SecureSecrets {
+  SecureSecrets({RecoveryKeyStore? store})
+      : _store = store ?? SecureStorageRecoveryKeyStore();
+
+  final RecoveryKeyStore _store;
+
+  // Save to the configured store. No automatic fallback.
   Future<bool> saveRecoveryKey(String key) async {
     try {
-      await _storage.write(key: _kRecoveryKey, value: key);
-      return true;
-    } catch (_) {
-      // Fallback to file if secure storage is unavailable
-      return saveRecoveryKeyToFile(key);
-    }
-  }
-
-  Future<String?> loadRecoveryKey() async {
-    try {
-      final value = await _storage.read(key: _kRecoveryKey);
-      if (value != null && value.isNotEmpty) return value;
-    } catch (_) {
-      // ignore and try file fallback
-    }
-    return loadRecoveryKeyFromFile();
-  }
-
-  Future<bool> saveRecoveryKeyToFile(String key) async {
-    try {
-      final file = await _recoveryKeyFile();
-      await file.parent.create(recursive: true);
-      final payload = jsonEncode({
-        'format': 'bech32',
-        'created_ms': DateTime.now().millisecondsSinceEpoch,
-        'key': key,
-      });
-      await file.writeAsString(payload, flush: true);
+      await _store.write(key);
       return true;
     } catch (e) {
       if (kDebugMode) {
-        print('Failed to save recovery key to file: $e');
+        print('Failed to save recovery key: $e');
       }
       return false;
     }
   }
 
-  Future<String?> loadRecoveryKeyFromFile() async {
+  // Load from the configured store only. No automatic fallback.
+  Future<String?> loadRecoveryKey() async {
     try {
-      final file = await _recoveryKeyFile();
-      if (!await file.exists()) return null;
-      final text = await file.readAsString();
-      final map = jsonDecode(text) as Map<String, dynamic>;
-      final key = map['key'] as String?;
-      return (key != null && key.isNotEmpty) ? key : null;
+      return await _store.read();
     } catch (e) {
       if (kDebugMode) {
-        print('Failed to read recovery key from file: $e');
+        print('Failed to load recovery key: $e');
       }
       return null;
     }
@@ -73,10 +107,4 @@ class SecureSecrets {
   Future<void> copyToClipboard(String text) async {
     await Clipboard.setData(ClipboardData(text: text));
   }
-
-  Future<File> _recoveryKeyFile() async {
-    final dir = await getApplicationSupportDirectory();
-    return File(p.join(dir.path, 'messie', 'matrix', 'recovery_key.json'));
-  }
 }
-

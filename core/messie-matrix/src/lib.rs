@@ -31,6 +31,7 @@ use url::Url;
 mod sliding_sync;
 mod timeline;
 mod backup;
+mod verification;
 
 /// Simple ping function used for integration tests.
 pub fn ping() -> Result<String> {
@@ -397,6 +398,7 @@ pub fn logout(base_path: &Path) -> Result<()> {
         sliding_sync::reset_all().await;
         timeline::reset_all().await;
         backup::reset_all().await;
+        verification::reset_all().await;
     });
 
     {
@@ -668,6 +670,14 @@ async fn dump_room_crypto_async(client: &Client, room_id: &OwnedRoomId) -> Resul
 
 pub use sliding_sync::{AckResponse, SlidingSyncConfig, StartSlidingSyncResponse};
 pub use timeline::{LoadBackwardResponse, OpenRoomResponse, TimelineAck};
+pub use verification::{StartSasResponse};
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TrustStateResponse {
+    pub user_verified: bool,
+    pub device_verified: Option<bool>,
+    pub device_exists: Option<bool>,
+}
 
 /// Start (or update) the sliding sync controller associated with the provided handle.
 pub fn start_sliding_sync(
@@ -705,6 +715,55 @@ pub fn register_room_list_listener(handle: &str, port: i64) -> Result<AckRespons
     let runtime = runtime();
     let _guard = runtime.enter();
     runtime.block_on(sliding_sync::register_room_list_listener(handle, port))
+}
+
+/// Start a SAS verification request with a user/device. Not implemented yet in this build.
+pub fn request_sas_verification(user_id: &str, device_id: Option<&str>) -> Result<StartSasResponse> {
+    verification::request_sas_verification(user_id, device_id)
+}
+
+/// Observe SAS verification updates for a flow id via a Dart port. Not implemented yet.
+pub fn observe_sas(flow_id: &str, port: i64) -> Result<AckResponse> {
+    verification::observe_sas(flow_id, port)
+}
+
+/// Confirm a SAS verification flow. Not implemented yet.
+pub fn confirm_sas(flow_id: &str) -> Result<()> {
+    verification::confirm_sas(flow_id)
+}
+
+/// Cancel a SAS verification flow. Not implemented yet.
+pub fn cancel_sas(flow_id: &str) -> Result<()> {
+    verification::cancel_sas(flow_id)
+}
+
+/// Return cross-signing trust state for a user/device.
+pub fn trust_state(user_id: &str, _device_id: Option<&str>) -> Result<TrustStateResponse> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    let runtime = runtime();
+    let _guard = runtime.enter();
+
+    let user_id: OwnedUserId = user_id
+        .parse()
+        .map_err(|_| anyhow!("invalid user id '{user_id}'"))?;
+
+    runtime.block_on(async move {
+        let encryption = client.encryption();
+        // user verification not available on this SDK surface yet; keep false
+        let user_verified = false;
+
+        let (device_verified, device_exists) = if let Some(did) = _device_id {
+            match encryption.get_device(&user_id, did.into()).await {
+                Ok(Some(device)) => (Some(device.is_verified()), Some(true)),
+                Ok(None) => (None, Some(false)),
+                Err(_) => (None, None),
+            }
+        } else {
+            (None, None)
+        };
+
+        Ok(TrustStateResponse { user_verified, device_verified, device_exists })
+    })
 }
 
 /// Return the list of joined or invited room IDs.

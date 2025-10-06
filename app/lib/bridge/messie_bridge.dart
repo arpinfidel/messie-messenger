@@ -44,6 +44,17 @@ typedef _DartSsssBootstrap = _PointerUtf8 Function(int, _PointerUtf8);
 typedef _NativeSsssExportRecoveryKey = _PointerUtf8 Function();
 typedef _DartSsssExportRecoveryKey = _PointerUtf8 Function();
 
+typedef _NativeRequestSasVerification = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+typedef _DartRequestSasVerification = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+typedef _NativeObserveSas = _PointerUtf8 Function(_PointerUtf8, ffi.Int64);
+typedef _DartObserveSas = _PointerUtf8 Function(_PointerUtf8, int);
+typedef _NativeConfirmSas = _PointerUtf8 Function(_PointerUtf8);
+typedef _DartConfirmSas = _PointerUtf8 Function(_PointerUtf8);
+typedef _NativeCancelSas = _PointerUtf8 Function(_PointerUtf8);
+typedef _DartCancelSas = _PointerUtf8 Function(_PointerUtf8);
+typedef _NativeTrustState = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+typedef _DartTrustState = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+
 typedef _NativeStartSlidingSync = _PointerUtf8 Function(
     _PointerUtf8, ffi.Uint32, ffi.Uint32, ffi.Uint32, ffi.Uint32);
 typedef _DartStartSlidingSync = _PointerUtf8 Function(
@@ -215,6 +226,50 @@ Future<RustResult<ExportRecoveryKeyData>> rustSsssExportRecoveryKey() {
   final config = _LibraryConfig.detect();
   _ensurePostCObjectRegistered(config);
   return Isolate.run(() => _ssssExportRecoveryKeyIsolate(config));
+}
+
+Future<RustResult<StartSasData>> rustRequestSasVerification({
+  required String userId,
+  String? deviceId,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _RequestSasArgs(config, userId, deviceId ?? '');
+  return Isolate.run(() => _requestSasIsolate(args));
+}
+
+Future<RustResult<AckData>> rustObserveSas({
+  required String flowId,
+  required SendPort port,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _ObserveSasArgs(config, flowId, port.nativePort);
+  return Isolate.run(() => _observeSasIsolate(args));
+}
+
+Future<RustResult<Unit>> rustConfirmSas({required String flowId}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _FlowIdArgs(config, flowId);
+  return Isolate.run(() => _confirmSasIsolate(args));
+}
+
+Future<RustResult<Unit>> rustCancelSas({required String flowId}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _FlowIdArgs(config, flowId);
+  return Isolate.run(() => _cancelSasIsolate(args));
+}
+
+Future<RustResult<TrustStateData>> rustTrustState({
+  required String userId,
+  String? deviceId,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _TrustStateArgs(config, userId, deviceId ?? '');
+  return Isolate.run(() => _trustStateIsolate(args));
 }
 
 Future<RustResult<StartSlidingSyncData>> rustStartSlidingSync({
@@ -424,6 +479,33 @@ RustResult<LoadBackwardData> _loadBackwardIsolate(_LoadBackwardArgs args) {
   return bindings.loadBackward(args.handle, args.roomId, args.limit);
 }
 
+RustResult<StartSasData> _requestSasIsolate(_RequestSasArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.requestSasVerification(args.userId,
+      deviceId: args.deviceId.isEmpty ? null : args.deviceId);
+}
+
+RustResult<AckData> _observeSasIsolate(_ObserveSasArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.observeSas(args.flowId, args.nativePort);
+}
+
+RustResult<Unit> _confirmSasIsolate(_FlowIdArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.confirmSas(args.flowId);
+}
+
+RustResult<Unit> _cancelSasIsolate(_FlowIdArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.cancelSas(args.flowId);
+}
+
+RustResult<TrustStateData> _trustStateIsolate(_TrustStateArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.trustState(args.userId,
+      deviceId: args.deviceId.isEmpty ? null : args.deviceId);
+}
+
 class RustResult<T> {
   const RustResult({
     required this.ok,
@@ -489,6 +571,35 @@ class ExportRecoveryKeyData {
   }
 
   final String? recoveryKey;
+}
+
+class StartSasData {
+  const StartSasData({required this.flowId});
+  final String flowId;
+
+  factory StartSasData.fromJson(Map<String, dynamic> json) {
+    return StartSasData(flowId: (json['flow_id'] as String?) ?? '');
+  }
+}
+
+class TrustStateData {
+  const TrustStateData({
+    required this.userVerified,
+    this.deviceVerified,
+    this.deviceExists,
+  });
+
+  factory TrustStateData.fromJson(Map<String, dynamic> json) {
+    return TrustStateData(
+      userVerified: json['user_verified'] as bool? ?? false,
+      deviceVerified: json['device_verified'] as bool?,
+      deviceExists: json['device_exists'] as bool?,
+    );
+  }
+
+  final bool userVerified;
+  final bool? deviceVerified;
+  final bool? deviceExists;
 }
 
 class SsssBootstrapData {
@@ -721,6 +832,11 @@ class _RustBindings {
   _DartSsssImportRecoveryKey? _ssssImportRecoveryKeyOpt;
   _DartSsssBootstrap? _ssssBootstrapOpt;
   _DartSsssExportRecoveryKey? _ssssExportRecoveryKeyOpt;
+  _DartRequestSasVerification? _requestSasOpt;
+  _DartObserveSas? _observeSasOpt;
+  _DartConfirmSas? _confirmSasOpt;
+  _DartCancelSas? _cancelSasOpt;
+  _DartTrustState? _trustStateOpt;
   final _DartStartSlidingSync _startSlidingSync;
   final _DartRoomListStream _roomListStream;
   final _DartListJoinedRooms _listJoinedRooms;
@@ -917,6 +1033,92 @@ class _RustBindings {
     }
     final result = _stringFromPointer(_ssssExportRecoveryKeyOpt!());
     return _parse(result, (json) => ExportRecoveryKeyData.fromJson(json as Map<String, dynamic>));
+  }
+
+  RustResult<StartSasData> requestSasVerification(String userId, {String? deviceId}) {
+    try {
+      _requestSasOpt ??= _library.lookupFunction<_NativeRequestSasVerification, _DartRequestSasVerification>(
+          'messie_ffi_request_sas_verification');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'request_sas_verification not available in FFI');
+    }
+    final userPtr = userId.toNativeUtf8();
+    final devicePtr = (deviceId ?? '').toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_requestSasOpt!(userPtr, devicePtr));
+      return _parse(result, (json) => StartSasData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(userPtr);
+      calloc.free(devicePtr);
+    }
+  }
+
+  RustResult<AckData> observeSas(String flowId, int nativePort) {
+    try {
+      _observeSasOpt ??= _library.lookupFunction<_NativeObserveSas, _DartObserveSas>(
+          'messie_ffi_observe_sas');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'observe_sas not available in FFI');
+    }
+    final flowPtr = flowId.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_observeSasOpt!(flowPtr, nativePort));
+      return _parse(result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(flowPtr);
+    }
+  }
+
+  RustResult<Unit> confirmSas(String flowId) {
+    try {
+      _confirmSasOpt ??= _library.lookupFunction<_NativeConfirmSas, _DartConfirmSas>(
+          'messie_ffi_confirm_sas');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'confirm_sas not available in FFI');
+    }
+    final flowPtr = flowId.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_confirmSasOpt!(flowPtr));
+      return _parse(result, (_) => Unit.instance);
+    } finally {
+      calloc.free(flowPtr);
+    }
+  }
+
+  RustResult<Unit> cancelSas(String flowId) {
+    try {
+      _cancelSasOpt ??= _library.lookupFunction<_NativeCancelSas, _DartCancelSas>(
+          'messie_ffi_cancel_sas');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'cancel_sas not available in FFI');
+    }
+    final flowPtr = flowId.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_cancelSasOpt!(flowPtr));
+      return _parse(result, (_) => Unit.instance);
+    } finally {
+      calloc.free(flowPtr);
+    }
+  }
+
+  
+
+  RustResult<TrustStateData> trustState(String userId, {String? deviceId}) {
+    try {
+      _trustStateOpt ??= _library.lookupFunction<_NativeTrustState, _DartTrustState>(
+          'messie_ffi_trust_state');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'trust_state not available in FFI');
+    }
+    final userPtr = userId.toNativeUtf8();
+    final devicePtr = (deviceId ?? '').toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_trustStateOpt!(userPtr, devicePtr));
+      return _parse(result, (json) => TrustStateData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(userPtr);
+      calloc.free(devicePtr);
+    }
   }
 
   RustResult<StartSlidingSyncData> startSlidingSync(
@@ -1119,6 +1321,37 @@ class _DumpRoomCryptoArgs {
 
   final _LibraryConfig config;
   final String roomId;
+}
+
+class _RequestSasArgs {
+  const _RequestSasArgs(this.config, this.userId, this.deviceId);
+
+  final _LibraryConfig config;
+  final String userId;
+  final String deviceId;
+}
+
+class _ObserveSasArgs {
+  const _ObserveSasArgs(this.config, this.flowId, this.nativePort);
+
+  final _LibraryConfig config;
+  final String flowId;
+  final int nativePort;
+}
+
+class _FlowIdArgs {
+  const _FlowIdArgs(this.config, this.flowId);
+
+  final _LibraryConfig config;
+  final String flowId;
+}
+
+class _TrustStateArgs {
+  const _TrustStateArgs(this.config, this.userId, this.deviceId);
+
+  final _LibraryConfig config;
+  final String userId;
+  final String deviceId;
 }
 
 class _StartSyncArgs {
