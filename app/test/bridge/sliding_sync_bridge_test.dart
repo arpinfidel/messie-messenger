@@ -527,6 +527,87 @@ void main() {
     expect(body!, contains('Seed message'));
   });
 
+  test('send_text appends a new message to timeline', () async {
+    final targetRoom = roomIds.first;
+    final openResult = await rustOpenRoom(handle: slidingHandle, roomId: targetRoom);
+    expect(openResult.isOk, isTrue, reason: openResult.error);
+
+    final port = ReceivePort('bridge_timeline_send_text');
+    final stream = port.asBroadcastStream();
+    final reg = await rustTimelineStream(handle: slidingHandle, roomId: targetRoom, port: port.sendPort);
+    expect(reg.isOk, isTrue, reason: reg.error);
+
+    // Prime with snapshot
+    await _waitForPayload(stream, <String>{'timeline_snapshot', 'timeline_initial'}, label: 'timeline');
+
+    final body = 'Bridge test message ${DateTime.now().millisecondsSinceEpoch}';
+    final sent = await rustSendText(roomId: targetRoom, body: body);
+    expect(sent.isOk, isTrue, reason: sent.error);
+
+    // Wait for an append that includes our message body
+    Map<String, dynamic>? matched;
+    final deadline = DateTime.now().add(const Duration(seconds: 60));
+    while (DateTime.now().isBefore(deadline)) {
+      final payload = await _waitForPayload(stream, <String>{'timeline_append'}, timeout: const Duration(seconds: 60), label: 'timeline');
+      final events = (payload['events'] as List<dynamic>).cast<String>().map(_decodeEvent).toList();
+      for (final event in events) {
+        if (event['type'] == 'm.room.message') {
+          final content = (event['content'] as Map<String, dynamic>?);
+          final b = content?['body'] as String?;
+          if (b == body) { matched = event; break; }
+        }
+      }
+      if (matched != null) break;
+    }
+    port.close();
+    expect(matched, isNotNull, reason: 'Expected to observe sent message in timeline_append');
+  });
+
+  test('send_text with reply_to sets m.in_reply_to', () async {
+    final targetRoom = roomIds.first;
+    final openResult = await rustOpenRoom(handle: slidingHandle, roomId: targetRoom);
+    expect(openResult.isOk, isTrue, reason: openResult.error);
+
+    final port = ReceivePort('bridge_timeline_send_reply');
+    final stream = port.asBroadcastStream();
+    final reg = await rustTimelineStream(handle: slidingHandle, roomId: targetRoom, port: port.sendPort);
+    expect(reg.isOk, isTrue, reason: reg.error);
+
+    final snapshot = await _waitForPayload(stream, <String>{'timeline_snapshot', 'timeline_initial'}, label: 'timeline');
+    final initial = (snapshot['events'] as List<dynamic>).cast<String>().map(_decodeEvent).toList();
+    // Use the most recent event from snapshot as a reply target if available.
+    final baselineId = initial.isNotEmpty ? (initial.last['event_id'] as String?) : null;
+    expect(baselineId, isNotNull, reason: 'Need an event_id from timeline snapshot to reply to');
+
+    final body = 'Bridge reply ${DateTime.now().millisecondsSinceEpoch}';
+    final sent = await rustSendText(roomId: targetRoom, body: body, replyTo: baselineId);
+    expect(sent.isOk, isTrue, reason: sent.error);
+
+    Map<String, dynamic>? matched;
+    final deadline = DateTime.now().add(const Duration(seconds: 60));
+    while (DateTime.now().isBefore(deadline)) {
+      final payload = await _waitForPayload(stream, <String>{'timeline_append'}, timeout: const Duration(seconds: 60), label: 'timeline');
+      final events = (payload['events'] as List<dynamic>).cast<String>().map(_decodeEvent).toList();
+      for (final event in events) {
+        if (event['type'] == 'm.room.message') {
+          final content = (event['content'] as Map<String, dynamic>?);
+          final b = content?['body'] as String?;
+          if (b == body) {
+            final relates = (content?['m.relates_to'] as Map<String, dynamic>?);
+            final inReply = (relates?['m.in_reply_to'] as Map<String, dynamic>?);
+            final repliedTo = inReply?['event_id'] as String?;
+            if (repliedTo == baselineId) {
+              matched = event; break;
+            }
+          }
+        }
+      }
+      if (matched != null) break;
+    }
+    port.close();
+    expect(matched, isNotNull, reason: 'Expected reply with m.in_reply_to referencing baselineId');
+  });
+
   test('import_recovery_key alias works and backup status stream emits', () async {
     final key = _loadRecoveryKey();
     expect(key, isNotNull);

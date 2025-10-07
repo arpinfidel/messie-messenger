@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -1468,6 +1469,9 @@ class _TimelinePane extends ConsumerStatefulWidget {
 class _TimelinePaneState extends ConsumerState<_TimelinePane> {
   late final ScrollController _controller;
   static const double _mobileTimelineHeight = 420;
+  final TextEditingController _composer = TextEditingController();
+  final FocusNode _composerFocus = FocusNode();
+  TimelineItem? _replyTo;
 
   @override
   void initState() {
@@ -1541,6 +1545,8 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
 
   @override
   void dispose() {
+    _composer.dispose();
+    _composerFocus.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -1568,6 +1574,23 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
     }
 
     final events = state.events;
+    
+    Future<void> sendMessage() async {
+      final roomId = widget.selectedRoomId;
+      final text = _composer.text.trim();
+      if (roomId == null || text.isEmpty) return;
+      final replyTo = _replyTo?.key.eventId;
+      final res = await rustSendText(roomId: roomId, body: text, replyTo: replyTo);
+      if (!res.isOk && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(res.error ?? 'Failed to send')),
+        );
+      }
+      if (mounted) {
+        _composer.clear();
+        setState(() { _replyTo = null; });
+      }
+    }
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1651,7 +1674,15 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
               final item = events[index - 1];
               return Padding(
                 padding: EdgeInsets.only(bottom: spacing.gap.sm),
-                child: _TimelineBubble(item: item),
+                child: _TimelineBubble(
+                  item: item,
+                  onLongPress: () {
+                    if (item.key.eventId != null) {
+                      setState(() { _replyTo = item; });
+                      _composerFocus.requestFocus();
+                    }
+                  },
+                ),
               );
             },
           );
@@ -1682,6 +1713,82 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
         }
         children.add(buildList());
 
+        // Composer (reply banner + input)
+        if (widget.selectedRoomId != null) {
+          if (_replyTo != null) {
+            children.add(
+              Padding(
+                padding: EdgeInsets.only(top: spacing.gap.md),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: colors.surfaceVariant,
+                    borderRadius: BorderRadius.circular(MessieRadii.of(context).md),
+                  ),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: spacing.gap.md,
+                    vertical: spacing.gap.sm,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Replying to: ${_replyTo!.body ?? '[message]'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.bodySmall,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Cancel reply',
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () { setState(() { _replyTo = null; }); },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          }
+          children.add(
+            Padding(
+              padding: EdgeInsets.only(top: spacing.gap.sm),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Shortcuts(
+                      shortcuts: <ShortcutActivator, Intent>{
+                        SingleActivator(LogicalKeyboardKey.enter): const ActivateIntent(),
+                      },
+                      child: Actions(
+                        actions: <Type, Action<Intent>>{
+                          ActivateIntent: CallbackAction<ActivateIntent>(
+                            onInvoke: (intent) { sendMessage(); return null; },
+                          ),
+                        },
+                        child: TextField(
+                          focusNode: _composerFocus,
+                          controller: _composer,
+                          minLines: 1,
+                          maxLines: 3,
+                          decoration: const InputDecoration(
+                            hintText: 'Type a message',
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: spacing.gap.sm),
+                  IconButton(
+                    onPressed: sendMessage,
+                    icon: const Icon(Icons.send_rounded),
+                    tooltip: 'Send',
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
+
         return Column(
           mainAxisSize:
               hasBoundedHeight ? MainAxisSize.max : MainAxisSize.min,
@@ -1694,9 +1801,10 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
 }
 
 class _TimelineBubble extends StatelessWidget {
-  const _TimelineBubble({required this.item});
+  const _TimelineBubble({required this.item, this.onLongPress});
 
   final TimelineItem item;
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -1717,7 +1825,9 @@ class _TimelineBubble extends StatelessWidget {
           item.isOwn ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
-        child: DecoratedBox(
+        child: GestureDetector(
+          onLongPress: onLongPress,
+          child: DecoratedBox(
           decoration: BoxDecoration(
             color: background,
             borderRadius: BorderRadius.circular(spacing.gap.md),
@@ -1749,6 +1859,7 @@ class _TimelineBubble extends StatelessWidget {
               ],
             ),
           ),
+        ),
         ),
       ),
     );

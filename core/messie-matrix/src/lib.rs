@@ -670,6 +670,8 @@ async fn dump_room_crypto_async(client: &Client, room_id: &OwnedRoomId) -> Resul
 
 pub use sliding_sync::{AckResponse, SlidingSyncConfig, StartSlidingSyncResponse};
 pub use timeline::{LoadBackwardResponse, OpenRoomResponse, TimelineAck};
+use matrix_sdk::ruma::events::room::message::{RoomMessageEventContent, Relation};
+use matrix_sdk::ruma::events::relation::InReplyTo;
 pub use verification::{StartSasResponse};
 
 #[derive(Debug, Clone, Serialize)]
@@ -763,6 +765,44 @@ pub fn trust_state(user_id: &str, _device_id: Option<&str>) -> Result<TrustState
         };
 
         Ok(TrustStateResponse { user_verified, device_verified, device_exists })
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SendAck {
+    pub ok: bool,
+}
+
+/// Send a plain text message to a room, optionally as a reply to another event.
+pub fn send_text(room_id: &str, body: &str, reply_to: Option<&str>) -> Result<SendAck> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    let room_id: OwnedRoomId = room_id
+        .parse()
+        .map_err(|_| anyhow!("invalid room id '{room_id}'"))?;
+
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(async move {
+        let Some(room) = client.get_room(&room_id) else {
+            return Err(anyhow!("room not found"));
+        };
+
+        let mut content = RoomMessageEventContent::text_plain(body.to_owned());
+        if let Some(evt) = reply_to {
+            // Attach an m.relates_to reply relation if provided.
+            let eid = matrix_sdk::ruma::OwnedEventId::try_from(evt)
+                .map_err(|_| anyhow!("invalid event id for reply"))?;
+            let in_reply_to = InReplyTo::new(eid);
+            content.relates_to = Some(Relation::Reply { in_reply_to });
+        }
+
+        // Let the SDK assign a transaction id; local echo will be handled by timeline polling.
+        let _ = room
+            .send(content)
+            .await
+            .map_err(|e| anyhow!(format!("send failed: {e:?}")))?;
+
+        Ok(SendAck { ok: true })
     })
 }
 
