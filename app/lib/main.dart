@@ -11,6 +11,7 @@ import 'bridge/messie_bridge.dart';
 import 'state/room_list_controller.dart';
 import 'state/timeline_controller.dart';
 import 'state/backup_controller.dart';
+import 'state/verification_controller.dart';
 import 'state/secure_secrets.dart';
 import 'theme/app_theme.dart';
 import 'theme/messie_tokens.dart';
@@ -25,6 +26,15 @@ final pingProvider = FutureProvider<String>((ref) async {
 });
 
 final selectedRoomIdProvider = StateProvider<String?>((ref) => null);
+
+final selfTrustProvider = FutureProvider<TrustStateData?>((ref) async {
+  final auth = ref.watch(authControllerProvider);
+  final session = auth.asData?.value;
+  if (session == null) return null;
+  final res = await rustTrustState(userId: session.userId, deviceId: session.deviceId);
+  if (!res.isOk) return null;
+  return res.data;
+});
 
 class MessieApp extends StatelessWidget {
   const MessieApp({super.key});
@@ -227,10 +237,16 @@ class HomeScreen extends ConsumerWidget {
 
       if (session != null) {
         roomList.start();
+        // Start backup status stream for this session
+        ref.read(backupControllerProvider.notifier).start();
       } else {
         roomList.stop();
         timeline.stop();
         selectedRoom.state = null;
+        // Stop backup stream and reset its state
+        ref.read(backupControllerProvider.notifier).stop();
+        // Reset verification controller state as well
+        ref.read(verificationControllerProvider.notifier).cancel();
       }
     });
 
@@ -549,8 +565,16 @@ class LoggedInView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final pingState = ref.watch(pingProvider);
     // Ensure backup status stream is running post-login
-    ref.read(backupControllerProvider.notifier).ensureStarted();
+    ref.read(backupControllerProvider.notifier).start();
     final backupState = ref.watch(backupControllerProvider);
+    final verifyState = ref.watch(verificationControllerProvider);
+    final trustState = ref.watch(selfTrustProvider);
+    ref.listen<VerificationState>(verificationControllerProvider, (previous, next) {
+      if (next.status == 'done' && !next.active) {
+        // Refresh trust state after a successful verification completes.
+        ref.refresh(selfTrustProvider);
+      }
+    });
     final roomListState = ref.watch(roomListControllerProvider);
     final timelineState = ref.watch(timelineControllerProvider);
     final selectedRoomId = ref.watch(selectedRoomIdProvider);
@@ -561,6 +585,12 @@ class LoggedInView extends ConsumerWidget {
     final surfaces = MessieSurfaces.of(context);
     final colors = MessieColors.of(context);
     final gutter = MessieSpacing.gutter(context);
+
+    // Unified visibility rule for verification/restore affordances:
+    // Base on backup status, but also hide after SAS verification completes in-session.
+    // Show when backup is disabled or needs recovery AND SAS isn't completed.
+    final bool showVerifyRestore =
+        ((backupState.enabled != true) || (backupState.needsRecovery == true)) && (verifyState.status != 'done');
 
     void selectRoom(String roomId) {
       if (ref.read(selectedRoomIdProvider) == roomId) {
@@ -642,6 +672,8 @@ class LoggedInView extends ConsumerWidget {
       messenger.showSnackBar(
         const SnackBar(content: Text('Key backup enabled')),
       );
+      // Refresh backup status in UI
+      await ref.read(backupControllerProvider.notifier).refresh();
     }
 
     final accountCard = Card(
@@ -695,6 +727,38 @@ class LoggedInView extends ConsumerWidget {
                       style: textTheme.bodyMedium,
                     ),
                   ),
+                ],
+              ),
+            ],
+            if (trustState.hasValue && trustState.value != null) ...[
+              SizedBox(height: spacing.gap.md),
+              Wrap(
+                spacing: spacing.gap.sm,
+                runSpacing: spacing.gap.sm,
+                children: [
+                  Chip(
+                    label: Text(trustState.value!.userVerified ? 'User verified' : 'User unverified'),
+                    backgroundColor: trustState.value!.userVerified
+                        ? colorScheme.primaryContainer
+                        : colorScheme.surfaceVariant,
+                    labelStyle: textTheme.labelSmall?.copyWith(
+                      color: trustState.value!.userVerified
+                          ? colorScheme.onPrimaryContainer
+                          : colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  if (trustState.value!.deviceVerified != null)
+                    Chip(
+                      label: Text(trustState.value!.deviceVerified == true ? 'Device trusted' : 'Device unverified'),
+                      backgroundColor: trustState.value!.deviceVerified == true
+                          ? colorScheme.tertiaryContainer
+                          : colorScheme.surfaceVariant,
+                      labelStyle: textTheme.labelSmall?.copyWith(
+                        color: trustState.value!.deviceVerified == true
+                            ? colorScheme.onTertiaryContainer
+                            : colorScheme.onSurfaceVariant,
+                      ),
+                    ),
                 ],
               ),
             ],
@@ -766,7 +830,8 @@ class LoggedInView extends ConsumerWidget {
               ),
             if (backupState.enabled == false && backupState.existsOnServer != true)
               SizedBox(height: spacing.gap.sm),
-            if (backupState.enabled != true || backupState.needsRecovery == true)
+            // Use the same visibility condition as the SAS verification card.
+            if (showVerifyRestore)
               Row(
                 children: [
                   Expanded(
@@ -832,6 +897,8 @@ class LoggedInView extends ConsumerWidget {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Recovery complete – backups enabled')),
                   );
+                  // Refresh backup status immediately after recovery
+                  await ref.read(backupControllerProvider.notifier).refresh();
                   final rid = ref.read(selectedRoomIdProvider);
                   if (rid != null) {
                     await ref.read(timelineControllerProvider.notifier).openRoom(rid);
@@ -901,6 +968,102 @@ class LoggedInView extends ConsumerWidget {
       ),
     );
 
+    final verificationCard = Card(
+      child: Padding(
+        padding: EdgeInsets.all(spacing.gap.xl),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.verified_rounded, color: colorScheme.primary),
+                SizedBox(width: spacing.gap.sm),
+                Text('Device Verification', style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+                const Spacer(),
+                IconButton(
+                  tooltip: 'Refresh trust',
+                  onPressed: () => ref.refresh(selfTrustProvider),
+                  icon: const Icon(Icons.refresh_rounded),
+                ),
+              ],
+            ),
+            SizedBox(height: spacing.gap.md),
+            if (!verifyState.active && verifyState.status == 'idle') ...[
+              Text(
+                'Verify this device using Short Authentication String (SAS).',
+                style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+              ),
+              SizedBox(height: spacing.gap.md),
+              Row(
+                children: [
+                  FilledButton.icon(
+                    onPressed: () async {
+                      await ref
+                          .read(verificationControllerProvider.notifier)
+                          .start(userId: session.userId, deviceId: null);
+                    },
+                    icon: const Icon(Icons.verified_user_rounded),
+                    label: const Text('Verify This Device'),
+                  ),
+                ],
+              ),
+            ] else ...[
+              Row(
+                children: [
+                  Text('Status: ', style: textTheme.bodyMedium),
+                  Text(verifyState.status, style: textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                  if (verifyState.flowId != null) ...[
+                    SizedBox(width: spacing.gap.md),
+                    Expanded(
+                      child: SelectableText(
+                        'Flow: ${verifyState.flowId}',
+                        style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              if (verifyState.error != null) ...[
+                SizedBox(height: spacing.gap.sm),
+                Text(verifyState.error!, style: textTheme.bodySmall?.copyWith(color: colorScheme.error)),
+              ],
+              if (verifyState.emoji.isNotEmpty) ...[
+                SizedBox(height: spacing.gap.md),
+                Text('Compare these emoji on both devices:', style: textTheme.bodySmall),
+                SizedBox(height: spacing.gap.sm),
+                Wrap(
+                  spacing: spacing.gap.md,
+                  runSpacing: spacing.gap.sm,
+                  children: verifyState.emoji.map((e) => Text(e, style: textTheme.headlineSmall)).toList(),
+                ),
+              ],
+              SizedBox(height: spacing.gap.md),
+              Row(
+                children: [
+                  FilledButton.icon(
+                    onPressed: verifyState.status == 'keys_exchanged' || verifyState.status == 'ready' || verifyState.status == 'requested'
+                        ? () => ref.read(verificationControllerProvider.notifier).confirm()
+                        : null,
+                    icon: const Icon(Icons.check_rounded),
+                    label: const Text('Confirm'),
+                  ),
+                  SizedBox(width: spacing.gap.sm),
+                  OutlinedButton.icon(
+                    onPressed: () => ref.read(verificationControllerProvider.notifier).cancel(),
+                    icon: const Icon(Icons.close_rounded),
+                    label: const Text('Cancel'),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    // Show SAS card under the same conditions as the Recovery Key button.
+    final bool showVerification = showVerifyRestore;
+
     final roomListCard = Card(
       child: Padding(
         padding: EdgeInsets.all(spacing.gap.xl),
@@ -962,6 +1125,10 @@ class LoggedInView extends ConsumerWidget {
                         padding: EdgeInsets.zero,
                         children: [
                           accountCard,
+                          if (showVerification) ...[
+                            SizedBox(height: spacing.gap.xl),
+                            verificationCard,
+                          ],
                           SizedBox(height: spacing.gap.xl),
                           pingCard,
                           SizedBox(height: spacing.gap.xl),
@@ -996,6 +1163,10 @@ class LoggedInView extends ConsumerWidget {
                       ),
                       children: [
                         accountCard,
+                        if (showVerification) ...[
+                          SizedBox(height: spacing.gap.xl),
+                          verificationCard,
+                        ],
                         SizedBox(height: spacing.gap.xl),
                         pingCard,
                         SizedBox(height: spacing.gap.xl),

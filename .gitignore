@@ -35,3 +35,7 @@ frontend/android/local.properties
 __pycache__/
 *.pyc
 *.pyo
+
+core/**/target/
+bindings/ios/rust/
+app/android/app/src/main/jniLibs/*/libmessie_ffi.so
