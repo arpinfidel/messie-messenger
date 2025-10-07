@@ -10,6 +10,7 @@ scripts/matrix/node_modules/
 scripts/matrix/dist/
 scripts/matrix/.state/
 scripts/matrix/scripts/matrix/.state/
+scripts/matrix/.snapshots/
 
 # Flutter tooling / IDE artifacts
 app/.dart_tool/

@@ -6,8 +6,17 @@ import { fileURLToPath } from "url";
 import { createHmac } from "crypto";
 import fetch from "node-fetch";
 import sdk, { type MatrixClient, createClient } from "matrix-js-sdk";
+import { ClientEvent, EventType, MsgType, Visibility, Preset } from "matrix-js-sdk";
+import type { RoomMessageEventContent } from "matrix-js-sdk/lib/@types/events";
+import type { CryptoApi } from "matrix-js-sdk/lib/crypto-api";
+import type { MatrixEvent } from "matrix-js-sdk/lib/models/event";
+import type { Room } from "matrix-js-sdk/lib/models/room";
+import loglevel from "loglevel";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
+
+// Minimal local compat type for SSSS key descriptions (SDK does not export the full type)
+type SecretStorageKeyDescriptionCompat = { algorithm: string };
 
 type JSONObject = Record<string, unknown>;
 
@@ -34,8 +43,10 @@ type SeederConfig = {
   sharedSecret: string;
   adminUsername: string;
   adminPassword: string;
-  userUsername: string;
+  userUsername: string; // used when userCount = 1 or as default prefix
   userPassword: string;
+  userCount: number; // number of seeding users
+  userPrefix: string; // prefix for usernames when userCount > 1
   roomCount: number;
   deviceId: string;
   deviceName: string;
@@ -53,6 +64,7 @@ type SecretStorageContext = {
 type RoomSeedState = {
   roomId: string;
   lastEventId: string;
+  creator?: string; // userId of the account that created the room
 };
 
 type SeedStatePayload = {
@@ -68,6 +80,10 @@ const __dirname = path.dirname(__filename);
 if (typeof globalThis.fetch !== "function") {
   (globalThis as any).fetch = fetch;
 }
+
+// Keep matrix-js-sdk logs at warn to reduce noise during seeding
+try { loglevel.setLevel("warn"); } catch (e) { console.warn("[seed] failed to set loglevel:", e instanceof Error ? e.message : String(e)); }
+try { (sdk as any).logger?.setLevel?.("warn"); } catch (e) { console.warn("[seed] failed to set matrix-js-sdk logger level:", e instanceof Error ? e.message : String(e)); }
 
 function formatMessage(template: string, index: number): string {
   const padded = index.toString().padStart(4, "0");
@@ -101,9 +117,9 @@ function getMembership(client: MatrixClient, roomId: string, userId: string): st
   if (!room) return null;
   const member = room.getMember?.(userId);
   if (member?.membership) return member.membership as string;
-  if (typeof (room as any).getMyMembership === "function" && userId === client.getUserId()) {
+  if (userId === client.getUserId()) {
     try {
-      const membership = (room as any).getMyMembership();
+      const membership = room.getMyMembership();
       return typeof membership === "string" ? membership : null;
     } catch {
       return null;
@@ -138,48 +154,18 @@ async function waitForRoomEncryption(
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    try {
-      const encrypted = (client as any).isRoomEncrypted?.(roomId) ?? false;
-      if (encrypted) return;
-    } catch {
-      // ignore and continue polling
-    }
+    const encrypted = client.isRoomEncrypted(roomId);
+    if (encrypted) return;
     await sleep(pollMs);
   }
 }
 
-async function waitForBackupUpload(client: MatrixClient, timeoutMs = 20000): Promise<void> {
-  const crypto = (client as any).getCrypto?.() ?? (client as any).crypto;
-  if (!crypto?.on) return; // nothing to wait for
-  let remaining: number | undefined;
-  let resolved = false;
-  await new Promise<void>((resolve) => {
-    const timer = setTimeout(() => {
-      if (!resolved) resolve();
-    }, timeoutMs);
-    const onRemain = (n: number) => {
-      remaining = n;
-      if (!resolved && typeof n === "number" && n <= 0) {
-        resolved = true;
-        cleanup();
-        resolve();
-      }
-    };
-    const onStatus = () => {
-      if (!resolved && typeof remaining === "number" && remaining <= 0) {
-        resolved = true;
-        cleanup();
-        resolve();
-      }
-    };
-    const cleanup = () => {
-      clearTimeout(timer);
-      try { crypto.off?.("crypto.keyBackupSessionsRemaining", onRemain); } catch {}
-      try { crypto.off?.("crypto.keyBackupStatus", onStatus); } catch {}
-    };
-    try { crypto.on("crypto.keyBackupSessionsRemaining", onRemain); } catch {}
-    try { crypto.on("crypto.keyBackupStatus", onStatus); } catch {}
-  });
+async function waitForBackupUpload(_client: MatrixClient, timeoutMs = 20000): Promise<void> {
+  // We can't reliably detect enablement across SDK versions with types alone; wait a short grace period.
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(250);
+  }
 }
 
 async function withRateLimitRetry<T>(
@@ -204,8 +190,8 @@ async function withRateLimitRetry<T>(
       if (!isRate || attempt >= retries) {
         throw e;
       }
-      const jitter = Math.floor(Math.random() * 200);
-      const backoff = Math.min(10_000, retryAfterMs ?? base * Math.pow(1.6, attempt)) + jitter;
+      // Respect retry_after_ms exactly when present; fallback to fixed 5000ms
+      const backoff = typeof retryAfterMs === "number" ? retryAfterMs : 5000;
       onRateLimit?.({
         label,
         attempt: attempt + 1,
@@ -219,22 +205,6 @@ async function withRateLimitRetry<T>(
       attempt += 1;
     }
   }
-}
-
-async function adminFetch(
-  baseUrl: string,
-  path: string,
-  token: string,
-  init: RequestInit & { json?: unknown } = {},
-): Promise<Response> {
-  const url = `${baseUrl}${path}`;
-  const headers: Record<string, string> = { ...(init.headers as any) };
-  headers["Authorization"] = `Bearer ${token}`;
-  if (init.json !== undefined) {
-    headers["Content-Type"] = "application/json";
-  }
-  const res = await fetch(url, { ...init, headers, body: init.json !== undefined ? JSON.stringify(init.json) : (init as any).body });
-  return res as any;
 }
 
 function stateFile(stateDir: string): string {
@@ -324,17 +294,41 @@ async function loginWithPassword(
   deviceId: string,
   deviceName: string,
 ): Promise<{ userId: string; deviceId: string; accessToken: string }> {
-  const temp = createClient({ baseUrl });
-  const res = await withRateLimitRetry(
-    () => temp.login("m.login.password", {
-      user: username,
-      password,
-      device_id: deviceId,
-      initial_device_display_name: deviceName,
-    } as any),
-    `login ${username}`,
-    { baseDelayMs: 1200 },
-  );
+  const url = new URL("/_matrix/client/v3/login", baseUrl);
+  const body = {
+    type: "m.login.password",
+    identifier: { type: "m.id.user", user: username },
+    password,
+    device_id: deviceId,
+    initial_device_display_name: deviceName,
+  } as const;
+
+  const doLogin = async (): Promise<any> => {
+    const r = await fetch(url.toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (r.ok) return r.json();
+    if (r.status === 429) {
+      let data: any = {};
+      try { data = await r.json(); } catch (e) { console.warn("[seed][login] failed to parse 429 JSON:", e instanceof Error ? e.message : String(e)); }
+      const err: any = new Error("rate-limited login");
+      err.httpStatus = 429;
+      err.data = data;
+      err.httpHeaders = r.headers;
+      throw err;
+    }
+    // Bubble other errors with basic info
+    const txt = await r.text().catch(() => "");
+    const e: any = new Error(`login ${username} -> ${r.status} ${txt}`);
+    e.httpStatus = r.status;
+    e.httpHeaders = r.headers;
+    try { e.data = JSON.parse(txt); } catch (e2) { console.warn("[seed][login] failed to parse error JSON:", e2 instanceof Error ? e2.message : String(e2)); }
+    throw e;
+  };
+
+  const res = await withRateLimitRetry(doLogin, `login ${username}`, { baseDelayMs: 800 });
   if (!res?.user_id || !res?.access_token) {
     throw new Error("Login response missing user_id or access_token");
   }
@@ -345,34 +339,18 @@ async function loginWithPassword(
   };
 }
 
-async function adminLoginToken(baseUrl: string, username: string, password: string, deviceId = "ADMIN_SEED"): Promise<string> {
-  const client = createClient({ baseUrl });
-  const res = await withRateLimitRetry(
-    () => client.login("m.login.password", {
-      user: username,
-      password,
-      device_id: deviceId,
-      initial_device_display_name: "Messie Admin Seeder",
-    } as any),
-    `admin login ${username}`,
-    { baseDelayMs: 1200 },
-  );
-  if (!res?.access_token) throw new Error("Admin login failed");
-  return res.access_token;
-}
-
 async function waitForClientReady(client: MatrixClient): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const onSync = (state: string, _prev: string, data?: Record<string, unknown>) => {
+    const onSync = (state: string, _prev: string, data?: unknown) => {
       if (state === "SYNCING" || state === "PREPARED") {
-        (client as any).removeListener("sync", onSync as any);
+        client.removeListener(ClientEvent.Sync, onSync as unknown as (...args: unknown[]) => void);
         resolve();
       } else if (state === "ERROR") {
-        (client as any).removeListener("sync", onSync as any);
-        reject((data as any)?.error ?? new Error("Sync failed"));
+        client.removeListener(ClientEvent.Sync, onSync as unknown as (...args: unknown[]) => void);
+        reject(new Error(typeof data === "object" && data !== null && "error" in (data as Record<string, unknown>) ? String((data as Record<string, unknown>)["error"]) : "Sync failed"));
       }
     };
-    (client as any).on("sync", onSync as any);
+    client.on(ClientEvent.Sync, onSync as unknown as (...args: unknown[]) => void);
   });
 }
 
@@ -388,46 +366,43 @@ async function createMatrixClient(
     deviceId: auth.deviceId,
     timelineSupport: true,
     cryptoCallbacks: {
-      getSecretStorageKey: async ({ keys }: { keys: Record<string, any> }, _name: string) => {
-        if (!secretStorageContext.privateKey) {
-          throw new Error("Secret storage key requested before it was generated");
-        }
+      getSecretStorageKey: async ({ keys }: { keys: Record<string, SecretStorageKeyDescriptionCompat> }, _name?: string) => {
+        if (!secretStorageContext.privateKey) throw new Error("Secret storage key requested before it was generated");
         let keyId = secretStorageContext.keyId;
-        if (!keyId || !keys[keyId]) {
-          keyId = Object.keys(keys)[0];
+        if (!keyId || !(keyId in keys)) {
+          const ids = Object.keys(keys);
+          keyId = ids.length > 0 ? ids[0] : undefined;
         }
-        if (!keyId) {
-          throw new Error("No secret storage keys available");
-        }
+        if (!keyId) throw new Error("No secret storage keys available");
         secretStorageContext.keyId = keyId;
-        return [keyId, secretStorageContext.privateKey];
+        return [keyId, secretStorageContext.privateKey] as const;
       },
     },
   });
 
-  // Some SDK versions ignore the constructor-supplied cryptoCallbacks until set explicitly.
-  // Ensure the callback is registered before initRustCrypto so SSSS can pull the key.
-  (client as any).setCryptoCallbacks?.({
-    getSecretStorageKey: async ({ keys }: { keys: Record<string, any> }, _name: string) => {
-      if (!secretStorageContext.privateKey) {
-        throw new Error("Secret storage key requested before it was generated");
-      }
-      let keyId = secretStorageContext.keyId;
-      if (!keyId || !keys[keyId]) {
-        keyId = Object.keys(keys)[0];
-      }
-      if (!keyId) {
-        throw new Error("No secret storage keys available");
-      }
-      secretStorageContext.keyId = keyId;
-      return [keyId, secretStorageContext.privateKey];
-    },
-  });
-
-  // Initialize the modern Rust crypto backend (no olm dependency)
-  await (client as any).initRustCrypto({ useIndexedDB: false } as any);
+  await client.initRustCrypto({ useIndexedDB: false });
   const ready = waitForClientReady(client);
-  (client as any).startClient({ initialSyncLimit: 5 });
+  client.startClient({ initialSyncLimit: 5 });
+  await ready;
+  return client;
+}
+
+// Create a minimal client suitable for sending in E2EE rooms without 4S/cross-signing.
+// Does not register secret storage callbacks to avoid UIA flows for device signing uploads.
+async function createSenderClient(
+  config: SeederConfig,
+  auth: { userId: string; deviceId: string; accessToken: string },
+): Promise<MatrixClient> {
+  const client = createClient({
+    baseUrl: config.serverUrl,
+    accessToken: auth.accessToken,
+    userId: auth.userId,
+    deviceId: auth.deviceId,
+    timelineSupport: true,
+  });
+  await client.initRustCrypto({ useIndexedDB: false });
+  const ready = waitForClientReady(client);
+  client.startClient({ initialSyncLimit: 5 });
   await ready;
   return client;
 }
@@ -436,6 +411,7 @@ async function ensureEncryptedRoom(
   client: MatrixClient,
   aliasLocalpart: string,
   serverName: string,
+  invites?: string[],
 ): Promise<string> {
   const fullAlias = `#${aliasLocalpart}:${serverName}`;
   try {
@@ -455,9 +431,10 @@ async function ensureEncryptedRoom(
 
   const creation = await withRateLimitRetry(
     () => client.createRoom({
-      visibility: "private",
-      preset: "private_chat",
+      visibility: Visibility.Private,
+      preset: Preset.PrivateChat,
       room_alias_name: aliasLocalpart,
+      invite: invites && invites.length ? invites : undefined,
       initial_state: [
         {
           type: "m.room.encryption",
@@ -465,7 +442,7 @@ async function ensureEncryptedRoom(
           content: { algorithm: "m.megolm.v1.aes-sha2" },
         },
       ],
-    } as any),
+    }),
     `createRoom ${fullAlias}`,
   );
 
@@ -524,234 +501,25 @@ async function ensureJoined(
 
 type AdminRateOptions = { onRateLimit?: RateLimitListener };
 
-async function adminEnsureEncryptedRoom(
-  baseUrl: string,
-  adminToken: string,
-  aliasLocalpart: string,
-  serverName: string,
-  rateOpts: AdminRateOptions = {},
-): Promise<string> {
-  const fullAlias = `#${aliasLocalpart}:${serverName}`;
-  // Try resolve alias first
-  const got = await withRateLimitRetry(async () => {
-    const r = await adminFetch(baseUrl, `/_matrix/client/v3/directory/room/${encodeURIComponent(fullAlias)}`, adminToken, { method: "GET" });
-    if (r.status === 200) return (await r.json() as any).room_id as string;
-    if (r.status === 429) {
-      let j: any = {};
-      try { j = await r.json(); } catch {}
-      const err: any = new Error("rate-limited alias lookup");
-      err.httpStatus = 429;
-      err.data = j;
-      throw err;
-    }
-    if (r.status !== 404) throw new Error(`alias lookup ${fullAlias} failed ${r.status}`);
-    return null as any;
-  }, `admin alias ${fullAlias}`, { onRateLimit: rateOpts.onRateLimit });
-  if (got) return got;
-
-  // Create with encryption state
-  const created = await withRateLimitRetry(async () => {
-    const payload = {
-      visibility: "private",
-      preset: "private_chat",
-      room_alias_name: aliasLocalpart,
-      name: `Seed Room ${aliasLocalpart.split("-").pop()}`,
-      initial_state: [
-        { type: "m.room.encryption", state_key: "", content: { algorithm: "m.megolm.v1.aes-sha2" } },
-      ],
-    } as const;
-
-    const fallbackClient = async (): Promise<string> => {
-      const res = await adminFetch(baseUrl, `/_matrix/client/v3/createRoom`, adminToken, {
-        method: "POST",
-        json: payload,
-      });
-      if (res.status === 200) {
-        const j = (await res.json()) as any;
-        if (!j?.room_id) {
-          throw new Error(`createRoom ${fullAlias} -> missing room_id in client response`);
-        }
-        return j.room_id as string;
-      }
-      if (res.status === 429) {
-        let j: any = {};
-        try { j = await res.json(); } catch {}
-        const err: any = new Error("rate-limited client createRoom");
-        err.httpStatus = 429;
-        err.data = j;
-        throw err;
-      }
-      const txt = await res.text();
-      throw new Error(`createRoom ${fullAlias} -> client ${res.status} ${txt}`);
-    };
-
-    const tryAdmin = await adminFetch(baseUrl, `/_synapse/admin/v1/createRoom`, adminToken, {
-      method: "POST",
-      json: payload,
-    });
-
-    if (tryAdmin.status === 200 || tryAdmin.status === 202) {
-      const body = (await tryAdmin.json().catch(() => ({}))) as any;
-      if (!body?.room_id) {
-        return fallbackClient();
-      }
-      return body.room_id as string;
-    }
-
-    if (tryAdmin.status === 404) {
-      return fallbackClient();
-    }
-
-    if (tryAdmin.status === 429) {
-      let data: any = {};
-      try { data = await tryAdmin.json(); } catch {}
-      const err: any = new Error("rate-limited admin createRoom");
-      err.httpStatus = 429;
-      err.data = data;
-      throw err;
-    }
-
-    let parsed: any = null;
-    try {
-      parsed = await tryAdmin.json();
-    } catch {
-      parsed = null;
-    }
-
-    if (parsed?.errcode === "M_UNRECOGNIZED" || parsed?.errcode === "M_MISSING_TOKEN") {
-      return fallbackClient();
-    }
-
-    const txt = parsed ? JSON.stringify(parsed) : await tryAdmin.text();
-    throw new Error(`createRoom ${fullAlias} -> admin ${tryAdmin.status} ${txt}`);
-  }, `admin createRoom ${fullAlias}`, { onRateLimit: rateOpts.onRateLimit });
-
-  return created;
-}
-
-async function adminForceJoin(
-  baseUrl: string,
-  adminToken: string,
-  roomId: string,
-  userId: string,
-  rateOpts: AdminRateOptions = {},
-): Promise<void> {
-  await withRateLimitRetry(async () => {
-    const annotateRateLimit = async (response: Response, context: string): Promise<never> => {
-      if (response.status === 429) {
-        let data: any = {};
-        try {
-          data = await response.json();
-        } catch {
-          data = { raw: await response.text().catch(() => undefined) };
-        }
-        const err: any = new Error(`${context} -> 429`);
-        err.httpStatus = 429;
-        err.data = data;
-        throw err;
-      }
-      const txt = await response.text();
-      throw new Error(`${context} -> ${response.status} ${txt}`);
-    };
-
-    // Try Synapse v2 admin API first (available in Synapse >=1.80)
-    const v2Path = `/_synapse/admin/v2/users/${encodeURIComponent(userId)}/rooms/${encodeURIComponent(roomId)}`;
-    let res = await adminFetch(baseUrl, v2Path, adminToken, {
-      method: "PUT",
-      json: { action: "join" },
-    });
-    let resBody: string | null = null;
-    const bodyText = async (): Promise<string> => {
-      if (resBody === null) {
-        resBody = await res.text();
-      }
-      return resBody;
-    };
-
-    if (res.status === 200) {
-      return undefined as any;
-    }
-    if (res.status === 202) {
-      // Join accepted, Synapse completes asynchronously
-      return undefined as any;
-    }
-    if (res.status === 400) {
-      const txt = await bodyText();
-      if (/already/i.test(txt)) {
-        return undefined as any;
-      }
-    }
-    if (res.status === 429) {
-      await annotateRateLimit(res, `admin v2 join ${roomId} ${userId}`);
-    }
-
-    if (res.status !== 404) {
-      const txt = await bodyText();
-      throw new Error(`admin v2 join ${roomId} ${userId} -> ${res.status} ${txt}`);
-    }
-
-    // Fall back to admin v1 join endpoint
-    const v1Path = `/_synapse/admin/v1/join/${encodeURIComponent(roomId)}`;
-    res = await adminFetch(baseUrl, v1Path, adminToken, {
-      method: "POST",
-      json: { user_id: userId },
-    });
-    resBody = null;
-
-    if (res.status === 200 || res.status === 202) {
-      return undefined as any;
-    }
-    if (res.status === 400) {
-      const txt = await res.text();
-      if (/already/i.test(txt)) {
-        return undefined as any;
-      }
-      resBody = txt;
-    }
-    if (res.status === 429) {
-      await annotateRateLimit(res, `admin v1 join ${roomId} ${userId}`);
-    }
-
-    if (res.status === 404) {
-      // Final fallback: use client /invite; treat success (200/403) as terminal
-      const invitePath = `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/invite`;
-      const invite = await adminFetch(baseUrl, invitePath, adminToken, {
-        method: "POST",
-        json: { user_id: userId },
-      });
-      if (invite.status === 200 || invite.status === 403) {
-        return undefined as any;
-      }
-      if (invite.status === 429) {
-        await annotateRateLimit(invite, `admin invite ${roomId} ${userId}`);
-      }
-      const txt = await invite.text();
-      throw new Error(`admin invite ${roomId} ${userId} -> ${invite.status} ${txt}`);
-    }
-
-    const txt = resBody ?? (await res.text());
-    throw new Error(`admin v1 join ${roomId} ${userId} -> ${res.status} ${txt}`);
-  }, `admin join ${roomId}`, { onRateLimit: rateOpts.onRateLimit });
-}
-
 async function sendSeedMessage(
   client: MatrixClient,
   roomId: string,
   body: string,
 ): Promise<string> {
   const response = await withRateLimitRetry(
-    () => (client as any).sendEvent(roomId, "m.room.message", {
-      msgtype: "m.text",
-      body,
-    }),
+    () => {
+      const content: RoomMessageEventContent = { msgtype: MsgType.Text, body };
+      return client.sendEvent(roomId, EventType.RoomMessage, content);
+    },
     `sendEvent ${roomId}`,
   );
-  const typed = response as { event_id?: string };
-  if (!typed?.event_id) {
+  const eventId = (response as { event_id?: string }).event_id;
+  if (!eventId) {
     throw new Error(`sendEvent did not return event id for ${roomId}`);
   }
-  return typed.event_id;
+  return eventId;
 }
+
 
 async function seedHomeserver(config: SeederConfig): Promise<void> {
   const statePath = stateFile(config.stateDir);
@@ -764,54 +532,257 @@ async function seedHomeserver(config: SeederConfig): Promise<void> {
     config.adminPassword,
     true,
   );
-  await registerWithSharedSecret(
-    config.serverUrl,
-    config.sharedSecret,
-    config.userUsername,
-    config.userPassword,
-    false,
-  );
-
-  const auth = await loginWithPassword(
-    config.serverUrl,
-    config.userUsername,
-    config.userPassword,
-    config.deviceId,
-    config.deviceName,
-  );
-
-  // Persist access token for test peer helper to avoid login rate limits.
-  try {
-    const tokenPath = path.join(config.stateDir, "access_token.json");
-    await fs.promises.mkdir(config.stateDir, { recursive: true });
-    await fs.promises.writeFile(
-      tokenPath,
-      JSON.stringify({ user_id: auth.userId, device_id: auth.deviceId, access_token: auth.accessToken }, null, 2),
-      { encoding: "utf-8" },
-    );
-  } catch (e) {
-    console.warn(`[seed] failed to persist access token: ${e}`);
+  // Build user list (single user when userCount <= 1, otherwise prefix + index)
+  const users: Array<{ username: string; password: string; userId: string; deviceId: string; deviceName: string }> = [];
+  const count = Math.max(1, config.userCount || 1);
+  // Always multi-user: first user is unsuffixed (e.g., 'bridge-tester'), others are '<prefix>-02..NN'
+  const prefix = (config.userPrefix || config.userUsername || "bridge-tester").replace(/\s+/g, "-");
+  const pad = String(Math.max(2, count)).length; // at least 2-digit padding when multiple
+  // First (primary) user unsuffixed
+  users.push({
+    username: config.userUsername,
+    password: config.userPassword,
+    userId: `@${config.userUsername}:${config.serverName}`,
+    deviceId: `${config.deviceId}_${config.userUsername}`,
+    deviceName: `${config.deviceName} [${config.userUsername}]`,
+  });
+  // Additional users start at 02 to avoid clashing with unsuffixed primary
+  for (let i = 2; i <= count; i += 1) {
+    const uname = `${prefix}-${String(i).padStart(pad, "0")}`;
+    users.push({
+      username: uname,
+      password: config.userPassword,
+      userId: `@${uname}:${config.serverName}`,
+      deviceId: `${config.deviceId}_${uname}`,
+      deviceName: `${config.deviceName} [${uname}]`,
+    });
   }
 
-  // Use admin token to precreate many rooms quickly and force-join the test user
-  const adminToken = await adminLoginToken(config.serverUrl, config.adminUsername, config.adminPassword, "MESSIE_ADMIN_SEED");
-  const userId = `@${config.userUsername}:${config.serverName}`;
+  // Register all users
+  await Promise.all(users.map((u) =>
+    registerWithSharedSecret(
+      config.serverUrl,
+      config.sharedSecret,
+      u.username,
+      u.password,
+      false,
+    )
+  ));
+
+  type UserAuth = { userId: string; deviceId: string; accessToken: string };
+  // Tracking structures
+  const secretStorageContexts: SecretStorageContext[] = users.map(() => ({ privateKey: null }));
+  const startedClients: MatrixClient[] = [];
+  const auths: Array<UserAuth | null> = new Array(users.length).fill(null);
+  const authResolvers: Array<((a: UserAuth) => void) | null> = new Array(users.length).fill(null);
+  const authPromises: Array<Promise<UserAuth>> = users.map((_u, idx) => new Promise<UserAuth>((resolve) => { authResolvers[idx] = resolve; }));
+  const clientPromises: Array<Promise<MatrixClient> | null> = new Array(users.length).fill(null);
+  async function enablePrimaryRecovery(client: MatrixClient, primaryUserId: string): Promise<void> {
+    const crypto = client.getCrypto?.();
+    if (!crypto) throw new Error("Crypto API unavailable on Matrix client");
+
+    // 1) Create a recovery key and bootstrap 4S (with new key backup).
+    const recovery = await withRateLimitRetry(
+      () => crypto.createRecoveryKeyFromPassphrase(),
+      "createRecoveryKeyFromPassphrase",
+    );
+
+    await withRateLimitRetry(
+      () =>
+        crypto.bootstrapSecretStorage({
+          setupNewSecretStorage: true,
+          setupNewKeyBackup: true,
+          createSecretStorageKey: async () => {
+            // Persist private key for SDK callbacks that need it later
+            const maybePriv = (recovery as unknown as { privateKey?: Uint8Array }).privateKey;
+            if (maybePriv instanceof Uint8Array) {
+              secretStorageContexts[0].privateKey = maybePriv;
+            }
+            return recovery;
+          },
+        }),
+      "bootstrapSecretStorage",
+    );
+
+    // 1.5) Bootstrap cross-signing if available (helps Element stop prompting and stores keys in 4S).
+    await withRateLimitRetry(
+      () => crypto.bootstrapCrossSigning({}),
+      "bootstrapCrossSigning",
+    );
+
+    // 2) Ensure there is a server-side backup: if none, create one via CryptoApi, then recheck.
+    const existing = await withRateLimitRetry(
+      () => crypto.checkKeyBackupAndEnable(),
+      "checkKeyBackupAndEnable",
+    );
+    if (!existing) {
+      await withRateLimitRetry(
+        () => crypto.resetKeyBackup(),
+        "resetKeyBackup",
+      );
+      await withRateLimitRetry(
+        () => crypto.checkKeyBackupAndEnable(),
+        "checkKeyBackupAndEnable(recheck)",
+      );
+    }
+
+    // 5) Wait briefly for any pending uploads (if there are sessions).
+    await waitForBackupUpload(client, 20000);
+
+    // 6) Persist encoded recovery key for future restore.
+    const recoveryPath = path.join(config.stateDir, "recovery_key.json");
+    fs.mkdirSync(config.stateDir, { recursive: true });
+    const encoded = (recovery as unknown as { encodedPrivateKey?: string }).encodedPrivateKey;
+    if (!encoded) throw new Error("Recovery key encoding missing after bootstrap");
+    fs.writeFileSync(
+      recoveryPath,
+      JSON.stringify({ user_id: primaryUserId, recovery_key: encoded }, null, 2),
+    );
+    console.log(`Recovery key saved to ${recoveryPath}`);
+  }
+  const available: number[] = [];
+  const waiters: Array<() => void> = [];
+  const notifyAvailable = (): void => { while (waiters.length) { const w = waiters.shift(); try { w && w(); } catch (e) { console.warn("[seed] waiter callback threw:", e instanceof Error ? e.message : String(e)); } } };
+  const waitForAvailable = async (): Promise<void> => {
+    if (available.length > 0) return;
+    await new Promise<void>((resolve) => { waiters.push(resolve); });
+  };
+
+  // Enable primary recovery once, after first seeded room sends an encrypted message
+  let primaryRecoveryEnabled = false;
+
+  // Background sequential login loop; resolves per-user authPromises
+  (async () => {
+    for (let i = 0; i < users.length; i += 1) {
+      const u = users[i];
+      const a = await loginWithPassword(
+        config.serverUrl,
+        u.username,
+        u.password,
+        u.deviceId,
+        u.deviceName,
+      );
+      auths[i] = a;
+      authResolvers[i]?.(a);
+      available.push(i);
+      notifyAvailable();
+
+      if (i === 0) {
+        // Persist access token for test peer helper to avoid login rate limits.
+        try {
+          const tokenPath = path.join(config.stateDir, "access_token.json");
+          await fs.promises.mkdir(config.stateDir, { recursive: true });
+          await fs.promises.writeFile(
+            tokenPath,
+            JSON.stringify({ user_id: a.userId, device_id: a.deviceId, access_token: a.accessToken }, null, 2),
+            { encoding: "utf-8" },
+          );
+        } catch (e) {
+          console.warn(`[seed] failed to persist access token: ${e}`);
+        }
+
+        // Create primary full client
+        if (!clientPromises[0]) {
+          clientPromises[0] = (async () => {
+            const c = await createMatrixClient(config, a, secretStorageContexts[0]);
+            startedClients.push(c);
+            return c;
+          })();
+        }
+      }
+    }
+  })();
+
   const aliases: string[] = Array.from({ length: config.roomCount }, (_, i) => `messie-seed-${(i + 1).toString().padStart(4, "0")}`);
+  // Sequential loop that round-robins over whichever users have logged in so far
+  for (let i = 0; i < aliases.length; i += 1) {
+    const aliasLocalpart = aliases[i];
+    if (available.length === 0) {
+      await waitForAvailable();
+    }
+    const poolSize = Math.max(available.length, 1);
+    const pick = available[i % poolSize];
+    const creatorIdx = typeof pick === 'number' ? pick : 0;
+    const creatorAuth = auths[creatorIdx] ?? await authPromises[creatorIdx];
+    if (!clientPromises[creatorIdx]) {
+      clientPromises[creatorIdx] = (async () => {
+        const c = creatorIdx === 0
+          ? await createMatrixClient(config, creatorAuth, secretStorageContexts[0])
+          : await createSenderClient(config, creatorAuth);
+        startedClients.push(c);
+        return c;
+      })();
+    }
+    const creatorClient = await clientPromises[creatorIdx]!;
+    const creatorUser = users[creatorIdx];
 
-  const adminRateOpts: AdminRateOptions = { onRateLimit: (info) => {
-    console.warn(`[rate-limit] ${info.label}: attempt ${info.attempt}/${info.retries}; delaying ${info.delayMs}ms`);
-  }};
+    let roomId = state.rooms[aliasLocalpart]?.roomId;
+    if (!roomId) {
+      const primaryUserId = users[0].userId;
+      const invitees = primaryUserId !== creatorUser.userId ? [primaryUserId] : [];
+      roomId = await ensureEncryptedRoom(creatorClient, aliasLocalpart, config.serverName, invitees);
+      state.rooms[aliasLocalpart] = { roomId, lastEventId: "", creator: creatorAuth.userId };
+      persistSeedState(statePath, state);
+    }
 
-  await mapPool(aliases, config.concurrency, async (aliasLocalpart) => {
-    if (state.rooms[aliasLocalpart]?.roomId) return;
-    const roomId = await adminEnsureEncryptedRoom(config.serverUrl, adminToken, aliasLocalpart, config.serverName, adminRateOpts);
-    await adminForceJoin(config.serverUrl, adminToken, roomId, userId, adminRateOpts);
-    state.rooms[aliasLocalpart] = { roomId, lastEventId: "" } as any;
+    try {
+      await ensureJoined(creatorClient, roomId, { viaServers: [config.serverName], alias: `#${aliasLocalpart}:${config.serverName}` });
+      await waitForJoinConfirmation(creatorClient, roomId, creatorAuth.userId);
+    } catch (e) {
+      console.warn("[seed] creator join/confirm failed:", e instanceof Error ? e.message : String(e));
+    }
+
+    try {
+      if (!clientPromises[0]) {
+        const primaryAuth = auths[0] ?? await authPromises[0];
+        clientPromises[0] = (async () => {
+          const c = await createMatrixClient(config, primaryAuth, secretStorageContexts[0]);
+          startedClients.push(c);
+          return c;
+        })();
+      }
+      const primaryClient = await clientPromises[0]!;
+      await ensureJoined(primaryClient, roomId, { viaServers: [config.serverName], alias: `#${aliasLocalpart}:${config.serverName}` });
+      await waitForJoinConfirmation(primaryClient, roomId, users[0].userId);
+    } catch (joinErr: any) {
+      const msg = joinErr?.data?.error ?? String(joinErr?.message ?? "");
+      const forbidden = joinErr?.errcode === "M_FORBIDDEN" || /forbidden/i.test(msg);
+      if (forbidden) {
+        await withRateLimitRetry(
+          () => creatorClient.invite(roomId, users[0].userId),
+          `invite ${roomId} ${users[0].userId}`,
+        );
+        const primaryClient = await clientPromises[0]!;
+        await ensureJoined(primaryClient, roomId, { viaServers: [config.serverName], alias: `#${aliasLocalpart}:${config.serverName}` });
+        await waitForJoinConfirmation(primaryClient, roomId, users[0].userId);
+      } else {
+        throw joinErr;
+      }
+    }
+
+    // If already sent on a previous run, skip sending
+    if (state.rooms[aliasLocalpart]?.lastEventId) {
+      continue;
+    }
+
+
+    await waitForRoomEncryption(creatorClient, roomId);
+    const displayText = formatMessage(config.messageBody, i + 1);
+    const eventId = await sendSeedMessage(creatorClient, roomId, displayText);
+    state.rooms[aliasLocalpart] = { roomId, lastEventId: eventId, creator: creatorAuth.userId };
     persistSeedState(statePath, state);
-  });
 
-  const secretStorageContext: SecretStorageContext = { privateKey: null };
-  const client = await createMatrixClient(config, auth, secretStorageContext);
+    // After the first encrypted message exists, enable backup for the primary device
+    if (!primaryRecoveryEnabled) {
+      const primaryClient = await clientPromises[0]!;
+      try {
+        await enablePrimaryRecovery(primaryClient, users[0].userId);
+        primaryRecoveryEnabled = true;
+      } catch (e) {
+        console.warn(`[seed] primary recovery/backup enable failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
 
   try {
     await mapPool(Array.from({ length: config.roomCount }, (_, i) => i + 1), Math.max(1, config.concurrency * 2), async (n) => {
@@ -821,6 +792,32 @@ async function seedHomeserver(config: SeederConfig): Promise<void> {
 
       let roomId = state.rooms[aliasLocalpart]?.roomId;
       let ensuredByClient = false;
+      // Skip rooms already sent during creation pass
+      if (state.rooms[aliasLocalpart]?.lastEventId) {
+        return;
+      }
+      // Determine sender = room creator (fallback to assigned idx)
+      let sendIdx = (() => {
+        const creator = state.rooms[aliasLocalpart]?.creator;
+        if (creator) {
+          const j = users.findIndex((u) => u.userId === creator);
+          if (j >= 0) return j;
+        }
+        return (index - 1) % users.length;
+      })();
+      if (!clientPromises[sendIdx]) {
+        clientPromises[sendIdx] = (async () => {
+          const senderAuth = auths[sendIdx] ?? await authPromises[sendIdx];
+          const c = sendIdx === 0
+            ? await createMatrixClient(config, senderAuth, secretStorageContexts[0])
+            : await createSenderClient(config, senderAuth);
+          startedClients.push(c);
+          return c;
+        })();
+      }
+      const client = await clientPromises[sendIdx]!;
+      const auth = auths[sendIdx] ?? await authPromises[sendIdx];
+
       if (!roomId) {
         roomId = await ensureEncryptedRoom(client, aliasLocalpart, config.serverName);
         ensuredByClient = true;
@@ -857,116 +854,19 @@ async function seedHomeserver(config: SeederConfig): Promise<void> {
         }
       }
 
+
+      await waitForRoomEncryption(client, roomId);
       const eventId = await sendSeedMessage(client, roomId, displayText);
       state.rooms[aliasLocalpart] = { roomId, lastEventId: eventId };
       persistSeedState(statePath, state);
       console.log(`[ok] Seeded ${aliasLocalpart} (${roomId})`);
     });
 
-    const prepareKeyBackupVersion = (client as any).prepareKeyBackupVersion;
-    const createKeyBackupVersion = (client as any).createKeyBackupVersion;
-    const enableKeyBackup = (client as any).enableKeyBackup;
-    const backupAllGroupSessions = (client as any).backupAllGroupSessions;
 
-    if (
-      typeof prepareKeyBackupVersion === "function" &&
-      typeof createKeyBackupVersion === "function" &&
-      typeof enableKeyBackup === "function" &&
-      typeof backupAllGroupSessions === "function"
-    ) {
-      const prep = await withRateLimitRetry<{
-        keyBackupVersion: unknown;
-        recovery_key: string;
-      }>(
-        () => prepareKeyBackupVersion.call(client),
-        "prepareKeyBackupVersion",
-      );
-      const { keyBackupVersion, recovery_key } = prep as any;
-      await withRateLimitRetry(
-        () => createKeyBackupVersion.call(client, keyBackupVersion),
-        "createKeyBackupVersion",
-      );
-      await withRateLimitRetry(
-        () => enableKeyBackup.call(client, keyBackupVersion),
-        "enableKeyBackup",
-      );
-      await withRateLimitRetry(
-        () => backupAllGroupSessions.call(client),
-        "backupAllGroupSessions",
-        { baseDelayMs: 1200 },
-      );
-
-      await waitForBackupUpload(client, 20000);
-      const recoveryPath = path.join(config.stateDir, "recovery_key.json");
-      fs.mkdirSync(config.stateDir, { recursive: true });
-      fs.writeFileSync(
-        recoveryPath,
-        JSON.stringify({ user_id: auth.userId, recovery_key }, null, 2),
-      );
-      console.log(`Recovery key saved to ${recoveryPath}`);
-    } else {
-      const cryptoApi = (client as any).getCrypto?.() ?? (client as any).crypto;
-      if (
-        cryptoApi?.bootstrapSecretStorage &&
-        cryptoApi?.createRecoveryKeyFromPassphrase
-      ) {
-        let generatedKey: any = null;
-        await withRateLimitRetry(
-          () => cryptoApi.bootstrapSecretStorage({
-            setupNewSecretStorage: true,
-            setupNewKeyBackup: true,
-            createSecretStorageKey: async () => {
-              const key = await cryptoApi.createRecoveryKeyFromPassphrase();
-              generatedKey = key;
-              if (key?.privateKey instanceof Uint8Array) {
-                secretStorageContext.privateKey = key.privateKey;
-              }
-              return key;
-            },
-          }),
-          "bootstrapSecretStorage",
-          { baseDelayMs: 1200 },
-        );
-
-        if (typeof cryptoApi.checkKeyBackupAndEnable === "function") {
-          await withRateLimitRetry(
-            () => cryptoApi.checkKeyBackupAndEnable(),
-            "checkKeyBackupAndEnable",
-            { baseDelayMs: 1200 },
-          );
-        }
-
-        if (typeof cryptoApi.bootstrapCrossSigning === "function") {
-          // Ensure cross-signing keys are generated and stored in 4S so other clients stop nagging
-          await withRateLimitRetry(
-            () => cryptoApi.bootstrapCrossSigning({} as any),
-            "bootstrapCrossSigning",
-            { baseDelayMs: 1200 },
-          );
-        }
-
-        await waitForBackupUpload(client, 20000);
-        if (generatedKey?.encodedPrivateKey) {
-          const recoveryPath = path.join(config.stateDir, "recovery_key.json");
-          fs.mkdirSync(config.stateDir, { recursive: true });
-          fs.writeFileSync(
-            recoveryPath,
-            JSON.stringify({ user_id: auth.userId, recovery_key: generatedKey.encodedPrivateKey }, null, 2),
-          );
-          console.log(`Recovery key saved to ${recoveryPath}`);
-        } else {
-          console.warn(
-            "[warn] bootstrapSecretStorage completed without yielding a recovery key; skipping file output",
-          );
-        }
-      } else {
-        console.warn(
-          "[warn] Key backup APIs unavailable on matrix-js-sdk; skipping recovery key generation",
-        );
-      }
-    }
   } finally {
-    (client as any).stopClient();
+    for (const c of startedClients as any[]) {
+      try { c.stopClient(); } catch {}
+    }
   }
 
   console.log(`Seeded ${Object.keys(state.rooms).length} rooms.`);
@@ -1008,6 +908,16 @@ async function main(): Promise<void> {
       type: "string",
       default: process.env.MATRIX_SEED_PASSWORD ?? "bridgeTesterPass!",
     })
+    .option("user-count", {
+      type: "number",
+      default: Number.parseInt(process.env.MATRIX_SEED_USER_COUNT ?? "4", 10),
+      describe: "Number of users to seed with (distributes rooms across them)",
+    })
+    .option("user-prefix", {
+      type: "string",
+      default: process.env.MATRIX_SEED_USER_PREFIX ?? "",
+      describe: "Prefix for usernames when using multiple users (e.g. 'bridge-tester')",
+    })
     .option("room-count", {
       type: "number",
       default: Number.parseInt(process.env.MATRIX_SEED_ROOM_COUNT ?? "4", 10),
@@ -1041,6 +951,7 @@ async function main(): Promise<void> {
       default: Number.parseInt(process.env.MATRIX_SEED_CONCURRENCY ?? "2", 10),
       describe: "Max parallel operations for room provisioning and sending",
     })
+    // creation-mode removed: client-only multi-user is the default and only mode
     .strict()
     .help()
     .parse();
@@ -1053,6 +964,8 @@ async function main(): Promise<void> {
     adminPassword: argv["admin-password"],
     userUsername: argv["user-username"],
     userPassword: argv["user-password"],
+    userCount: argv["user-count"],
+    userPrefix: argv["user-prefix"],
     roomCount: argv["room-count"],
     deviceId: argv["device-id"],
     deviceName: argv["device-name"],
