@@ -80,6 +80,11 @@ typedef _NativeLoadBackward = _PointerUtf8 Function(
 typedef _DartLoadBackward = _PointerUtf8 Function(
     _PointerUtf8, _PointerUtf8, int);
 
+typedef _NativeSendText = _PointerUtf8 Function(
+    _PointerUtf8, _PointerUtf8, _PointerUtf8);
+typedef _DartSendText = _PointerUtf8 Function(
+    _PointerUtf8, _PointerUtf8, _PointerUtf8);
+
 typedef _NativeFreeString = ffi.Void Function(_PointerUtf8);
 typedef _DartFreeString = void Function(_PointerUtf8);
 
@@ -358,6 +363,17 @@ Future<RustResult<LoadBackwardData>> rustLoadBackward({
   return Isolate.run(() => _loadBackwardIsolate(args));
 }
 
+Future<RustResult<AckData>> rustSendText({
+  required String roomId,
+  required String body,
+  String? replyTo,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _SendTextArgs(config, roomId, body, replyTo ?? '');
+  return Isolate.run(() => _sendTextIsolate(args));
+}
+
 String _pingIsolate(_LibraryConfig config) {
   final bindings = _RustBindings(_loadLibrary(config));
   return bindings.ping();
@@ -477,6 +493,15 @@ RustResult<AckData> _timelineStreamIsolate(_TimelineStreamArgs args) {
 RustResult<LoadBackwardData> _loadBackwardIsolate(_LoadBackwardArgs args) {
   final bindings = _RustBindings(_loadLibrary(args.config));
   return bindings.loadBackward(args.handle, args.roomId, args.limit);
+}
+
+RustResult<AckData> _sendTextIsolate(_SendTextArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.sendText(
+    args.roomId,
+    args.body,
+    replyTo: args.replyTo.isEmpty ? null : args.replyTo,
+  );
 }
 
 RustResult<StartSasData> _requestSasIsolate(_RequestSasArgs args) {
@@ -709,6 +734,14 @@ class AckData {
   final bool ok;
 }
 
+class _SendTextArgs {
+  const _SendTextArgs(this.config, this.roomId, this.body, this.replyTo);
+  final _LibraryConfig config;
+  final String roomId;
+  final String body;
+  final String replyTo;
+}
+
 class OpenRoomData {
   const OpenRoomData({required this.roomId, required this.initialized});
 
@@ -844,6 +877,7 @@ class _RustBindings {
   final _DartOpenRoom _openRoom;
   final _DartTimelineStream _timelineStream;
   final _DartLoadBackward _loadBackward;
+  _DartSendText? _sendTextOpt;
   final _DartFreeString _freeString;
 
   String ping() => _stringFromPointer(_ping());
@@ -1217,6 +1251,26 @@ class _RustBindings {
     } finally {
       calloc.free(handlePtr);
       calloc.free(roomPtr);
+    }
+  }
+
+  RustResult<AckData> sendText(String roomId, String body, {String? replyTo}) {
+    try {
+      _sendTextOpt ??=
+          _library.lookupFunction<_NativeSendText, _DartSendText>('messie_ffi_send_text');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'send_text not available in FFI');
+    }
+    final roomPtr = roomId.toNativeUtf8();
+    final bodyPtr = body.toNativeUtf8();
+    final replyPtr = (replyTo ?? '').toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_sendTextOpt!(roomPtr, bodyPtr, replyPtr));
+      return _parse(result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(roomPtr);
+      calloc.free(bodyPtr);
+      calloc.free(replyPtr);
     }
   }
 

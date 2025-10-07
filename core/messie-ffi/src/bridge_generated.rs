@@ -346,6 +346,25 @@ pub extern "C" fn messie_ffi_load_backward(
 }
 
 #[no_mangle]
+pub extern "C" fn messie_ffi_send_text(
+    room_id: *const c_char,
+    body: *const c_char,
+    reply_to: *const c_char,
+) -> *mut c_char {
+    ffi_safe(|| {
+        let room_id = read_c_string(room_id, "roomId")?;
+        let body = read_c_string(body, "body")?;
+        let reply_to = if reply_to.is_null() {
+            None
+        } else {
+            let s = read_c_string(reply_to, "replyTo")?;
+            if s.is_empty() { None } else { Some(s) }
+        };
+        Ok(api::send_text(room_id, body, reply_to))
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn messie_ffi_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;

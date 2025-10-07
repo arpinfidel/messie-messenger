@@ -148,6 +148,15 @@ pub fn load_backward(handle: String, room_id: String, limit: u32) -> String {
     to_response_json(matrix::load_backward(&handle, &room_id, limit))
 }
 
+/// Send a plain text message to a room, optionally as a reply.
+pub fn send_text(room_id: String, body: String, reply_to: Option<String>) -> String {
+    to_response_json(matrix::send_text(
+        &room_id,
+        &body,
+        reply_to.as_deref(),
+    ))
+}
+
 /// Request a SAS verification with a user (and optional device).
 pub fn request_sas_verification(user_id: String, device_id: Option<String>) -> String {
     to_response_json(matrix::request_sas_verification(&user_id, device_id.as_deref()))
