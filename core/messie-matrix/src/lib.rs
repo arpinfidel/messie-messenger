@@ -3,7 +3,7 @@
 //! so the Flutter app can manage session lifecycles from Dart.
 
 use std::{
-    collections::HashSet,
+    collections::{HashSet},
     fs,
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
@@ -43,6 +43,8 @@ static RUNTIME: OnceCell<Runtime> = OnceCell::new();
 /// Active Matrix client for the current session. Only a single session is
 /// supported at a time for Phase 1.
 static ACTIVE_CLIENT: Lazy<RwLock<Option<Arc<Client>>>> = Lazy::new(|| RwLock::new(None));
+/// Ephemeral cache of rooms muted via push rules in this process.
+static MUTED_ROOMS: Lazy<RwLock<HashSet<String>>> = Lazy::new(|| RwLock::new(HashSet::new()));
 
 fn runtime() -> &'static Runtime {
     RUNTIME.get_or_init(|| {
@@ -855,6 +857,7 @@ pub struct RoomOverview {
     pub notification_count: u64,
     pub highlight_count: u64,
     pub is_marked_unread: bool,
+    pub is_muted: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -881,6 +884,11 @@ async fn build_room_overview(room: &MatrixRoom) -> Result<RoomOverview> {
     let bump_ts = room.recency_stamp();
     let notification_counts = room.unread_notification_counts();
     let is_marked_unread = room.is_marked_unread();
+    // Determine mute from SDK notification settings if available.
+    let muted = {
+        let guard = MUTED_ROOMS.read().expect("MUTED_ROOMS lock poisoned");
+        guard.contains(room_id.as_str())
+    };
 
     Ok(RoomOverview {
         room_id: room_id.as_str().to_owned(),
@@ -890,5 +898,92 @@ async fn build_room_overview(room: &MatrixRoom) -> Result<RoomOverview> {
         notification_count: notification_counts.notification_count,
         highlight_count: notification_counts.highlight_count,
         is_marked_unread,
+        is_muted: muted,
     })
+}
+
+// ------------------------ Read state & mute ------------------------
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Ack { pub ok: bool }
+
+/// Mark the given event as read in a room.
+pub fn mark_read_up_to(room_id: &str, event_id: &str) -> Result<Ack> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    let room_id: OwnedRoomId = room_id.parse().map_err(|_| anyhow!("invalid room id"))?;
+    let event_id = matrix_sdk::ruma::OwnedEventId::try_from(event_id)
+        .map_err(|_| anyhow!("invalid event id"))?;
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(async move {
+        let Some(room) = client.get_room(&room_id) else { return Err(anyhow!("room not found")); };
+        // Try sending a single read receipt for the given event.
+        if let Err(err) = room
+            .send_single_receipt(
+                matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType::Read,
+                matrix_sdk::ruma::events::receipt::ReceiptThread::Unthreaded,
+                event_id,
+            )
+            .await
+        {
+            return Err(anyhow!(format!("failed to send read receipt: {err:?}")));
+        }
+        Ok(Ack { ok: true })
+    })
+}
+
+/// Set or clear server-side push mute for a room.
+pub fn set_room_mute(room_id: &str, muted: bool) -> Result<Ack> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    let room_id: OwnedRoomId = room_id.parse().map_err(|_| anyhow!("invalid room id"))?;
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(async move {
+        use matrix_sdk::notification_settings::RoomNotificationMode;
+        let settings = client.notification_settings().await;
+        if muted {
+            settings
+                .set_room_notification_mode(room_id.as_ref(), RoomNotificationMode::Mute)
+                .await
+                .map_err(|e| anyhow!(format!("failed to set room mute: {e:?}")))?;
+            {
+                let mut guard = MUTED_ROOMS.write().expect("MUTED_ROOMS lock poisoned");
+                guard.insert(room_id.as_str().to_owned());
+            }
+        } else {
+            settings
+                .set_room_notification_mode(room_id.as_ref(), RoomNotificationMode::AllMessages)
+                .await
+                .map_err(|e| anyhow!(format!("failed to clear room mute: {e:?}")))?;
+            {
+                let mut guard = MUTED_ROOMS.write().expect("MUTED_ROOMS lock poisoned");
+                guard.remove(room_id.as_str());
+            }
+        }
+        Ok(Ack { ok: true })
+    })
+}
+
+/// Convert an mxc:// URL to an HTTP(S) URL, optionally with width/height.
+pub fn mxc_to_http(mxc: &str, w: Option<u32>, h: Option<u32>) -> Result<String> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    // Parse bare mxc://server/mediaid to (server, mediaid) without ruma helpers to avoid API drift.
+    let rest = mxc.strip_prefix("mxc://").ok_or_else(|| anyhow!("invalid mxc uri"))?;
+    let mut parts = rest.splitn(2, '/');
+    let server = parts.next().ok_or_else(|| anyhow!("invalid mxc uri: missing server"))?;
+    let media = parts.next().ok_or_else(|| anyhow!("invalid mxc uri: missing media id"))?;
+
+    let homeserver = client.homeserver();
+    let mut url = homeserver.clone();
+    if let (Some(w), Some(h)) = (w, h) {
+        url.set_path(&format!("/_matrix/media/v3/thumbnail/{}/{}", server, media));
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("width", &w.to_string());
+        pairs.append_pair("height", &h.to_string());
+        pairs.append_pair("method", "crop");
+        drop(pairs);
+    } else {
+        url.set_path(&format!("/_matrix/media/v3/download/{}/{}", server, media));
+    }
+    Ok(url.to_string())
 }

@@ -157,6 +157,21 @@ pub fn send_text(room_id: String, body: String, reply_to: Option<String>) -> Str
     ))
 }
 
+/// Mark read state up to a specific event id in a room.
+pub fn mark_read_up_to(room_id: String, event_id: String) -> String {
+    to_response_json(matrix::mark_read_up_to(&room_id, &event_id))
+}
+
+/// Set local mute state for a room.
+pub fn set_room_mute(room_id: String, muted: bool) -> String {
+    to_response_json(matrix::set_room_mute(&room_id, muted))
+}
+
+/// Convert an MXC URL to a downloadable HTTP URL.
+pub fn mxc_to_http(mxc: String, w: Option<u32>, h: Option<u32>) -> String {
+    to_response_json(matrix::mxc_to_http(&mxc, w, h))
+}
+
 /// Request a SAS verification with a user (and optional device).
 pub fn request_sas_verification(user_id: String, device_id: Option<String>) -> String {
     to_response_json(matrix::request_sas_verification(&user_id, device_id.as_deref()))
