@@ -152,7 +152,8 @@ class AppTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size.fromHeight(48),
+          // Avoid infinite width in unconstrained parents (e.g., Row)
+          minimumSize: const Size(64, 48),
           backgroundColor: colorScheme.primary,
           foregroundColor: colorScheme.onPrimary,
           textStyle:
@@ -168,7 +169,8 @@ class AppTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size.fromHeight(48),
+          // Avoid infinite width in unconstrained parents (e.g., Row)
+          minimumSize: const Size(64, 48),
           foregroundColor: colorScheme.onSurface,
           textStyle:
               textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),

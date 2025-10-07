@@ -18,7 +18,7 @@ class BackupController extends StateNotifier<BackupState> {
   StreamSubscription<dynamic>? _sub;
   bool _started = false;
 
-  Future<void> ensureStarted() async {
+  Future<void> start() async {
     if (_started) return;
     _started = true;
 
@@ -45,6 +45,29 @@ class BackupController extends StateNotifier<BackupState> {
     if (!stream.isOk) {
       state = state.copyWith(error: stream.error);
     }
+  }
+
+  Future<void> refresh() async {
+    // Fetch a fresh snapshot regardless of stream state
+    final snapshot = await rustBackupStatus();
+    if (snapshot.isOk && snapshot.data != null) {
+      state = state.copyWith(
+        enabled: snapshot.data!.enabled,
+        existsOnServer: snapshot.data!.existsOnServer,
+        needsRecovery: snapshot.data!.needsRecovery,
+        recoveryState: snapshot.data!.recoveryState,
+        error: null,
+      );
+    }
+  }
+
+  Future<void> stop() async {
+    await _sub?.cancel();
+    _sub = null;
+    _port?.close();
+    _port = null;
+    _started = false;
+    state = const BackupState.initial();
   }
 
   void _onMessage(dynamic message) {
