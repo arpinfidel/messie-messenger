@@ -10,7 +10,9 @@ MATRIX_SEED_ADMIN_USER ?= bridge-admin
 MATRIX_SEED_ADMIN_PASSWORD ?= bridgeAdminPass!
 MATRIX_SEED_USER ?= bridge-tester
 MATRIX_SEED_PASSWORD ?= bridgeTesterPass!
-MATRIX_SEED_ROOM_COUNT ?= 20
+MATRIX_SEED_USER_COUNT ?= 3
+MATRIX_SEED_USER_PREFIX ?= bridge-tester
+MATRIX_SEED_ROOM_COUNT ?= 400
 MATRIX_SEED_SERVER_URL ?= $(MATRIX_SERVER_URL)
 MATRIX_SEED_DEVICE_ID ?= MESSIE_BRIDGE_SEEDER
 MATRIX_SEED_DEVICE_NAME ?= Messie\ Seeder
@@ -96,6 +98,25 @@ matrix-down:
 	$(COMPOSE_MATRIX) stop $(if $(ARGS),$(ARGS),matrix)
 
 
+# -------- Matrix snapshots --------
+.PHONY: matrix-snapshot matrix-snapshot-create matrix-snapshot-list matrix-snapshot-restore matrix-snapshot-delete
+
+matrix-snapshot:
+	STACK=$(STACK) bash ./scripts/matrix/snapshots.sh
+
+matrix-snapshot-create:
+	STACK=$(STACK) bash ./scripts/matrix/snapshots.sh create $(ARGS)
+
+matrix-snapshot-list:
+	bash ./scripts/matrix/snapshots.sh list
+
+matrix-snapshot-restore:
+	STACK=$(STACK) bash ./scripts/matrix/snapshots.sh restore $(ARGS)
+
+matrix-snapshot-delete:
+	bash ./scripts/matrix/snapshots.sh delete $(ARGS)
+
+
 matrix-register:
 	@if [ -z "$(ARGS)" ]; then \
 		echo "Usage: make matrix-register ARGS='-u user-a -p passw0rd --admin'"; \
@@ -115,6 +136,8 @@ matrix-seed:
 		--admin-password "$(MATRIX_SEED_ADMIN_PASSWORD)" \
 		--user-username "$(MATRIX_SEED_USER)" \
 		--user-password "$(MATRIX_SEED_PASSWORD)" \
+		--user-count "$(MATRIX_SEED_USER_COUNT)" \
+		--user-prefix "$(MATRIX_SEED_USER_PREFIX)" \
 		--room-count "$(MATRIX_SEED_ROOM_COUNT)" \
 		--device-id "$(MATRIX_SEED_DEVICE_ID)" \
 		--device-name "$(MATRIX_SEED_DEVICE_NAME)" \

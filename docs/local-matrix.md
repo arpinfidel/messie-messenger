@@ -46,6 +46,20 @@ needed), compiles the TypeScript entrypoint, and executes it with the same
 compose network the seeder reaches Synapse at `http://matrix:8008`; set
 `MATRIX_SEED_SERVER_URL` if you need to connect to a remote homeserver instead.
 
+### Faster seeding with multiple users
+
+To reduce per-user rate limiting and speed up event sending, the seeder can distribute rooms across multiple users. Configure via environment or CLI flags:
+
+- `MATRIX_SEED_USER_COUNT` / `--user-count` to set the number of users.
+- `MATRIX_SEED_USER_PREFIX` / `--user-prefix` to control the username prefix when `user-count > 1`.
+
+Example:
+
+```bash
+MATRIX_SEED_USER_COUNT=4 MATRIX_SEED_USER_PREFIX=bridge-tester make matrix-seed
+# This registers/logs in bridge-tester-01..04 and splits rooms across them
+```
+
 Prefer a single command? `make matrix-setup` (or `./scripts/matrix/setup.sh`)
 wraps init → up → build → seed and respects the same environment overrides. Pass
 `init-only` if you just need to regenerate config/secrets without starting the
