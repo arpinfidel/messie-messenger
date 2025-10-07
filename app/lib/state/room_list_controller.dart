@@ -229,6 +229,7 @@ class RoomPreview {
     required this.notificationCount,
     required this.highlightCount,
     required this.isMarkedUnread,
+    required this.isMuted,
   });
 
   factory RoomPreview.fromOverview(RoomOverviewData data) {
@@ -240,6 +241,7 @@ class RoomPreview {
       notificationCount: data.notificationCount,
       highlightCount: data.highlightCount,
       isMarkedUnread: data.isMarkedUnread,
+      isMuted: data.isMuted,
     );
   }
 
@@ -250,4 +252,5 @@ class RoomPreview {
   final int notificationCount;
   final int highlightCount;
   final bool isMarkedUnread;
+  final bool isMuted;
 }

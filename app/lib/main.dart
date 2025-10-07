@@ -1300,6 +1300,16 @@ class _RoomListSection extends StatelessWidget {
           room: room,
           isActive: selectedRoomId == room.roomId,
           onTap: () => onSelectRoom(room.roomId),
+          onToggleMute: () async {
+            final res = await rustSetRoomMute(roomId: room.roomId, muted: !room.isMuted);
+            if (!res.isOk && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(res.error ?? 'Failed to update mute state')),
+              );
+            } else {
+              onResubscribe();
+            }
+          },
         ),
       ));
       children.add(SizedBox(height: spacing.gap.lg));
@@ -1321,6 +1331,16 @@ class _RoomListSection extends StatelessWidget {
           room: room,
           isActive: selectedRoomId == room.roomId,
           onTap: () => onSelectRoom(room.roomId),
+          onToggleMute: () async {
+            final res = await rustSetRoomMute(roomId: room.roomId, muted: !room.isMuted);
+            if (!res.isOk && context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(res.error ?? 'Failed to update mute state')),
+              );
+            } else {
+              onResubscribe();
+            }
+          },
         ),
       ));
     }
@@ -1352,17 +1372,21 @@ class _RoomTile extends StatelessWidget {
     required this.room,
     required this.onTap,
     this.isActive = false,
+    this.onToggleMute,
   });
 
   final RoomPreview room;
   final VoidCallback onTap;
   final bool isActive;
+  final VoidCallback? onToggleMute;
 
   @override
   Widget build(BuildContext context) {
     final spacing = MessieSpacing.of(context);
     final colors = Theme.of(context).colorScheme;
     final unread = room.notificationCount;
+    final isMuted = room.isMuted;
+    final showBadge = unread > 0 && !isMuted;
 
     return Padding(
       padding: EdgeInsets.only(bottom: spacing.gap.sm),
@@ -1383,8 +1407,11 @@ class _RoomTile extends StatelessWidget {
         selected: isActive,
         onTap: onTap,
         selectedTileColor: colors.primaryContainer.withOpacity(0.2),
-        trailing: unread > 0
-            ? Container(
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (showBadge)
+              Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: spacing.gap.sm,
                   vertical: spacing.gap.xs,
@@ -1400,24 +1427,72 @@ class _RoomTile extends StatelessWidget {
                       .labelSmall
                       ?.copyWith(color: colors.onPrimaryContainer),
                 ),
-              )
-            : null,
+              ),
+            IconButton(
+              icon: Icon(isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded),
+              tooltip: isMuted ? 'Unmute' : 'Mute',
+              onPressed: onToggleMute,
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-class _AvatarPlaceholder extends StatelessWidget {
+class _AvatarPlaceholder extends StatefulWidget {
   const _AvatarPlaceholder({required this.name, this.avatarUrl});
 
   final String name;
   final String? avatarUrl;
 
   @override
-  Widget build(BuildContext context) {
-    final initials = _initials(name);
-    final colors = Theme.of(context).colorScheme;
+  State<_AvatarPlaceholder> createState() => _AvatarPlaceholderState();
+}
 
+class _AvatarPlaceholderState extends State<_AvatarPlaceholder> {
+  String? _httpUrl;
+
+  @override
+  void didUpdateWidget(covariant _AvatarPlaceholder oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.avatarUrl != widget.avatarUrl) {
+      _resolve();
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _resolve();
+  }
+
+  Future<void> _resolve() async {
+    final mxc = widget.avatarUrl;
+    if (mxc == null || mxc.isEmpty || !mxc.startsWith('mxc://')) {
+      if (mounted) setState(() => _httpUrl = null);
+      return;
+    }
+    final res = await rustMxcToHttp(mxc: mxc, w: 96, h: 96);
+    if (!res.isOk || res.data == null) {
+      if (mounted) setState(() => _httpUrl = null);
+      return;
+    }
+    if (mounted) setState(() => _httpUrl = res.data);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final initials = _initials(widget.name);
+    final colors = Theme.of(context).colorScheme;
+    final url = _httpUrl;
+    if (url != null && url.isNotEmpty) {
+      return CircleAvatar(
+        backgroundColor: colors.secondaryContainer,
+        backgroundImage: NetworkImage(url),
+        child: const SizedBox.shrink(),
+      );
+    }
     return CircleAvatar(
       backgroundColor: colors.secondaryContainer,
       child: Text(
@@ -1524,6 +1599,14 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOut,
           );
+          // Mark read up to latest event when we are at the bottom.
+          final last = widget.state.events.isNotEmpty ? widget.state.events.last : null;
+          final lastEventId = last?.key.eventId;
+          final roomId = widget.selectedRoomId;
+          if (lastEventId != null && roomId != null) {
+            // Fire-and-forget; UI does not block on this.
+            unawaited(rustMarkReadUpTo(roomId: roomId, eventId: lastEventId));
+          }
         }
         ref.read(timelineControllerProvider.notifier).acknowledgeChange();
       });

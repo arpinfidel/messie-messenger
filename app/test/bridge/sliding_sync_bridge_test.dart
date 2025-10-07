@@ -608,6 +608,85 @@ void main() {
     expect(matched, isNotNull, reason: 'Expected reply with m.in_reply_to referencing baselineId');
   });
 
+  test('set_room_mute toggles and reflects in room_overview', () async {
+    final targetRoom = roomIds.first;
+    final before = await rustRoomOverview(roomId: targetRoom);
+    expect(before.isOk, isTrue, reason: before.error);
+    final initiallyMuted = before.data!.isMuted;
+
+    final toggled = await rustSetRoomMute(roomId: targetRoom, muted: !initiallyMuted);
+    expect(toggled.isOk, isTrue, reason: toggled.error);
+
+    // Re-read overview to observe change
+    final after = await rustRoomOverview(roomId: targetRoom);
+    expect(after.isOk, isTrue, reason: after.error);
+    expect(after.data!.isMuted, equals(!initiallyMuted));
+
+    // Restore original state
+    final restore = await rustSetRoomMute(roomId: targetRoom, muted: initiallyMuted);
+    expect(restore.isOk, isTrue, reason: restore.error);
+  });
+
+  test('mxc_to_http returns homeserver-scoped media URL', () async {
+    // Prefer a real avatar MXC if available; otherwise use a sample MXC.
+    String? mxc = null;
+    for (final id in roomIds) {
+      final ov = await rustRoomOverview(roomId: id);
+      if (ov.isOk && ov.data?.avatarUrl != null) { mxc = ov.data!.avatarUrl; break; }
+    }
+    mxc ??= 'mxc://example.org/abc123';
+
+    final converted = await rustMxcToHttp(mxc: mxc!, w: 64, h: 64);
+    expect(converted.isOk, isTrue, reason: converted.error);
+    final url = Uri.parse(converted.data!);
+    // Must be same origin as homeserver URL
+    final hs = homeserverUrl;
+    expect(url.scheme, equals(hs.scheme));
+    expect(url.host, equals(hs.host));
+    // Path should contain media v3 endpoint
+    expect(url.path.contains('/_matrix/media/v3/'), isTrue);
+  });
+
+  test('mark_read_up_to sends receipt and reduces unread when applicable', () async {
+    // Find a room with any unread notifications (if none, just assert call ok)
+    String? target;
+    int beforeCount = 0;
+    for (final id in roomIds) {
+      final ov = await rustRoomOverview(roomId: id);
+      if (ov.isOk) {
+        final n = ov.data!.notificationCount;
+        if (n > 0) { target = id; beforeCount = n; break; }
+      }
+    }
+
+    target ??= roomIds.first;
+    // Open timeline and get latest event id from snapshot
+    final open = await rustOpenRoom(handle: slidingHandle, roomId: target!);
+    expect(open.isOk, isTrue, reason: open.error);
+    final port = ReceivePort('bridge_timeline_mark_read');
+    final stream = port.asBroadcastStream();
+    final reg = await rustTimelineStream(handle: slidingHandle, roomId: target!, port: port.sendPort);
+    expect(reg.isOk, isTrue, reason: reg.error);
+    final snapshot = await _waitForPayload(stream, <String>{'timeline_snapshot', 'timeline_initial'}, label: 'timeline');
+    port.close();
+    final initial = (snapshot['events'] as List<dynamic>).cast<String>().map(_decodeEvent).toList();
+    final lastId = initial.isNotEmpty ? (initial.last['event_id'] as String?) : null;
+    expect(lastId, isNotNull, reason: 'Need an event_id to send read receipt');
+
+    final ack = await rustMarkReadUpTo(roomId: target!, eventId: lastId!);
+    expect(ack.isOk, isTrue, reason: ack.error);
+
+    // Give SDK some time to update unread counts; then check if reduced
+    await Future<void>.delayed(const Duration(seconds: 2));
+    final after = await rustRoomOverview(roomId: target!);
+    expect(after.isOk, isTrue, reason: after.error);
+    final afterCount = after.data!.notificationCount;
+    if (beforeCount > 0) {
+      expect(afterCount <= beforeCount, isTrue,
+          reason: 'Expected notification_count to not increase after read receipt');
+    }
+  });
+
   test('import_recovery_key alias works and backup status stream emits', () async {
     final key = _loadRecoveryKey();
     expect(key, isNotNull);

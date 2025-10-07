@@ -365,6 +365,43 @@ pub extern "C" fn messie_ffi_send_text(
 }
 
 #[no_mangle]
+pub extern "C" fn messie_ffi_mark_read_up_to(
+    room_id: *const c_char,
+    event_id: *const c_char,
+) -> *mut c_char {
+    ffi_safe(|| {
+        let room_id = read_c_string(room_id, "roomId")?;
+        let event_id = read_c_string(event_id, "eventId")?;
+        Ok(api::mark_read_up_to(room_id, event_id))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_set_room_mute(
+    room_id: *const c_char,
+    muted: bool,
+) -> *mut c_char {
+    ffi_safe(|| {
+        let room_id = read_c_string(room_id, "roomId")?;
+        Ok(api::set_room_mute(room_id, muted))
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn messie_ffi_mxc_to_http(
+    mxc: *const c_char,
+    w: u32,
+    h: u32,
+) -> *mut c_char {
+    ffi_safe(|| {
+        let mxc = read_c_string(mxc, "mxc")?;
+        let w_opt = if w == 0 { None } else { Some(w) };
+        let h_opt = if h == 0 { None } else { Some(h) };
+        Ok(api::mxc_to_http(mxc, w_opt, h_opt))
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn messie_ffi_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;

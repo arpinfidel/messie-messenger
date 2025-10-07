@@ -85,6 +85,13 @@ typedef _NativeSendText = _PointerUtf8 Function(
 typedef _DartSendText = _PointerUtf8 Function(
     _PointerUtf8, _PointerUtf8, _PointerUtf8);
 
+typedef _NativeMarkReadUpTo = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+typedef _DartMarkReadUpTo = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+typedef _NativeSetRoomMute = _PointerUtf8 Function(_PointerUtf8, ffi.Uint8);
+typedef _DartSetRoomMute = _PointerUtf8 Function(_PointerUtf8, int);
+typedef _NativeMxcToHttp = _PointerUtf8 Function(_PointerUtf8, ffi.Uint32, ffi.Uint32);
+typedef _DartMxcToHttp = _PointerUtf8 Function(_PointerUtf8, int, int);
+
 typedef _NativeFreeString = ffi.Void Function(_PointerUtf8);
 typedef _DartFreeString = void Function(_PointerUtf8);
 
@@ -374,6 +381,37 @@ Future<RustResult<AckData>> rustSendText({
   return Isolate.run(() => _sendTextIsolate(args));
 }
 
+Future<RustResult<AckData>> rustMarkReadUpTo({
+  required String roomId,
+  required String eventId,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _MarkReadArgs(config, roomId, eventId);
+  return Isolate.run(() => _markReadIsolate(args));
+}
+
+Future<RustResult<AckData>> rustSetRoomMute({
+  required String roomId,
+  required bool muted,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _SetMuteArgs(config, roomId, muted);
+  return Isolate.run(() => _setMuteIsolate(args));
+}
+
+Future<RustResult<String>> rustMxcToHttp({
+  required String mxc,
+  int? w,
+  int? h,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _MxcArgs(config, mxc, w, h);
+  return Isolate.run(() => _mxcToHttpIsolate(args));
+}
+
 String _pingIsolate(_LibraryConfig config) {
   final bindings = _RustBindings(_loadLibrary(config));
   return bindings.ping();
@@ -502,6 +540,21 @@ RustResult<AckData> _sendTextIsolate(_SendTextArgs args) {
     args.body,
     replyTo: args.replyTo.isEmpty ? null : args.replyTo,
   );
+}
+
+RustResult<AckData> _markReadIsolate(_MarkReadArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.markReadUpTo(args.roomId, args.eventId);
+}
+
+RustResult<AckData> _setMuteIsolate(_SetMuteArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.setRoomMute(args.roomId, args.muted);
+}
+
+RustResult<String> _mxcToHttpIsolate(_MxcArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.mxcToHttp(args.mxc, w: args.w, h: args.h);
 }
 
 RustResult<StartSasData> _requestSasIsolate(_RequestSasArgs args) {
@@ -742,6 +795,28 @@ class _SendTextArgs {
   final String replyTo;
 }
 
+class _MarkReadArgs {
+  const _MarkReadArgs(this.config, this.roomId, this.eventId);
+  final _LibraryConfig config;
+  final String roomId;
+  final String eventId;
+}
+
+class _SetMuteArgs {
+  const _SetMuteArgs(this.config, this.roomId, this.muted);
+  final _LibraryConfig config;
+  final String roomId;
+  final bool muted;
+}
+
+class _MxcArgs {
+  const _MxcArgs(this.config, this.mxc, this.w, this.h);
+  final _LibraryConfig config;
+  final String mxc;
+  final int? w;
+  final int? h;
+}
+
 class OpenRoomData {
   const OpenRoomData({required this.roomId, required this.initialized});
 
@@ -783,6 +858,7 @@ class RoomOverviewData {
     required this.notificationCount,
     required this.highlightCount,
     required this.isMarkedUnread,
+    required this.isMuted,
   });
 
   factory RoomOverviewData.fromJson(Map<String, dynamic> json) {
@@ -794,6 +870,7 @@ class RoomOverviewData {
       notificationCount: (json['notification_count'] as num?)?.toInt() ?? 0,
       highlightCount: (json['highlight_count'] as num?)?.toInt() ?? 0,
       isMarkedUnread: json['is_marked_unread'] == true,
+      isMuted: json['is_muted'] == true,
     );
   }
 
@@ -804,6 +881,7 @@ class RoomOverviewData {
   final int notificationCount;
   final int highlightCount;
   final bool isMarkedUnread;
+  final bool isMuted;
 }
 
 class _RustBindings {
@@ -878,6 +956,9 @@ class _RustBindings {
   final _DartTimelineStream _timelineStream;
   final _DartLoadBackward _loadBackward;
   _DartSendText? _sendTextOpt;
+  _DartMarkReadUpTo? _markReadUpToOpt;
+  _DartSetRoomMute? _setRoomMuteOpt;
+  _DartMxcToHttp? _mxcToHttpOpt;
   final _DartFreeString _freeString;
 
   String ping() => _stringFromPointer(_ping());
@@ -1271,6 +1352,53 @@ class _RustBindings {
       calloc.free(roomPtr);
       calloc.free(bodyPtr);
       calloc.free(replyPtr);
+    }
+  }
+
+  RustResult<AckData> markReadUpTo(String roomId, String eventId) {
+    try {
+      _markReadUpToOpt ??= _library.lookupFunction<_NativeMarkReadUpTo, _DartMarkReadUpTo>('messie_ffi_mark_read_up_to');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'mark_read_up_to not available in FFI');
+    }
+    final roomPtr = roomId.toNativeUtf8();
+    final eventPtr = eventId.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_markReadUpToOpt!(roomPtr, eventPtr));
+      return _parse(result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(roomPtr);
+      calloc.free(eventPtr);
+    }
+  }
+
+  RustResult<AckData> setRoomMute(String roomId, bool muted) {
+    try {
+      _setRoomMuteOpt ??= _library.lookupFunction<_NativeSetRoomMute, _DartSetRoomMute>('messie_ffi_set_room_mute');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'set_room_mute not available in FFI');
+    }
+    final roomPtr = roomId.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_setRoomMuteOpt!(roomPtr, muted ? 1 : 0));
+      return _parse(result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(roomPtr);
+    }
+  }
+
+  RustResult<String> mxcToHttp(String mxc, {int? w, int? h}) {
+    try {
+      _mxcToHttpOpt ??= _library.lookupFunction<_NativeMxcToHttp, _DartMxcToHttp>('messie_ffi_mxc_to_http');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'mxc_to_http not available in FFI');
+    }
+    final mxcPtr = mxc.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_mxcToHttpOpt!(mxcPtr, (w ?? 0), (h ?? 0)));
+      return _parse(result, (json) => json as String?);
+    } finally {
+      calloc.free(mxcPtr);
     }
   }
 
