@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!--
+      Development-only: allow cleartext HTTP so the app can talk to
+      a local Synapse on http://<LAN-IP>:8008. Remove or tighten for prod.
+    -->
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
+
