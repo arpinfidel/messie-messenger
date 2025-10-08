@@ -861,6 +861,12 @@ pub struct RoomOverview {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct MemberProfile {
+    pub display_name: String,
+    pub avatar_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct RoomListResponse {
     pub rooms: Vec<String>,
 }
@@ -981,9 +987,57 @@ pub fn mxc_to_http(mxc: &str, w: Option<u32>, h: Option<u32>) -> Result<String> 
         pairs.append_pair("width", &w.to_string());
         pairs.append_pair("height", &h.to_string());
         pairs.append_pair("method", "crop");
+        // Prefer server-side redirects and remote fetches when available.
+        pairs.append_pair("allow_redirect", "true");
+        pairs.append_pair("allow_remote", "true");
         drop(pairs);
     } else {
         url.set_path(&format!("/_matrix/media/v3/download/{}/{}", server, media));
+        let mut pairs = url.query_pairs_mut();
+        // Prefer server-side redirects when available (MSC3916 environments).
+        pairs.append_pair("allow_redirect", "true");
+        drop(pairs);
     }
     Ok(url.to_string())
+}
+
+/// Resolve a room-scoped member profile (display name and avatar).
+pub fn member_profile(room_id: &str, user_id: &str) -> Result<MemberProfile> {
+    let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
+    let room_id: OwnedRoomId = room_id
+        .parse()
+        .map_err(|_| anyhow!("invalid room id '{room_id}'"))?;
+    let user_id: OwnedUserId = user_id
+        .parse()
+        .map_err(|_| anyhow!("invalid user id '{user_id}'"))?;
+
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(async move {
+        let room = client
+            .get_room(&room_id)
+            .ok_or_else(|| anyhow!("room {room_id} not found"))?;
+
+        match room.get_member(&user_id).await {
+            Ok(Some(member)) => {
+                let display_name = member
+                    .display_name()
+                    .map(|s| s.to_owned())
+                    .unwrap_or_else(|| user_id.to_string());
+                let avatar_url = member.avatar_url().map(|url| url.to_string());
+                Ok(MemberProfile { display_name, avatar_url })
+            }
+            Ok(None) => Ok(MemberProfile {
+                display_name: user_id.to_string(),
+                avatar_url: None,
+            }),
+            Err(err) => {
+                warn!("failed to lookup member {} in room {}: {err:?}", user_id, room_id);
+                Ok(MemberProfile {
+                    display_name: user_id.to_string(),
+                    avatar_url: None,
+                })
+            }
+        }
+    })
 }

@@ -92,6 +92,9 @@ typedef _DartSetRoomMute = _PointerUtf8 Function(_PointerUtf8, int);
 typedef _NativeMxcToHttp = _PointerUtf8 Function(_PointerUtf8, ffi.Uint32, ffi.Uint32);
 typedef _DartMxcToHttp = _PointerUtf8 Function(_PointerUtf8, int, int);
 
+typedef _NativeMemberProfile = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+typedef _DartMemberProfile = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+
 typedef _NativeFreeString = ffi.Void Function(_PointerUtf8);
 typedef _DartFreeString = void Function(_PointerUtf8);
 
@@ -218,6 +221,16 @@ Future<RustResult<ExportRecoveryKeyData>> rustExportRecoveryKey() {
   final config = _LibraryConfig.detect();
   _ensurePostCObjectRegistered(config);
   return Isolate.run(() => _exportRecoveryKeyIsolate(config));
+}
+
+Future<RustResult<MemberProfileData>> rustMemberProfile({
+  required String roomId,
+  required String userId,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _MemberProfileArgs(config, roomId, userId);
+  return Isolate.run(() => _memberProfileIsolate(args));
 }
 
 Future<RustResult<Unit>> rustSsssImportRecoveryKey({required String recoveryKeyBech32}) {
@@ -557,6 +570,11 @@ RustResult<String> _mxcToHttpIsolate(_MxcArgs args) {
   return bindings.mxcToHttp(args.mxc, w: args.w, h: args.h);
 }
 
+RustResult<MemberProfileData> _memberProfileIsolate(_MemberProfileArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.memberProfile(args.roomId, args.userId);
+}
+
 RustResult<StartSasData> _requestSasIsolate(_RequestSasArgs args) {
   final bindings = _RustBindings(_loadLibrary(args.config));
   return bindings.requestSasVerification(args.userId,
@@ -884,6 +902,23 @@ class RoomOverviewData {
   final bool isMuted;
 }
 
+class MemberProfileData {
+  const MemberProfileData({
+    required this.displayName,
+    required this.avatarUrl,
+  });
+
+  factory MemberProfileData.fromJson(Map<String, dynamic> json) {
+    return MemberProfileData(
+      displayName: json['display_name'] as String? ?? '',
+      avatarUrl: json['avatar_url'] as String?,
+    );
+  }
+
+  final String displayName;
+  final String? avatarUrl;
+}
+
 class _RustBindings {
   _RustBindings(ffi.DynamicLibrary library)
       : _library = library,
@@ -959,6 +994,7 @@ class _RustBindings {
   _DartMarkReadUpTo? _markReadUpToOpt;
   _DartSetRoomMute? _setRoomMuteOpt;
   _DartMxcToHttp? _mxcToHttpOpt;
+  _DartMemberProfile? _memberProfileOpt;
   final _DartFreeString _freeString;
 
   String ping() => _stringFromPointer(_ping());
@@ -1402,6 +1438,24 @@ class _RustBindings {
     }
   }
 
+  RustResult<MemberProfileData> memberProfile(String roomId, String userId) {
+    try {
+      _memberProfileOpt ??= _library.lookupFunction<_NativeMemberProfile, _DartMemberProfile>(
+          'messie_ffi_member_profile');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'member_profile not available in FFI');
+    }
+    final roomPtr = roomId.toNativeUtf8();
+    final userPtr = userId.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(_memberProfileOpt!(roomPtr, userPtr));
+      return _parse(result, (json) => MemberProfileData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(roomPtr);
+      calloc.free(userPtr);
+    }
+  }
+
   String _stringFromPointer(_PointerUtf8 pointer) {
     if (pointer == ffi.nullptr) return '';
     final value = pointer.toDartString(); // from package:ffi
@@ -1503,6 +1557,14 @@ class _DumpRoomCryptoArgs {
 
   final _LibraryConfig config;
   final String roomId;
+}
+
+class _MemberProfileArgs {
+  const _MemberProfileArgs(this.config, this.roomId, this.userId);
+
+  final _LibraryConfig config;
+  final String roomId;
+  final String userId;
 }
 
 class _RequestSasArgs {
