@@ -402,6 +402,18 @@ pub extern "C" fn messie_ffi_mxc_to_http(
 }
 
 #[no_mangle]
+pub extern "C" fn messie_ffi_member_profile(
+    room_id: *const c_char,
+    user_id: *const c_char,
+) -> *mut c_char {
+    ffi_safe(|| {
+        let room_id = read_c_string(room_id, "room_id")?;
+        let user_id = read_c_string(user_id, "user_id")?;
+        Ok(api::member_profile(room_id, user_id))
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn messie_ffi_free_string(ptr: *mut c_char) {
     if ptr.is_null() {
         return;

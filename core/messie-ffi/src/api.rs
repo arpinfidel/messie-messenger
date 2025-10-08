@@ -172,6 +172,11 @@ pub fn mxc_to_http(mxc: String, w: Option<u32>, h: Option<u32>) -> String {
     to_response_json(matrix::mxc_to_http(&mxc, w, h))
 }
 
+/// Resolve a member profile (display name and avatar) scoped to a room.
+pub fn member_profile(room_id: String, user_id: String) -> String {
+    to_response_json(matrix::member_profile(&room_id, &user_id))
+}
+
 /// Request a SAS verification with a user (and optional device).
 pub fn request_sas_verification(user_id: String, device_id: Option<String>) -> String {
     to_response_json(matrix::request_sas_verification(&user_id, device_id.as_deref()))

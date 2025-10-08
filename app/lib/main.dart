@@ -1408,17 +1408,71 @@ class _RoomTile extends StatelessWidget {
   }
 }
 
-class _AvatarPlaceholder extends StatefulWidget {
+class _AvatarPlaceholder extends ConsumerStatefulWidget {
   const _AvatarPlaceholder({required this.name, this.avatarUrl});
 
   final String name;
   final String? avatarUrl;
 
   @override
-  State<_AvatarPlaceholder> createState() => _AvatarPlaceholderState();
+  ConsumerState<_AvatarPlaceholder> createState() => _AvatarPlaceholderState();
 }
 
-class _AvatarPlaceholderState extends State<_AvatarPlaceholder> {
+class _SenderAvatar extends ConsumerStatefulWidget {
+  const _SenderAvatar({required this.roomId, required this.userId});
+
+  final String roomId;
+  final String userId;
+
+  @override
+  ConsumerState<_SenderAvatar> createState() => _SenderAvatarState();
+}
+
+class _SenderAvatarState extends ConsumerState<_SenderAvatar> {
+  static final Map<String, MemberProfileData> _cache = <String, MemberProfileData>{};
+  MemberProfileData? _profile;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SenderAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.roomId != widget.roomId || oldWidget.userId != widget.userId) {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final key = '${widget.roomId}::${widget.userId}';
+    final cached = _cache[key];
+    if (cached != null) {
+      setState(() { _profile = cached; });
+      return;
+    }
+    final res = await rustMemberProfile(roomId: widget.roomId, userId: widget.userId);
+    if (!mounted) return;
+    if (res.isOk && res.data != null) {
+      _cache[key] = res.data!;
+      setState(() { _profile = res.data; });
+    } else {
+      // Keep null; fallback to initials from user id
+      setState(() { _profile = null; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = _profile?.displayName ?? widget.userId;
+    final url = _profile?.avatarUrl;
+    return _AvatarPlaceholder(name: name, avatarUrl: url);
+  }
+}
+
+class _AvatarPlaceholderState extends ConsumerState<_AvatarPlaceholder> {
   String? _httpUrl;
 
   @override
@@ -1454,11 +1508,22 @@ class _AvatarPlaceholderState extends State<_AvatarPlaceholder> {
     final initials = _initials(widget.name);
     final colors = Theme.of(context).colorScheme;
     final url = _httpUrl;
+    final session = ref.watch(authControllerProvider).asData?.value;
+    final headers = session != null
+        ? <String, String>{'Authorization': 'Bearer ${session.accessToken}'}
+        : null;
+
     if (url != null && url.isNotEmpty) {
       return CircleAvatar(
         backgroundColor: colors.secondaryContainer,
-        backgroundImage: NetworkImage(url),
-        child: const SizedBox.shrink(),
+        foregroundImage: NetworkImage(url, headers: headers),
+        child: Text(
+          initials,
+          style: Theme.of(context)
+              .textTheme
+              .labelLarge
+              ?.copyWith(color: colors.onSecondaryContainer),
+        ),
       );
     }
     return CircleAvatar(
@@ -1723,17 +1788,37 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
               }
 
               final item = events[index - 1];
+              final roomId = widget.selectedRoomId!;
               return Padding(
                 padding: EdgeInsets.only(bottom: spacing.gap.sm),
-                child: _TimelineBubble(
-                  item: item,
-                  onLongPress: () {
-                    if (item.key.eventId != null) {
-                      setState(() { _replyTo = item; });
-                      _composerFocus.requestFocus();
-                    }
-                  },
-                ),
+                child: item.isOwn
+                    ? _TimelineBubble(
+                        item: item,
+                        onLongPress: () {
+                          if (item.key.eventId != null) {
+                            setState(() { _replyTo = item; });
+                            _composerFocus.requestFocus();
+                          }
+                        },
+                      )
+                    : Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _SenderAvatar(roomId: roomId, userId: item.sender),
+                          SizedBox(width: spacing.gap.sm),
+                          Expanded(
+                            child: _TimelineBubble(
+                              item: item,
+                              onLongPress: () {
+                                if (item.key.eventId != null) {
+                                  setState(() { _replyTo = item; });
+                                  _composerFocus.requestFocus();
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
               );
             },
           );
