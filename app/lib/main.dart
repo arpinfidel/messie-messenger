@@ -22,6 +22,7 @@ import 'ui/core/back_esc/back_esc_policy.dart';
 import 'ui/core/input/input_caps.dart';
 import 'ui/core/layout/app_layout.dart';
 import 'ui/navigation/app_router.dart';
+import 'package:go_router/go_router.dart';
 import 'ui/theme/theme_controller.dart';
 
 Future<void> main() async {
@@ -610,18 +611,9 @@ class LoggedInView extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final pingState = ref.watch(pingProvider);
-    // Ensure backup status stream is running post-login
+    // Ensure backup status stream is running post-login (still needed for timeline decryption etc.)
     ref.read(backupControllerProvider.notifier).start();
-    final backupState = ref.watch(backupControllerProvider);
-    final verifyState = ref.watch(verificationControllerProvider);
     final trustState = ref.watch(selfTrustProvider);
-    ref.listen<VerificationState>(verificationControllerProvider, (previous, next) {
-      if (next.status == 'done' && !next.active) {
-        // Refresh trust state after a successful verification completes.
-        ref.refresh(selfTrustProvider);
-      }
-    });
     final roomListState = ref.watch(roomListControllerProvider);
     final timelineState = ref.watch(timelineControllerProvider);
     final selectedRoomId = ref.watch(selectedRoomIdProvider);
@@ -632,12 +624,6 @@ class LoggedInView extends ConsumerWidget {
     final surfaces = MessieSurfaces.of(context);
     final colors = MessieColors.of(context);
     final gutter = MessieSpacing.gutter(context);
-
-    // Unified visibility rule for verification/restore affordances:
-    // Base on backup status, but also hide after SAS verification completes in-session.
-    // Show when backup is disabled or needs recovery AND SAS isn't completed.
-    final bool showVerifyRestore =
-        ((backupState.enabled != true) || (backupState.needsRecovery == true)) && (verifyState.status != 'done');
 
     void selectRoom(String roomId) {
       if (ref.read(selectedRoomIdProvider) == roomId) {
@@ -665,65 +651,8 @@ class LoggedInView extends ConsumerWidget {
       }
     }
 
-    Future<void> _enableBackupFlow(BuildContext context) async {
-      final messenger = ScaffoldMessenger.of(context);
-      // 1) Bootstrap SSSS to obtain a recovery key
-      final bootstrap = await rustSsssBootstrap(generateNewKey: true);
-      if (!bootstrap.isOk || bootstrap.data?.generatedRecoveryKey == null) {
-        messenger.showSnackBar(
-          SnackBar(content: Text(bootstrap.error ?? 'Failed to create recovery key')),
-        );
-        return;
-      }
-      final recoveryKey = bootstrap.data!.generatedRecoveryKey!;
-
-      // 2) Offer to copy/save the key before enabling backup
-      final secrets = SecureSecrets();
-      if (context.mounted) {
-        await showDialog<void>(
-          context: context,
-          builder: (context) {
-            return _RecoveryKeyDialog(
-              recoveryKey: recoveryKey,
-              onCopy: () async {
-                await secrets.copyToClipboard(recoveryKey);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Copied recovery key')),
-                  );
-                }
-              },
-              onSave: () async {
-                final ok = await secrets.saveRecoveryKey(recoveryKey);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text(ok
-                        ? 'Recovery key saved securely'
-                        : 'Failed to save recovery key'),
-                  ));
-                }
-              },
-            );
-          },
-        );
-      }
-
-      // 3) Enable backup on the server
-      final enable = await rustEnableOnlineBackup(generateNew: true);
-      if (!enable.isOk) {
-        messenger.showSnackBar(
-          SnackBar(content: Text(enable.error ?? 'Failed to enable backup')),
-        );
-        return;
-      }
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Key backup enabled')),
-      );
-      // Refresh backup status in UI
-      await ref.read(backupControllerProvider.notifier).refresh();
-    }
-
-    final accountCard = Card(
+    /* Non-chat cards moved to Settings */
+    /* final accountCard = Card(
       child: Padding(
         padding: EdgeInsets.all(spacing.gap.xl),
         child: Column(
@@ -967,9 +896,9 @@ class LoggedInView extends ConsumerWidget {
           ],
         ),
       ),
-    );
+    ); */
 
-    final pingCard = Card(
+    /* final pingCard = Card(
       child: Padding(
         padding: EdgeInsets.all(spacing.gap.xl),
         child: Column(
@@ -1013,9 +942,9 @@ class LoggedInView extends ConsumerWidget {
           ],
         ),
       ),
-    );
+    ); */
 
-    final verificationCard = Card(
+    /* final verificationCard = Card(
       child: Padding(
         padding: EdgeInsets.all(spacing.gap.xl),
         child: Column(
@@ -1106,10 +1035,7 @@ class LoggedInView extends ConsumerWidget {
           ],
         ),
       ),
-    );
-
-    // Show SAS card under the same conditions as the Recovery Key button.
-    final bool showVerification = showVerifyRestore;
+    ); */
 
     final roomListCard = Card(
       child: Padding(
@@ -1139,10 +1065,22 @@ class LoggedInView extends ConsumerWidget {
       appBar: AppBar(
         title: const Text('Messie Messenger'),
         actions: [
-          IconButton(
-            onPressed: () => ref.read(authControllerProvider.notifier).logout(),
-            tooltip: 'Log out',
-            icon: const Icon(Icons.logout_rounded),
+          PopupMenuButton<String>(
+            tooltip: 'Menu',
+            icon: const Icon(Icons.more_vert_rounded),
+            onSelected: (value) {
+              switch (value) {
+                case 'settings':
+                  context.push('/settings');
+                  break;
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<String>(
+                value: 'settings',
+                child: Text('Settings'),
+              ),
+            ],
           ),
         ],
       ),
@@ -1171,14 +1109,6 @@ class LoggedInView extends ConsumerWidget {
                       child: ListView(
                         padding: EdgeInsets.zero,
                         children: [
-                          accountCard,
-                          if (showVerification) ...[
-                            SizedBox(height: spacing.gap.xl),
-                            verificationCard,
-                          ],
-                          SizedBox(height: spacing.gap.xl),
-                          pingCard,
-                          SizedBox(height: spacing.gap.xl),
                           roomListCard,
                         ],
                       ),
@@ -1209,14 +1139,6 @@ class LoggedInView extends ConsumerWidget {
                         vertical: spacing.gap.xl,
                       ),
                       children: [
-                        accountCard,
-                        if (showVerification) ...[
-                          SizedBox(height: spacing.gap.xl),
-                          verificationCard,
-                        ],
-                        SizedBox(height: spacing.gap.xl),
-                        pingCard,
-                        SizedBox(height: spacing.gap.xl),
                         roomListCard,
                       ],
                     )

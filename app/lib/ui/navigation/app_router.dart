@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../main.dart' show HomeScreen; // Reuse existing root screen for now.
+import '../settings/settings_screen.dart';
 
 GoRouter buildAppRouter() {
   return GoRouter(
@@ -11,9 +12,13 @@ GoRouter buildAppRouter() {
         name: 'home',
         builder: (context, state) => const HomeScreen(),
       ),
+      GoRoute(
+        path: '/settings',
+        name: 'settings',
+        builder: (context, state) => const SettingsScreen(),
+      ),
     ],
     // Reserved for deep links and state restoration later
     debugLogDiagnostics: false,
   );
 }
-
