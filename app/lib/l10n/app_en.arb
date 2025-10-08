@@ -1,0 +1,10 @@
+{
+  "@@locale": "en",
+  "appTitle": "Messie",
+  "login_signIn": "Sign in securely",
+  "login_signingIn": "Signing in…",
+  "login_passwordRequired": "Password is required",
+  "emulator_host_rewrite": "Using 10.0.2.2 to reach host from Android emulator",
+  "login_privacyNote": "Matrix credentials never leave your device.",
+  "messages_count": "{howMany, plural, =0{No messages} one{1 message} other{{howMany} messages}}"
+}

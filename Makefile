@@ -71,6 +71,7 @@ flutter-run-android:
 	# Ensure Rust Android FFI is built and copied into app/android
 	make bridge-build-android
 	cd app && flutter pub get
+	cd app && flutter gen-l10n
 	cd app && flutter run -d emulator-5554
 
 flutter-run-ios:

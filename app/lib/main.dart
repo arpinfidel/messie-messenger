@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
@@ -16,6 +17,12 @@ import 'state/verification_controller.dart';
 import 'state/secure_secrets.dart';
 import 'theme/app_theme.dart';
 import 'theme/messie_tokens.dart';
+import 'ui/core/back_esc/back_esc_host.dart';
+import 'ui/core/back_esc/back_esc_policy.dart';
+import 'ui/core/input/input_caps.dart';
+import 'ui/core/layout/app_layout.dart';
+import 'ui/navigation/app_router.dart';
+import 'ui/theme/theme_controller.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -37,18 +44,32 @@ final selfTrustProvider = FutureProvider<TrustStateData?>((ref) async {
   return res.data;
 });
 
-class MessieApp extends StatelessWidget {
+class MessieApp extends ConsumerWidget {
   const MessieApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeControllerProvider).maybeWhen(
+          data: (m) => m,
+          orElse: () => ThemeMode.system,
+        );
+
+    return MaterialApp.router(
       title: 'Messie',
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,
-      themeMode: ThemeMode.system,
+      themeMode: themeMode,
       debugShowCheckedModeBanner: false,
-      home: const HomeScreen(),
+      routerConfig: buildAppRouter(),
+      localizationsDelegates: AppLocalizations.localizationsDelegates,
+      supportedLocales: AppLocalizations.supportedLocales,
+      builder: (context, child) => BackEscHost(
+        child: AppLayout(
+          child: InputCaps(
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -263,13 +284,36 @@ class HomeScreen extends ConsumerWidget {
     final errorText =
         authState.hasError ? _errorMessage(authState.error) : null;
 
+    Widget content;
     if (session != null) {
-      return LoggedInView(session: session);
+      content = BackEscSurface(
+        priority: SurfacePriority.route,
+        onDismiss: () async {
+          final popped = await Navigator.of(context).maybePop();
+          return popped;
+        },
+        child: LoggedInView(session: session),
+      );
+    } else {
+      content = BackEscSurface(
+        priority: SurfacePriority.route,
+        onDismiss: () async {
+          final popped = await Navigator.of(context).maybePop();
+          return popped;
+        },
+        child: LoginView(
+          isProcessing: authState.isLoading,
+          errorMessage: errorText,
+        ),
+      );
     }
 
-    return LoginView(
-      isProcessing: authState.isLoading,
-      errorMessage: errorText,
+    return WillPopScope(
+      onWillPop: () async {
+        final handled = await BackEscPolicy.of(context).handleBack();
+        return !handled; // if handled, prevent default pop
+      },
+      child: content,
     );
   }
 
@@ -325,6 +369,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final l10n = AppLocalizations.of(context);
     final colorScheme = theme.colorScheme;
     final textTheme = theme.textTheme;
     final spacing = MessieSpacing.of(context);
@@ -475,7 +520,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
                             obscureText: _obscurePassword,
                             validator: (value) {
                               if (value == null || value.isEmpty) {
-                                return 'Password is required';
+                            return l10n?.login_passwordRequired ?? 'Password is required';
                               }
                               return null;
                             },
@@ -494,12 +539,12 @@ class _LoginViewState extends ConsumerState<LoginView> {
                                   )
                                 : const Icon(Icons.login_rounded),
                             label: Text(widget.isProcessing
-                                ? 'Signing in…'
-                                : 'Sign in securely'),
+                                ? (l10n?.login_signingIn ?? 'Signing in…')
+                                : (l10n?.login_signIn ?? 'Sign in securely')),
                           ),
                           SizedBox(height: spacing.gap.md),
                           Text(
-                            'Matrix credentials never leave your device.',
+                            l10n?.login_privacyNote ?? 'Matrix credentials never leave your device.',
                             textAlign: TextAlign.center,
                             style: textTheme.bodySmall?.copyWith(
                               color: colorScheme.onSurfaceVariant,
@@ -535,9 +580,10 @@ class _LoginViewState extends ConsumerState<LoginView> {
           _homeserverController.text = homeserverText;
           final messenger = ScaffoldMessenger.maybeOf(context);
           messenger?.showSnackBar(
-            const SnackBar(
-              content: Text('Using 10.0.2.2 to reach host from Android emulator'),
-              duration: Duration(seconds: 3),
+            SnackBar(
+              content: Text(AppLocalizations.of(context)?.emulator_host_rewrite ??
+                  'Using 10.0.2.2 to reach host from Android emulator'),
+              duration: const Duration(seconds: 3),
             ),
           );
         }
