@@ -144,6 +144,11 @@ matrix-seed:
 		--device-name "$(MATRIX_SEED_DEVICE_NAME)" \
 		--state-dir "$(SEED_STATE_DIR_ABS)" $(if $(strip $(ARGS)),$(strip $(ARGS)))
 
+matrix-healthcheck:
+	@echo "Healthchecking Simplified Sliding Sync endpoint..."
+	npm --prefix scripts/matrix run --silent healthcheck -- \
+	  --server-url "$(MATRIX_SEED_SERVER_URL)"
+
 matrix-verify-peer:
 	@echo "Starting SAS peer helper (matrix-js-sdk)"
 	npm --prefix scripts/matrix run --silent verify-peer -- \

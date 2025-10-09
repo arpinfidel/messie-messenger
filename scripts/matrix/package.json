@@ -8,7 +8,8 @@
     "build": "tsc --project tsconfig.json",
     "seed": "npm run build --silent && node ./dist/seed_synapse.js",
     "verify-peer": "npm run build --silent && node ./dist/verify_peer.js",
-    "token": "npm run build --silent && node ./dist/write_token.js"
+    "token": "npm run build --silent && node ./dist/write_token.js",
+    "healthcheck": "npm run build --silent && node ./dist/healthcheck_simplified_ss.js"
   },
   "dependencies": {
     "@matrix-org/olm": "3.2.15",
