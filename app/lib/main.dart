@@ -1580,6 +1580,7 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
   final TextEditingController _composer = TextEditingController();
   final FocusNode _composerFocus = FocusNode();
   TimelineItem? _replyTo;
+  bool _showJumpToLatest = false;
 
   @override
   void initState() {
@@ -1593,6 +1594,14 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
     if (!mounted || !_controller.hasClients) {
       return;
     }
+    // Show "Jump to latest" when user is scrolled away from bottom.
+    final distanceFromBottom =
+        _controller.position.maxScrollExtent - _controller.offset;
+    final shouldShow = distanceFromBottom > 200;
+    if (shouldShow != _showJumpToLatest) {
+      setState(() { _showJumpToLatest = shouldShow; });
+    }
+
     if (_controller.position.pixels <= 80 &&
         !state.isLoadingMore &&
         !state.reachedStart &&
@@ -1743,21 +1752,16 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
 
         Widget buildList() {
           if (events.isEmpty) {
-            final child = Center(
+            return Center(
               child: Text(
                 'No messages yet.',
                 style: textTheme.bodyMedium
                     ?.copyWith(color: colors.onSurfaceVariant),
               ),
             );
-
-            if (hasBoundedHeight) {
-              return Expanded(child: child);
-            }
-            return SizedBox(height: _mobileTimelineHeight, child: child);
           }
 
-          final listView = ListView.builder(
+          return ListView.builder(
             controller: _controller,
             padding: EdgeInsets.only(bottom: spacing.gap.lg),
             physics:
@@ -1822,11 +1826,6 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
               );
             },
           );
-
-          if (hasBoundedHeight) {
-            return Expanded(child: listView);
-          }
-          return SizedBox(height: _mobileTimelineHeight, child: listView);
         }
 
         final children = <Widget>[];
@@ -1847,7 +1846,46 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
         if (state.error != null) {
           children.add(buildErrorBanner());
         }
-        children.add(buildList());
+        final stack = Stack(
+          children: [
+            Positioned.fill(child: buildList()),
+            if (_showJumpToLatest && events.isNotEmpty)
+              Positioned(
+                right: 8,
+                bottom: (widget.selectedRoomId != null) ? 72 : 8,
+                child: FloatingActionButton.extended(
+                  heroTag: 'jump_to_latest',
+                  onPressed: () async {
+                    if (_controller.hasClients) {
+                      await _controller.animateTo(
+                        _controller.position.maxScrollExtent,
+                        duration: const Duration(milliseconds: 220),
+                        curve: Curves.easeOut,
+                      );
+                    }
+                    // Mark read up to latest event as we jump.
+                    final last = widget.state.events.isNotEmpty ? widget.state.events.last : null;
+                    final lastEventId = last?.key.eventId;
+                    final roomId = widget.selectedRoomId;
+                    if (lastEventId != null && roomId != null) {
+                      unawaited(rustMarkReadUpTo(roomId: roomId, eventId: lastEventId));
+                    }
+                    if (mounted) {
+                      setState(() { _showJumpToLatest = false; });
+                    }
+                  },
+                  icon: const Icon(Icons.arrow_downward_rounded),
+                  label: const Text('Jump to latest'),
+                ),
+              ),
+          ],
+        );
+
+        if (hasBoundedHeight) {
+          children.add(Expanded(child: stack));
+        } else {
+          children.add(SizedBox(height: _mobileTimelineHeight, child: stack));
+        }
 
         // Composer (reply banner + input)
         if (widget.selectedRoomId != null) {
