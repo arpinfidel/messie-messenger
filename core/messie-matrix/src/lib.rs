@@ -63,6 +63,33 @@ fn store_client(client: Client) -> Arc<Client> {
     arc
 }
 
+/// Populate in-memory mute cache from the server-side notification settings.
+fn refresh_muted_rooms_sync(client: &Client) {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    let client = client.clone();
+    let _ = runtime.block_on(async move {
+        use matrix_sdk::notification_settings::RoomNotificationMode;
+        let settings = client.notification_settings().await;
+        let mut snapshot: HashSet<String> = HashSet::new();
+        for room in client.rooms() {
+            let id = room.room_id().to_owned();
+            match settings
+                .get_user_defined_room_notification_mode(id.as_ref())
+                .await
+            {
+                Some(RoomNotificationMode::Mute) => {
+                    snapshot.insert(id.as_str().to_owned());
+                }
+                _ => {}
+            }
+        }
+        let mut guard = MUTED_ROOMS.write().expect("MUTED_ROOMS lock poisoned");
+        *guard = snapshot;
+        Result::<(), ()>::Ok(())
+    });
+}
+
 /// Returns the current client if one has been initialised.
 #[allow(dead_code)]
 pub fn client() -> Option<Arc<Client>> {
@@ -256,6 +283,9 @@ pub fn init_client(hs_url: &str, base_path: &Path) -> Result<InitClientResponse>
     let user_id = meta.user_id.to_string();
     let device_id = Some(meta.device_id.to_string());
 
+    // Load server-side mute state so UI reflects persisted settings immediately.
+    refresh_muted_rooms_sync(&arc);
+
     Ok(InitClientResponse {
         user_id,
         device_id,
@@ -380,6 +410,9 @@ pub fn restore_or_login(
             .session_meta()
             .cloned()
             .ok_or_else(|| anyhow!("logged-in client missing session metadata"))?;
+
+        // After first sync, pull mute settings for all rooms.
+        refresh_muted_rooms_sync(&arc);
 
         Ok(LoginResponse {
             user_id: meta.user_id.to_string(),
@@ -808,13 +841,13 @@ pub fn send_text(room_id: &str, body: &str, reply_to: Option<&str>) -> Result<Se
     })
 }
 
-/// Return the list of joined or invited room IDs.
+/// Return the list of joined room IDs.
 pub fn list_joined_rooms() -> Result<RoomListResponse> {
     let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
     let mut unique = HashSet::new();
 
     for room in client.rooms() {
-        if matches!(room.state(), RoomState::Joined | RoomState::Invited) {
+        if matches!(room.state(), RoomState::Joined) {
             unique.insert(room.room_id().to_string());
         }
     }
@@ -822,7 +855,17 @@ pub fn list_joined_rooms() -> Result<RoomListResponse> {
     let runtime = runtime();
     let _guard = runtime.enter();
     let sliding_rooms = runtime.block_on(sliding_sync::joined_room_ids());
-    unique.extend(sliding_rooms);
+    // Only include rooms that are currently in the Joined state according to
+    // the client's room cache to avoid counting invites.
+    for id in sliding_rooms {
+        if let Ok(parsed) = id.parse::<OwnedRoomId>() {
+            if let Some(room) = client.get_room(&parsed) {
+                if matches!(room.state(), RoomState::Joined) {
+                    unique.insert(id);
+                }
+            }
+        }
+    }
 
     let mut rooms: Vec<String> = unique.into_iter().collect();
     rooms.sort();
