@@ -855,16 +855,11 @@ pub fn list_joined_rooms() -> Result<RoomListResponse> {
     let runtime = runtime();
     let _guard = runtime.enter();
     let sliding_rooms = runtime.block_on(sliding_sync::joined_room_ids());
-    // Only include rooms that are currently in the Joined state according to
-    // the client's room cache to avoid counting invites.
+    // Include rooms discovered via Sliding Sync immediately, even if the
+    // SDK room cache hasn't fully materialised or marked them as Joined yet.
+    // This avoids a delay where portals appear in other clients but not here.
     for id in sliding_rooms {
-        if let Ok(parsed) = id.parse::<OwnedRoomId>() {
-            if let Some(room) = client.get_room(&parsed) {
-                if matches!(room.state(), RoomState::Joined) {
-                    unique.insert(id);
-                }
-            }
-        }
+        unique.insert(id);
     }
 
     let mut rooms: Vec<String> = unique.into_iter().collect();
@@ -884,10 +879,26 @@ pub fn room_overview(room_id: &str) -> Result<RoomOverview> {
         .map_err(|_| anyhow!("invalid room id '{room_id}'"))?;
 
     runtime.block_on(async move {
-        let room = client
-            .get_room(&room_id)
-            .ok_or_else(|| anyhow!("room {room_id} not found"))?;
-        build_room_overview(&room).await
+        if let Some(room) = client.get_room(&room_id) {
+            return build_room_overview(&room).await;
+        }
+
+        // Fallback: room not yet materialised in the SDK cache.
+        // Return a placeholder overview so the UI can surface the room early;
+        // details will be refreshed on next tick once the cache fills.
+        Ok(RoomOverview {
+            room_id: room_id.as_str().to_owned(),
+            name: room_id.as_str().to_owned(),
+            avatar_url: None,
+            bump_ts: None,
+            notification_count: 0,
+            highlight_count: 0,
+            is_marked_unread: false,
+            is_muted: {
+                let guard = MUTED_ROOMS.read().expect("MUTED_ROOMS lock poisoned");
+                guard.contains(room_id.as_str())
+            },
+        })
     })
 }
 
