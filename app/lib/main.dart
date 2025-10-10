@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:characters/characters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
@@ -1514,15 +1515,27 @@ class _AvatarPlaceholderState extends ConsumerState<_AvatarPlaceholder> {
         : null;
 
     if (url != null && url.isNotEmpty) {
+      // Use Image.network with errorBuilder to avoid global image exceptions
+      // when the thumbnail endpoint returns 404. Fallback to initials.
       return CircleAvatar(
         backgroundColor: colors.secondaryContainer,
-        foregroundImage: NetworkImage(url, headers: headers),
-        child: Text(
-          initials,
-          style: Theme.of(context)
-              .textTheme
-              .labelLarge
-              ?.copyWith(color: colors.onSecondaryContainer),
+        child: ClipOval(
+          child: Image.network(
+            url,
+            headers: headers,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return Center(
+                child: Text(
+                  initials,
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelLarge
+                      ?.copyWith(color: colors.onSecondaryContainer),
+                ),
+              );
+            },
+          ),
         ),
       );
     }
@@ -1544,16 +1557,31 @@ class _AvatarPlaceholderState extends ConsumerState<_AvatarPlaceholder> {
       return '?';
     }
     final parts = trimmed.split(RegExp(r'\s+'));
+
+    String takeFirstGrapheme(String s) {
+      final chars = s.characters;
+      if (chars.isEmpty) return '';
+      return chars.first;
+    }
+
+    String takeSecondGrapheme(String s) {
+      final chars = s.characters;
+      if (chars.isEmpty) return '';
+      final rest = chars.skip(1);
+      if (rest.isEmpty) return '';
+      return rest.first;
+    }
+
     String result = '';
-    if (parts.first.isNotEmpty) {
-      result += parts.first[0];
+    // First initial from first word
+    result += takeFirstGrapheme(parts.first);
+    // Second initial from last word (if multiple), otherwise second grapheme of first word
+    if (parts.length > 1) {
+      result += takeFirstGrapheme(parts.last);
+    } else {
+      result += takeSecondGrapheme(parts.first);
     }
-    if (parts.length > 1 && parts.last.isNotEmpty) {
-      result += parts.last[0];
-    } else if (parts.first.length > 1) {
-      result += parts.first[1];
-    }
-    return result.toUpperCase();
+    return result.isEmpty ? '?' : result.toUpperCase();
   }
 }
 
