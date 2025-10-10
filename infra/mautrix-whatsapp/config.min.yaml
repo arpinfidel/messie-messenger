@@ -19,8 +19,12 @@ database:
   type: sqlite3-fk-wal
   uri: /data/mautrix-whatsapp.db
 
-bridge:
+matrix:
   federate_rooms: false
+
+bridge:
+  # Share group portals across users (default)
+  split_portals: false
   personal_filtering_spaces: true
   permissions:
     "messie.localhost": user
@@ -32,3 +36,8 @@ network:
   history_sync:
     max_initial_conversations: -1
     request_full_sync: true
+
+provisioning:
+  # Development-only secret for the internal provisioning (admin) API.
+  # Change this for your environment before exposing beyond local dev.
+  shared_secret: TqVJ7k4v2YcZp3xJw9Lm6sAbN2qR8fH5dC1eG7yK0mP4rU6t

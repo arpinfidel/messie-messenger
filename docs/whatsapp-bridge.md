@@ -51,7 +51,7 @@ This repo ships a development-ready mautrix-whatsapp appservice wired to the loc
 - `infra/mautrix-whatsapp/config.min.yaml` is a minimal bridge config used for dev:
   - Homeserver at `http://matrix:8008` with domain `messie.localhost` (change if needed).
   - Appservice listens on `0.0.0.0:29319` inside the container only.
-  - `bridge.federate_rooms: false` ensures rooms are not federated by default.
+  - `matrix.federate_rooms: false` ensures rooms are not federated by default.
   - No public portal aliases are created; portals remain invite-only by default.
   - Permissions use a domain key, not `@*:`. Example:
 
@@ -74,6 +74,12 @@ This repo ships a development-ready mautrix-whatsapp appservice wired to the loc
     ```
 
   Apply changes with `make bridge-wa-install-config-safe` and restart the bridge.
+
+  - Provisioning (admin) API secret:
+
+    The minimal config sets `provisioning.shared_secret` for local development.
+    Rotate this value for your environment before exposing the API beyond the
+    internal Docker network.
 
 ## Daily workflow
 
