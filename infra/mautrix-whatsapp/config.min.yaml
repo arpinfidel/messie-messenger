@@ -1,0 +1,34 @@
+# Minimal mautrix-whatsapp config for local dev
+
+homeserver:
+  address: http://matrix:8008
+  domain: messie.localhost
+
+appservice:
+  address: http://mautrix-whatsapp:29319
+  hostname: 0.0.0.0
+  port: 29319
+  id: whatsapp
+  as_token: "{{AS_TOKEN}}"
+  hs_token: "{{HS_TOKEN}}"
+  registration: /data/registration.yaml
+  bot:
+    username: whatsappbot
+
+database:
+  type: sqlite3-fk-wal
+  uri: /data/mautrix-whatsapp.db
+
+bridge:
+  federate_rooms: false
+  personal_filtering_spaces: true
+  permissions:
+    "messie.localhost": user
+  encryption:
+    allow: true
+    default: true
+
+network:
+  history_sync:
+    max_initial_conversations: -1
+    request_full_sync: true

@@ -76,8 +76,23 @@ services:
     volumes:
       - matrix_data:/data
       - ./infra/matrix/conf.d:/etc/synapse/conf.d:ro
+      # Appservice registrations are mounted inside /data/appservices
+      - ./infra/mautrix-whatsapp/registration.yaml:/data/appservices/whatsapp-registration.yaml:ro
     ports:
       - "${MATRIX_PORT:-8008}:8008"
+    restart: unless-stopped
+
+  mautrix-whatsapp:
+    image: dock.mau.dev/mautrix/whatsapp:latest
+    profiles: ["matrix"]
+    environment:
+      # Do not bind to host; only internal container-to-container access.
+      LOG_LEVEL: ${WHATSAPP_LOG_LEVEL:-INFO}
+    command: ["mautrix-whatsapp", "-c", "/data/config.yaml"]
+    volumes:
+      - whatsapp_data:/data
+    depends_on:
+      - matrix
     restart: unless-stopped
 
 volumes:
@@ -85,3 +100,4 @@ volumes:
   go-mod-cache:
   go-build-cache:
   matrix_data:
+  whatsapp_data:
