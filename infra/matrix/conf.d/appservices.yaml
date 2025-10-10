@@ -1,0 +1,6 @@
+# Register appservice configuration files with Synapse.
+# This file is mounted via SYNAPSE_ADDITIONAL_CONFIG_DIR.
+
+app_service_config_files:
+  - /data/appservices/whatsapp-registration.yaml
+

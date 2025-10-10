@@ -99,6 +99,99 @@ matrix-down:
 	$(COMPOSE_MATRIX) stop $(if $(ARGS),$(ARGS),matrix)
 
 
+# -------- WhatsApp bridge (mautrix-whatsapp) --------
+.PHONY: bridge-wa-generate-registration bridge-wa-install-config bridge-wa-sync-registration bridge-wa-up bridge-wa-down bridge-wa-logs bridge-wa-clean
+ .PHONY: bridge-wa-install-config-safe
+
+bridge-wa-generate-registration:
+	@echo "Generating mautrix-whatsapp appservice registration..."
+	@mkdir -p infra/mautrix-whatsapp
+	# The container entrypoint supports registration generation flags.
+	docker run --rm \
+	  -v $(CURDIR)/infra/mautrix-whatsapp:/data \
+	  dock.mau.dev/mautrix/whatsapp:latest \
+	  mautrix-whatsapp --generate-registration --config /data/config.yaml --registration /data/registration.yaml
+	@echo "Wrote registration to infra/mautrix-whatsapp/registration.yaml"
+	@echo "Note: Restart Synapse if it was already running to pick up the registration."
+
+bridge-wa-install-config:
+	@echo "Installing WhatsApp bridge config and registration into Docker volume..."
+	@vol=$$(basename $$(pwd))_whatsapp_data; \
+	CFG=infra/mautrix-whatsapp/config.min.yaml; \
+	if [ ! -f $$CFG ]; then \
+	  CFG=infra/mautrix-whatsapp/config.yaml; \
+	fi; \
+	if [ ! -f infra/mautrix-whatsapp/registration.yaml ]; then \
+	  echo "Missing infra/mautrix-whatsapp/registration.yaml. Run: make bridge-wa-generate-registration"; exit 2; \
+	fi; \
+	docker run --rm -v $$vol:/data -v $(CURDIR)/infra/mautrix-whatsapp:/host alpine:3.20 \
+	  sh -lc '
+	    set -e;
+	    cp /host/registration.yaml /data/registration.yaml;
+	    AS=$$(awk '\''/^as_token:/ {print $$2}'\'' /data/registration.yaml);
+	    HS=$$(awk '\''/^hs_token:/ {print $$2}'\'' /data/registration.yaml);
+	    cp /host/$$(basename $$CFG) /data/config.yaml;
+	    sed -i "s/{{AS_TOKEN}}/$$AS/g" /data/config.yaml;
+	    sed -i "s/{{HS_TOKEN}}/$$HS/g" /data/config.yaml;
+	    chown -R 1337:1337 /data;
+	    echo "Tokens injected into config:";
+	    grep -n "as_token\|hs_token" -n /data/config.yaml || true;
+	    ls -l /data;
+	  '; \
+	echo "Installed to volume $$vol:/data"
+
+bridge-wa-sync-registration:
+	@set -e; \
+	  echo "Regenerating registration from current volume config and syncing to host..."; \
+	  vol=$$(basename $$(pwd))_whatsapp_data; \
+	  docker run --rm -v $$vol:/data dock.mau.dev/mautrix/whatsapp:latest \
+	    mautrix-whatsapp --generate-registration --config /data/config.yaml --registration /data/registration.yaml; \
+	  docker run --rm -v $$vol:/data -v $(CURDIR)/infra/mautrix-whatsapp:/host alpine:3.20 \
+	    sh -c "cp /data/registration.yaml /host/registration.yaml && ls -l /host/registration.yaml"; \
+	  echo "Registration synchronized. Restart Synapse if running: make matrix-down && make matrix-up matrix"
+
+bridge-wa-up:
+	@echo "Starting Synapse + WhatsApp bridge (mautrix-whatsapp) ..."
+	@if [ ! -f infra/mautrix-whatsapp/registration.yaml ]; then \
+	  echo "Missing registration.yaml. Run: make bridge-wa-generate-registration"; \
+	  exit 2; \
+	fi
+	@echo "Tip: If first run, pre-install config into volume: make bridge-wa-install-config"
+	$(COMPOSE_MATRIX) up -d matrix mautrix-whatsapp
+
+bridge-wa-down:
+	@echo "Stopping WhatsApp bridge (leaves Synapse running) ..."
+	$(COMPOSE_MATRIX) stop mautrix-whatsapp
+
+bridge-wa-logs:
+	$(COMPOSE_MATRIX) logs -f mautrix-whatsapp
+
+bridge-wa-clean:
+	@echo "Removing WhatsApp bridge data volume..."
+	$(COMPOSE) down -v mautrix-whatsapp || true
+	docker volume rm $$(basename $$(pwd))_whatsapp_data 2>/dev/null || true
+
+# Safe installer that avoids complex quoting. Prefer this if the other target fails.
+bridge-wa-install-config-safe:
+	@echo "Installing WhatsApp bridge config and registration into Docker volume (safe)..."
+	@vol=$$(basename $$(pwd))_whatsapp_data; \
+	CFG=infra/mautrix-whatsapp/config.min.yaml; \
+	if [ ! -f $$CFG ]; then \
+	  CFG=infra/mautrix-whatsapp/config.yaml; \
+	fi; \
+	if [ ! -f infra/mautrix-whatsapp/registration.yaml ]; then \
+	  echo "Missing infra/mautrix-whatsapp/registration.yaml. Run: make bridge-wa-generate-registration"; exit 2; \
+	fi; \
+	CFG_BASE=$$(basename $$CFG); \
+	docker run --rm \
+	  -v $$vol:/data \
+	  -v $(CURDIR)/infra/mautrix-whatsapp:/host:ro \
+	  -v $(CURDIR)/scripts/matrix:/scripts:ro \
+	  alpine:3.20 \
+	  sh /scripts/install_wa_config.sh $$CFG_BASE; \
+	echo "Installed to volume $$vol:/data"
+
+
 # -------- Matrix snapshots --------
 .PHONY: matrix-snapshot matrix-snapshot-create matrix-snapshot-list matrix-snapshot-restore matrix-snapshot-delete
 

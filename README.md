@@ -192,6 +192,17 @@ An opt-in Synapse service (profile `matrix`) exposes the unstable Simplified Sli
 
 Full walkthrough—including Flutter bridge tests—is in `docs/local-matrix.md`.
 
+### WhatsApp Bridge (mautrix-whatsapp)
+
+An opt-in mautrix-whatsapp service (profile `matrix`) runs alongside Synapse.
+
+- Generate the appservice registration: `make bridge-wa-generate-registration`
+- Install config into volume (inject tokens): `make bridge-wa-install-config-safe`
+- Start Synapse + bridge: `make bridge-wa-up`
+- Logs: `make bridge-wa-logs`
+
+Details live in `docs/whatsapp-bridge.md`.
+
 ### Headless bridge integration test
 
 Run the Flutter <-> Rust bridge test without an emulator. A Make target builds
