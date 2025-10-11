@@ -1,0 +1,15 @@
+# Additional Synapse modules and Python path for local dev
+
+python_paths:
+  - /data/custom_modules
+
+modules:
+  - module: block_bot_dms.BlockBotDMs
+    config:
+      bot_mxid: "@whatsappbot:messie.localhost"
+      admins:
+        - "@bridge-admin:messie.localhost"
+      # Block DMs to the bot entirely; still allow group invites.
+      block_dm_invites: true
+      require_prefix_in_dm: false
+      prefix: "!wa"

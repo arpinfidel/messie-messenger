@@ -164,7 +164,17 @@ func (h *EmailHandler) EmailList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	h.respondWithHeaders(w, req.EmailLoginRequest, mailbox, req.SearchFlags)
+    // EmailListRequest is an allOf of EmailLoginRequest + extra fields.
+    // The generated type flattens fields, so construct the login request explicitly.
+    login := generated.EmailLoginRequest{
+        Host:        req.Host,
+        Port:        req.Port,
+        Email:       req.Email,
+        AppPassword: req.AppPassword,
+    }
+    var flags []string
+    if req.SearchFlags != nil { flags = *req.SearchFlags }
+    h.respondWithHeaders(w, login, mailbox, flags)
 }
 
 // EmailThreads is kept for backwards compatibility with the OpenAPI definition

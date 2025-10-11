@@ -24,6 +24,8 @@ Messie Messenger is a multi-channel productivity hub that combines Matrix chat, 
 - [Testing \& QA](#testing--qa)
   - [Playwright End-to-End Suite](#playwright-end-to-end-suite)
   - [Local Matrix Homeserver](#local-matrix-homeserver)
+  - [WhatsApp Bridge (mautrix-whatsapp)](#whatsapp-bridge-mautrix-whatsapp)
+  - [Headless bridge integration test](#headless-bridge-integration-test)
 - [Operations \& Tooling](#operations--tooling)
   - [Environment Configuration](#environment-configuration)
   - [Common Commands](#common-commands)
@@ -224,11 +226,13 @@ make flutter-bridge-test
 ```
 
 What the Make target does:
+
 - Builds `core` in release if needed.
 - Sets `MESSIE_FFI_LIB_PATH` to the built library.
 - Runs `flutter test test/bridge/sliding_sync_bridge_test.dart` in `app/`.
 
 Environment overrides (optional):
+
 - `MESSIE_MATRIX_HOMESERVER` (default `http://127.0.0.1:8008`)
 - `MESSIE_MATRIX_USERNAME` / `MESSIE_MATRIX_PASSWORD`
 - `MESSIE_BRIDGE_STORE_PATH` (where the test stores state)

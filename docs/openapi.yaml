@@ -707,6 +707,183 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /connections:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List bridge connections for current user
+      description: |
+        Returns zero or more connection entries per provider. Providers that support
+        multi-account logins will return multiple items with the same `provider`
+        value, one per account.
+      operationId: getConnections
+      responses:
+        "200":
+          description: List of provider connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BridgeConnection"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /bridge/provision/v3/login/flows:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get available login flows for a provider
+      operationId: bridgeGetLoginFlows
+      parameters:
+        - in: query
+          name: provider
+          required: true
+          schema:
+            type: string
+            example: whatsapp
+      responses:
+        "200":
+          description: Fetched flows
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BridgeLoginFlowsResponse"
+        "401":
+          description: Unauthorized
+
+
+  /bridge/provision/v3/login/start/{flow}:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Start a login process for a provider
+      operationId: bridgeStartLogin
+      parameters:
+        - in: path
+          name: flow
+          required: true
+          schema:
+            type: string
+            example: qr
+        - in: query
+          name: provider
+          required: true
+          schema:
+            type: string
+            example: whatsapp
+      responses:
+        "200":
+          description: First login step to render/handle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BridgeLoginStep"
+        "401":
+          description: Unauthorized
+
+  /bridge/provision/v3/login/step/{process_id}/{step_id}/{action}:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Submit a login step
+      operationId: bridgeSubmitLoginStep
+      parameters:
+        - in: path
+          name: process_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: step_id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: action
+          required: true
+          schema:
+            type: string
+            enum: [display_and_wait, user_input, cookies]
+        - in: query
+          name: provider
+          required: true
+          schema:
+            type: string
+            example: whatsapp
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Next login step
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BridgeLoginStep"
+        "401":
+          description: Unauthorized
+
+  /bridge/provision/v3/whoami:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get provider-specific whoami with logins
+      operationId: bridgeWhoami
+      parameters:
+        - in: query
+          name: provider
+          required: true
+          schema:
+            type: string
+            example: whatsapp
+      responses:
+        "200":
+          description: Whoami from bridge
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BridgeWhoamiResponse"
+        "401":
+          description: Unauthorized
+
+  /bridge/provision/v3/logout/{login_id}:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Log out a specific login or all
+      operationId: bridgeLogout
+      parameters:
+        - in: path
+          name: login_id
+          required: true
+          schema:
+            type: string
+            example: all
+        - in: query
+          name: provider
+          required: true
+          schema:
+            type: string
+            example: whatsapp
+      responses:
+        "200":
+          description: Logged out
+        "204":
+          description: Logged out
+        "401":
+          description: Unauthorized
+  
+  
+
 components:
   securitySchemes:
     bearerAuth:
@@ -1065,3 +1242,290 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/EmailRichHeader"
+    BridgeConnection:
+      type: object
+      required:
+        - provider
+        - status
+      properties:
+        provider:
+          type: string
+          example: whatsapp
+        status:
+          type: string
+          enum:
+            - not_connected
+            - connecting
+            - connected
+        account:
+          $ref: "#/components/schemas/BridgeAccount"
+          nullable: true
+        limits:
+          type: object
+          nullable: true
+          additionalProperties: true
+    BridgeAccount:
+      type: object
+      properties:
+        externalId:
+          type: string
+          example: 15551234567@s.whatsapp.net
+        displayName:
+          type: string
+          example: "+1 555 123 4567"
+    WAStartResponse:
+      type: object
+      required:
+        - connectionId
+        - method
+        - expiresAt
+      properties:
+        connectionId:
+          type: string
+        method:
+          type: string
+          enum:
+            - qr
+            - code
+        qrAscii:
+          type: string
+          nullable: true
+          description: ASCII QR for display in terminals; optional
+        code:
+          type: string
+          nullable: true
+          description: Pairing code string; optional
+        expiresAt:
+          type: string
+          format: date-time
+    WAStatusResponse:
+      type: object
+      required:
+        - state
+      properties:
+        state:
+          type: string
+          enum:
+            - pending
+            - scanned
+            - connected
+            - failed
+        account:
+          type: object
+          nullable: true
+          properties:
+            externalId:
+              type: string
+            displayName:
+              type: string
+        error:
+          type: string
+          nullable: true
+    BridgeLoginFlow:
+      type: object
+      description: A login flow that can be used to sign into the remote network.
+      required:
+        - id
+        - name
+        - description
+      properties:
+        id:
+          type: string
+          example: qr
+        name:
+          type: string
+          example: QR code
+        description:
+          type: string
+          example: Log in by scanning a QR code
+    BridgeLoginFlowsResponse:
+      type: object
+      properties:
+        flows:
+          type: array
+          items:
+            $ref: "#/components/schemas/BridgeLoginFlow"
+    BridgeWhoamiLogin:
+      type: object
+      description: Minimal info about an individual login
+      required:
+        - id
+        - name
+      properties:
+        id:
+          type: string
+          description: Unique login ID defined by the bridge
+        name:
+          type: string
+          description: Human-friendly name of the login
+        state:
+          type: string
+          description: Optional state label for the login
+        profile:
+          type: object
+          nullable: true
+          properties:
+            displayName:
+              type: string
+            externalId:
+              type: string
+    BridgeWhoamiResponse:
+      type: object
+      description: Provider metadata and current user logins
+      properties:
+        homeserver:
+          type: string
+        bridge_bot:
+          type: string
+        command_prefix:
+          type: string
+        network:
+          $ref: "#/components/schemas/BridgeName"
+        login_flows:
+          type: array
+          items:
+            $ref: "#/components/schemas/BridgeLoginFlow"
+        logins:
+          type: array
+          items:
+            $ref: "#/components/schemas/BridgeWhoamiLogin"
+    BridgeName:
+      type: object
+      description: Info about the bridged network
+      required:
+        - displayname
+        - network_url
+        - network_icon
+        - network_id
+      properties:
+        displayname:
+          type: string
+          example: WhatsApp
+        network_url:
+          type: string
+          example: https://www.whatsapp.com
+        network_icon:
+          type: string
+          example: mxc://example.com/abc123
+        network_id:
+          type: string
+          example: whatsapp
+        beeper_bridge_type:
+          type: string
+          example: com.beeper.whatsapp
+    BridgeState:
+      type: object
+      description: Connection status of an individual login
+      required:
+        - state_event
+        - timestamp
+      properties:
+        state_event:
+          type: string
+          enum: [ CONNECTING, CONNECTED, TRANSIENT_DISCONNECT, BAD_CREDENTIALS, UNKNOWN_ERROR ]
+        timestamp:
+          type: number
+          format: double
+          description: Unix time in milliseconds
+        error:
+          type: string
+        message:
+          type: string
+        reason:
+          type: string
+        info:
+          type: object
+          additionalProperties: true
+    RemoteProfile:
+      type: object
+      description: Profile info on the remote network
+      properties:
+        phone:
+          type: string
+        email:
+          type: string
+          format: email
+        username:
+          type: string
+        name:
+          type: string
+        avatar:
+          type: string
+    # Duplicate removed: BridgeWhoamiLogin defined earlier
+    BridgeLoginStep:
+      oneOf:
+        - $ref: "#/components/schemas/LoginStepDisplayAndWait"
+        - $ref: "#/components/schemas/LoginStepUserInput"
+        - $ref: "#/components/schemas/LoginStepCookies"
+        - $ref: "#/components/schemas/LoginStepComplete"
+      discriminator:
+        propertyName: type
+        mapping:
+          display_and_wait: '#/components/schemas/LoginStepDisplayAndWait'
+          user_input: '#/components/schemas/LoginStepUserInput'
+          cookies: '#/components/schemas/LoginStepCookies'
+          complete: '#/components/schemas/LoginStepComplete'
+    LoginStepDisplayAndWait:
+      type: object
+      required: [ type, display_and_wait ]
+      properties:
+        type:
+          type: string
+          enum: [ display_and_wait ]
+        display_and_wait:
+          type: object
+          properties:
+            message:
+              type: string
+            data:
+              type: string
+            image_url:
+              type: string
+    LoginStepUserInput:
+      type: object
+      required: [ type, user_input ]
+      properties:
+        type:
+          type: string
+          enum: [ user_input ]
+        user_input:
+          type: object
+          properties:
+            fields:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  label:
+                    type: string
+                  kind:
+                    type: string
+                  secret:
+                    type: boolean
+    LoginStepCookies:
+      type: object
+      required: [ type, cookies ]
+      properties:
+        type:
+          type: string
+          enum: [ cookies ]
+        cookies:
+          type: object
+          properties:
+            names:
+              type: array
+              items: { type: string }
+    LoginStepComplete:
+      type: object
+      required: [ type, complete ]
+      properties:
+        type:
+          type: string
+          enum: [ complete ]
+        complete:
+          type: object
+          properties:
+            user_login_id:
+              type: string

@@ -241,25 +241,17 @@ bridge:
     #   domain - All users on that homeserver
     #     mxid - Specific user
     permissions:
-        "@*:messie.localhost": user
+        "messie.localhost": user
+        # Optional: provisioning/admin backdoor (dev only). Remove in prod.
+        "@bridge-admin:messie.localhost": admin
 
 # Config for the bridge's database.
 database:
     # The database type. "sqlite3-fk-wal" and "postgres" are supported.
-    type: postgres
-    # The database URI.
-    #   SQLite: A raw file path is supported, but `file:<path>?_txlock=immediate` is recommended.
-    #           https://github.com/mattn/go-sqlite3#connection-string
-    #   Postgres: Connection string. For example, postgres://user:password@host/database?sslmode=disable
-    #             To connect via Unix socket, use something like postgres:///dbname?host=/var/run/postgresql
-    uri: postgres://user:password@host/database?sslmode=disable
-    # Maximum number of connections.
-    max_open_conns: 5
-    max_idle_conns: 1
-    # Maximum connection idle time and lifetime before they're closed. Disabled if null.
-    # Parsed with https://pkg.go.dev/time#ParseDuration
-    max_conn_idle_time: null
-    max_conn_lifetime: null
+    # Use SQLite for local development.
+    type: sqlite3-fk-wal
+    # SQLite database file path in the container volume
+    uri: /data/mautrix-whatsapp.db
 
 # Homeserver details.
 homeserver:
@@ -324,6 +316,8 @@ appservice:
     # Localpart template of MXIDs for remote users.
     # {{.}} is replaced with the internal ID of the user.
     username_template: whatsapp_{{.}}
+    as_token: "{{AS_TOKEN}}"
+    hs_token: "{{HS_TOKEN}}"
 
 # Config options that affect the Matrix connector of the bridge.
 matrix:
@@ -353,15 +347,17 @@ analytics:
 
 # Settings for provisioning API
 provisioning:
+    enabled: true
+    prefix: /_matrix/provision
     # Shared secret for authentication. If set to "generate" or null, a random secret will be generated,
     # or if set to "disable", the provisioning API will be disabled. Must be at least 16 characters.
-    shared_secret: WK1sGx0M7G6ICq0T91qqv6WMrEKskmlOve0UcbvASLH3hXiwQFtvJTaLwQkX8au7
+    shared_secret: TqVJ7k4v2YcZp3xJw9Lm6sAbN2qR8fH5dC1eG7yK0mP4rU6t
     # Whether to allow provisioning API requests to be authed using Matrix access tokens.
     # This follows the same rules as double puppeting to determine which server to contact to check the token,
     # which means that by default, it only works for users on the same server as the bridge.
     allow_matrix_auth: true
     # Enable debug API at /debug with provisioning authentication.
-    debug_endpoints: false
+    debug_endpoints: true
     # Enable session transfers between bridges. Note that this only validates Matrix or shared secret
     # auth before passing live network client credentials down in the response.
     enable_session_transfers: false
@@ -408,18 +404,18 @@ direct_media:
 # See https://docs.mau.fi/bridges/general/backfill.html for more details.
 backfill:
     # Whether to do backfilling at all.
-    enabled: false
+    enabled: true
     # Maximum number of messages to backfill in empty rooms.
-    max_initial_messages: 50
+    max_initial_messages: 500
     # Maximum number of missed messages to backfill after bridge restarts.
-    max_catchup_messages: 500
+    max_catchup_messages: 1000
     # If a backfilled chat is older than this number of hours,
     # mark it as read even if it's unread on the remote network.
-    unread_hours_threshold: 720
+    unread_hours_threshold: 72000
     # Settings for backfilling threads within other backfills.
     threads:
         # Maximum number of messages to backfill in a new thread.
-        max_initial_messages: 50
+        max_initial_messages: 500
     # Settings for the backwards backfill queue. This only applies when connecting to
     # Beeper as standard Matrix servers don't support inserting messages into history.
     queue:
@@ -440,8 +436,7 @@ backfill:
 double_puppet:
     # Servers to always allow double puppeting from.
     # This is only for other servers and should NOT contain the server the bridge is on.
-    servers:
-        anotherserver.example.org: https://matrix.anotherserver.example.org
+    servers: {}
     # Whether to allow client API URL discovery for other servers. When using this option,
     # users on other servers can use double puppeting even if their server URLs aren't
     # explicitly added to the servers map above.
@@ -449,7 +444,9 @@ double_puppet:
     # Shared secrets for automatic double puppeting.
     # See https://docs.mau.fi/bridges/general/double-puppeting.html for instructions.
     secrets:
-        example.com: as_token:foobar
+        # Token from infra/matrix/appservices/doublepuppet-registration.yaml (as_token)
+        messie.localhost: "as_token:dev_dp_as_token_0b1c2d3e4f"
+        # example.com: "as_token:foobar"
 
 # End-to-bridge encryption support options.
 #
@@ -535,7 +532,3 @@ encryption:
         # Disable rotating keys when a user's devices change?
         # You should not enable this option unless you understand all the implications.
         disable_device_change_key_rotation: false
-
-# Logging config. See https://github.com/tulir/zeroconfig for details.
-logging:
-    level: INFO

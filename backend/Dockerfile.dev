@@ -12,10 +12,13 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # App source (usually also bind-mounted in compose)
 COPY . .
+# Ensure module deps are up to date in the final layer (go.sum reflects go.mod)
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod tidy
 
 ENV CGO_ENABLED=1 GOFLAGS="-tags=dev"
 
 EXPOSE 8080 40000
 # If you have .air.toml, you can simply: CMD ["air"]
-# CMD ["air"]
+# Default to Air dev runner (expects modules already resolved)
 CMD ["air", "-c", ".air.toml"]

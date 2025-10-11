@@ -35,7 +35,7 @@ This repo ships a development-ready mautrix-whatsapp appservice wired to the loc
    ```
 
    The bridge does not expose ports on the host. Synapse calls it internally at
-   `http://mautrix-whatsapp:29319`. The admin API remains reachable only from other
+   `http://mautrix-whatsapp:29319`. A provisioning API is reachable only from other
    containers in the Compose network (e.g., the backend) and is not published.
 
 4. Inspect logs:
@@ -48,17 +48,17 @@ This repo ships a development-ready mautrix-whatsapp appservice wired to the loc
 
 - `infra/matrix/conf.d/appservices.yaml` makes Synapse load appservice registrations from `/data/appservices/*`.
 - `docker-compose.dev.yml` mounts the WhatsApp registration at `/data/appservices/whatsapp-registration.yaml` inside Synapse.
-- `infra/mautrix-whatsapp/config.min.yaml` is a minimal bridge config used for dev:
+- `infra/mautrix-whatsapp/config.yaml` is the bridge config used for dev:
   - Homeserver at `http://matrix:8008` with domain `messie.localhost` (change if needed).
   - Appservice listens on `0.0.0.0:29319` inside the container only.
   - `matrix.federate_rooms: false` ensures rooms are not federated by default.
   - No public portal aliases are created; portals remain invite-only by default.
-  - Permissions use a domain key, not `@*:`. Example:
+  - Permissions use a domain key, not `@*:`. Example (DM login disabled, commands only):
 
     ```yaml
     bridge:
       permissions:
-        "messie.localhost": user
+        "messie.localhost": commands
         "@bridge-tester:messie.localhost": admin
     ```
 
@@ -108,9 +108,20 @@ This repo ships a development-ready mautrix-whatsapp appservice wired to the loc
 - Stop only the bridge: `make bridge-wa-down`
 - Remove bridge data: `make bridge-wa-clean`
 
-## Next steps
+## Provisioning (gateway → bridge)
 
-- P2-C adds an in-app pairing flow (QR/pairing code). For now, pairing can be performed via the bridge’s standard login endpoints from a trusted backend component that can reach the internal admin API.
+The backend exposes provider-agnostic provisioning endpoints and proxies them to the bridge’s v3 API with `Authorization: Bearer <shared_secret>` and `?user_id=<mxid>`.
+
+- GET `/bridge/provision/v3/login/flows?provider=whatsapp` → `{ flows: [...] }`
+- POST `/bridge/provision/v3/login/start/{flow}?provider=whatsapp` → returns a LoginStep (e.g., `display_and_wait` with QR data)
+- POST `/bridge/provision/v3/login/step/{process_id}/{step_id}/{action}?provider=whatsapp` → returns next LoginStep
+- GET `/bridge/provision/v3/whoami?provider=whatsapp` → includes `logins[]` with states
+- POST `/bridge/provision/v3/logout/{login_id}?provider=whatsapp` → `200/204` (use `all` to log out all)
+
+Notes
+
+- The bridge requires shared-secret auth + explicit `user_id` (MXID) for provisioning.
+- DM-based login is usually disabled via permissions; pairing happens via the backend gateway.
 
 ## Troubleshooting
 

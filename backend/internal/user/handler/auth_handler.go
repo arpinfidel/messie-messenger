@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+    "os"
 
 	"github.com/google/uuid"
 	"github.com/oapi-codegen/runtime/types"
@@ -201,6 +202,18 @@ func (h *AuthHandler) GetUsersMe(w http.ResponseWriter, r *http.Request) {
 
 // resolveFederationBase determines the federation base URL for a Matrix homeserver
 func resolveFederationBase(serverName string) (string, error) {
+    // Dev override: allow targeting a known homeserver inside docker-compose
+    if devSrv := os.Getenv("DEV_MATRIX_SERVER_NAME"); devSrv != "" && serverName == devSrv {
+        if base := os.Getenv("DEV_MATRIX_FED_BASE"); base != "" {
+            return base, nil
+        }
+        return "http://matrix:8008", nil
+    }
+    // Heuristic: local dev domains
+    if strings.HasSuffix(serverName, ".localhost") {
+        if base := os.Getenv("DEV_MATRIX_FED_BASE"); base != "" { return base, nil }
+        return "http://matrix:8008", nil
+    }
 	wellKnownURL := fmt.Sprintf("https://%s/.well-known/matrix/server", serverName)
 	resp, err := http.Get(wellKnownURL)
 	if err != nil {

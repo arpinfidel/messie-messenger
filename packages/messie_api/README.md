@@ -66,6 +66,11 @@ All URIs are relative to *http://localhost:8080/api/v1*
 Class | Method | HTTP request | Description
 ------------ | ------------- | ------------- | -------------
 [*DefaultApi*](doc/DefaultApi.md) | [**addCollaborator**](doc/DefaultApi.md#addcollaborator) | **POST** /todolists/{listId}/collaborators | Add a collaborator to a todo list
+[*DefaultApi*](doc/DefaultApi.md) | [**bridgeGetLoginFlows**](doc/DefaultApi.md#bridgegetloginflows) | **GET** /bridge/provision/v3/login/flows | Get available login flows for a provider
+[*DefaultApi*](doc/DefaultApi.md) | [**bridgeLogout**](doc/DefaultApi.md#bridgelogout) | **POST** /bridge/provision/v3/logout/{login_id} | Log out a specific login or all
+[*DefaultApi*](doc/DefaultApi.md) | [**bridgeStartLogin**](doc/DefaultApi.md#bridgestartlogin) | **POST** /bridge/provision/v3/login/start/{flow} | Start a login process for a provider
+[*DefaultApi*](doc/DefaultApi.md) | [**bridgeSubmitLoginStep**](doc/DefaultApi.md#bridgesubmitloginstep) | **POST** /bridge/provision/v3/login/step/{process_id}/{step_id}/{action} | Submit a login step
+[*DefaultApi*](doc/DefaultApi.md) | [**bridgeWhoami**](doc/DefaultApi.md#bridgewhoami) | **GET** /bridge/provision/v3/whoami | Get provider-specific whoami with logins
 [*DefaultApi*](doc/DefaultApi.md) | [**createTodoItem**](doc/DefaultApi.md#createtodoitem) | **POST** /todolists/{listId}/items | Create a new todo item in a list
 [*DefaultApi*](doc/DefaultApi.md) | [**createTodoList**](doc/DefaultApi.md#createtodolist) | **POST** /todolists | Create a new todo list
 [*DefaultApi*](doc/DefaultApi.md) | [**deleteTodoItem**](doc/DefaultApi.md#deletetodoitem) | **DELETE** /todolists/{listId}/items/{itemId} | Delete a todo item
@@ -95,8 +100,16 @@ Class | Method | HTTP request | Description
 ## Documentation For Models
 
  - [AuthResponse](doc/AuthResponse.md)
+ - [BridgeAccount](doc/BridgeAccount.md)
  - [BridgeConnection](doc/BridgeConnection.md)
- - [BridgeConnectionAccount](doc/BridgeConnectionAccount.md)
+ - [BridgeLoginFlow](doc/BridgeLoginFlow.md)
+ - [BridgeLoginFlowsResponse](doc/BridgeLoginFlowsResponse.md)
+ - [BridgeLoginStep](doc/BridgeLoginStep.md)
+ - [BridgeName](doc/BridgeName.md)
+ - [BridgeState](doc/BridgeState.md)
+ - [BridgeWhoamiLogin](doc/BridgeWhoamiLogin.md)
+ - [BridgeWhoamiLoginProfile](doc/BridgeWhoamiLoginProfile.md)
+ - [BridgeWhoamiResponse](doc/BridgeWhoamiResponse.md)
  - [CollaboratorDetail](doc/CollaboratorDetail.md)
  - [EmailListRequest](doc/EmailListRequest.md)
  - [EmailLoginRequest](doc/EmailLoginRequest.md)
@@ -106,12 +119,22 @@ Class | Method | HTTP request | Description
  - [EmailRichHeadersResponse](doc/EmailRichHeadersResponse.md)
  - [Error](doc/Error.md)
  - [LoginRequest](doc/LoginRequest.md)
+ - [LoginStepComplete](doc/LoginStepComplete.md)
+ - [LoginStepCompleteComplete](doc/LoginStepCompleteComplete.md)
+ - [LoginStepCookies](doc/LoginStepCookies.md)
+ - [LoginStepCookiesCookies](doc/LoginStepCookiesCookies.md)
+ - [LoginStepDisplayAndWait](doc/LoginStepDisplayAndWait.md)
+ - [LoginStepDisplayAndWaitDisplayAndWait](doc/LoginStepDisplayAndWaitDisplayAndWait.md)
+ - [LoginStepUserInput](doc/LoginStepUserInput.md)
+ - [LoginStepUserInputUserInput](doc/LoginStepUserInputUserInput.md)
+ - [LoginStepUserInputUserInputFieldsInner](doc/LoginStepUserInputUserInputFieldsInner.md)
  - [MatrixAuthResponse](doc/MatrixAuthResponse.md)
  - [MatrixOpenIDRequest](doc/MatrixOpenIDRequest.md)
  - [NewCollaborator](doc/NewCollaborator.md)
  - [NewTodoItem](doc/NewTodoItem.md)
  - [NewTodoList](doc/NewTodoList.md)
  - [RegisterRequest](doc/RegisterRequest.md)
+ - [RemoteProfile](doc/RemoteProfile.md)
  - [TodoItem](doc/TodoItem.md)
  - [TodoList](doc/TodoList.md)
  - [UpdateTodoItem](doc/UpdateTodoItem.md)

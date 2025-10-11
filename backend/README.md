@@ -17,8 +17,9 @@ go run github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen \
 Or use the repository Makefile from the project root:
 
 ```bash
-make gen-be   # backend stubs
-make gen      # backend + frontend
+make gen-be    # backend stubs
+make gen-fe    # frontend TS client
+make gen-app   # Flutter Dart client
 ```
 
 ## Running locally

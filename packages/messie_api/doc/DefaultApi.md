@@ -10,6 +10,11 @@ All URIs are relative to *http://localhost:8080/api/v1*
 Method | HTTP request | Description
 ------------- | ------------- | -------------
 [**addCollaborator**](DefaultApi.md#addcollaborator) | **POST** /todolists/{listId}/collaborators | Add a collaborator to a todo list
+[**bridgeGetLoginFlows**](DefaultApi.md#bridgegetloginflows) | **GET** /bridge/provision/v3/login/flows | Get available login flows for a provider
+[**bridgeLogout**](DefaultApi.md#bridgelogout) | **POST** /bridge/provision/v3/logout/{login_id} | Log out a specific login or all
+[**bridgeStartLogin**](DefaultApi.md#bridgestartlogin) | **POST** /bridge/provision/v3/login/start/{flow} | Start a login process for a provider
+[**bridgeSubmitLoginStep**](DefaultApi.md#bridgesubmitloginstep) | **POST** /bridge/provision/v3/login/step/{process_id}/{step_id}/{action} | Submit a login step
+[**bridgeWhoami**](DefaultApi.md#bridgewhoami) | **GET** /bridge/provision/v3/whoami | Get provider-specific whoami with logins
 [**createTodoItem**](DefaultApi.md#createtodoitem) | **POST** /todolists/{listId}/items | Create a new todo item in a list
 [**createTodoList**](DefaultApi.md#createtodolist) | **POST** /todolists | Create a new todo list
 [**deleteTodoItem**](DefaultApi.md#deletetodoitem) | **DELETE** /todolists/{listId}/items/{itemId} | Delete a todo item
@@ -75,6 +80,222 @@ void (empty response body)
 
  - **Content-Type**: application/json
  - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **bridgeGetLoginFlows**
+> BridgeLoginFlowsResponse bridgeGetLoginFlows(provider)
+
+Get available login flows for a provider
+
+### Example
+```dart
+import 'package:messie_api/api.dart';
+
+final api = MessieApi().getDefaultApi();
+final String provider = whatsapp; // String | 
+
+try {
+    final response = api.bridgeGetLoginFlows(provider);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling DefaultApi->bridgeGetLoginFlows: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **provider** | **String**|  | 
+
+### Return type
+
+[**BridgeLoginFlowsResponse**](BridgeLoginFlowsResponse.md)
+
+### Authorization
+
+[bearerAuth](../README.md#bearerAuth)
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **bridgeLogout**
+> bridgeLogout(loginId, provider)
+
+Log out a specific login or all
+
+### Example
+```dart
+import 'package:messie_api/api.dart';
+
+final api = MessieApi().getDefaultApi();
+final String loginId = all; // String | 
+final String provider = whatsapp; // String | 
+
+try {
+    api.bridgeLogout(loginId, provider);
+} catch on DioException (e) {
+    print('Exception when calling DefaultApi->bridgeLogout: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **loginId** | **String**|  | 
+ **provider** | **String**|  | 
+
+### Return type
+
+void (empty response body)
+
+### Authorization
+
+[bearerAuth](../README.md#bearerAuth)
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: Not defined
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **bridgeStartLogin**
+> BridgeLoginStep bridgeStartLogin(flow, provider)
+
+Start a login process for a provider
+
+### Example
+```dart
+import 'package:messie_api/api.dart';
+
+final api = MessieApi().getDefaultApi();
+final String flow = qr; // String | 
+final String provider = whatsapp; // String | 
+
+try {
+    final response = api.bridgeStartLogin(flow, provider);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling DefaultApi->bridgeStartLogin: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **flow** | **String**|  | 
+ **provider** | **String**|  | 
+
+### Return type
+
+[**BridgeLoginStep**](BridgeLoginStep.md)
+
+### Authorization
+
+[bearerAuth](../README.md#bearerAuth)
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **bridgeSubmitLoginStep**
+> BridgeLoginStep bridgeSubmitLoginStep(processId, stepId, action, provider, requestBody)
+
+Submit a login step
+
+### Example
+```dart
+import 'package:messie_api/api.dart';
+
+final api = MessieApi().getDefaultApi();
+final String processId = processId_example; // String | 
+final String stepId = stepId_example; // String | 
+final String action = action_example; // String | 
+final String provider = whatsapp; // String | 
+final BuiltMap<String, JsonObject> requestBody = Object; // BuiltMap<String, JsonObject> | 
+
+try {
+    final response = api.bridgeSubmitLoginStep(processId, stepId, action, provider, requestBody);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling DefaultApi->bridgeSubmitLoginStep: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **processId** | **String**|  | 
+ **stepId** | **String**|  | 
+ **action** | **String**|  | 
+ **provider** | **String**|  | 
+ **requestBody** | [**BuiltMap&lt;String, JsonObject&gt;**](JsonObject.md)|  | [optional] 
+
+### Return type
+
+[**BridgeLoginStep**](BridgeLoginStep.md)
+
+### Authorization
+
+[bearerAuth](../README.md#bearerAuth)
+
+### HTTP request headers
+
+ - **Content-Type**: application/json
+ - **Accept**: application/json
+
+[[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
+
+# **bridgeWhoami**
+> BridgeWhoamiResponse bridgeWhoami(provider)
+
+Get provider-specific whoami with logins
+
+### Example
+```dart
+import 'package:messie_api/api.dart';
+
+final api = MessieApi().getDefaultApi();
+final String provider = whatsapp; // String | 
+
+try {
+    final response = api.bridgeWhoami(provider);
+    print(response);
+} catch on DioException (e) {
+    print('Exception when calling DefaultApi->bridgeWhoami: $e\n');
+}
+```
+
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+ **provider** | **String**|  | 
+
+### Return type
+
+[**BridgeWhoamiResponse**](BridgeWhoamiResponse.md)
+
+### Authorization
+
+[bearerAuth](../README.md#bearerAuth)
+
+### HTTP request headers
+
+ - **Content-Type**: Not defined
+ - **Accept**: application/json
 
 [[Back to top]](#) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to Model list]](../README.md#documentation-for-models) [[Back to README]](../README.md)
 
@@ -534,6 +755,8 @@ Name | Type | Description  | Notes
 > BuiltList<BridgeConnection> getConnections()
 
 List bridge connections for current user
+
+Returns zero or more connection entries per provider. Providers that support multi-account logins will return multiple items with the same `provider` value, one per account. 
 
 ### Example
 ```dart
