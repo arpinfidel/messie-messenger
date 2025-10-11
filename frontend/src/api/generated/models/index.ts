@@ -1,9 +1,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export * from './AuthResponse';
+export * from './BridgeConnection';
+export * from './BridgeConnectionAccount';
 export * from './CollaboratorDetail';
-export * from './EmailLoginRequest';
 export * from './EmailListRequest';
+export * from './EmailLoginRequest';
 export * from './EmailMessageHeader';
 export * from './EmailMessagesResponse';
 export * from './EmailRichHeader';
@@ -21,3 +23,6 @@ export * from './TodoList';
 export * from './UpdateTodoItem';
 export * from './UpdateTodoList';
 export * from './User';
+export * from './WAStartResponse';
+export * from './WAStatusResponse';
+export * from './WAStatusResponseAccount';

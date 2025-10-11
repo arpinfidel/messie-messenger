@@ -15,9 +15,10 @@
 import * as runtime from '../runtime';
 import type {
   AuthResponse,
+  BridgeConnection,
   CollaboratorDetail,
-  EmailLoginRequest,
   EmailListRequest,
+  EmailLoginRequest,
   EmailMessagesResponse,
   EmailRichHeadersResponse,
   LoginRequest,
@@ -36,11 +37,14 @@ import type {
 import {
   AuthResponseFromJSON,
   AuthResponseToJSON,
+  BridgeConnectionFromJSON,
+  BridgeConnectionToJSON,
   CollaboratorDetailFromJSON,
   CollaboratorDetailToJSON,
+  EmailListRequestFromJSON,
+  EmailListRequestToJSON,
   EmailLoginRequestFromJSON,
   EmailLoginRequestToJSON,
-  EmailListRequestToJSON,
   EmailMessagesResponseFromJSON,
   EmailMessagesResponseToJSON,
   EmailRichHeadersResponseFromJSON,
@@ -102,12 +106,12 @@ export interface EmailImportantRequest {
   emailLoginRequest: EmailLoginRequest;
 }
 
-export interface EmailListPostRequest {
-  emailListRequest: EmailListRequest;
-}
-
 export interface EmailInboxRequest {
   emailLoginRequest: EmailLoginRequest;
+}
+
+export interface EmailListOperationRequest {
+  emailListRequest: EmailListRequest;
 }
 
 export interface EmailLoginTestRequest {
@@ -537,12 +541,13 @@ export class DefaultApi extends runtime.BaseAPI {
   }
 
   /**
-   * List recent important message headers
+   * List recent important message headers (deprecated)
+   * @deprecated
    */
   async emailImportantRaw(
     requestParameters: EmailImportantRequest,
     initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<EmailMessagesResponse>> {
+  ): Promise<runtime.ApiResponse<void>> {
     if (requestParameters['emailLoginRequest'] == null) {
       throw new runtime.RequiredError(
         'emailLoginRequest',
@@ -569,69 +574,18 @@ export class DefaultApi extends runtime.BaseAPI {
       initOverrides
     );
 
-    return new runtime.JSONApiResponse(response, (jsonValue) =>
-      EmailMessagesResponseFromJSON(jsonValue)
-    );
+    return new runtime.VoidApiResponse(response);
   }
 
   /**
-   * List recent important message headers
+   * List recent important message headers (deprecated)
+   * @deprecated
    */
   async emailImportant(
     requestParameters: EmailImportantRequest,
     initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<EmailMessagesResponse> {
-    const response = await this.emailImportantRaw(requestParameters, initOverrides);
-    return await response.value();
-  }
-
-  /**
-   * List recent message headers for a mailbox or flag query
-   */
-  async emailListRaw(
-    requestParameters: EmailListPostRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<EmailMessagesResponse>> {
-    if (requestParameters['emailListRequest'] == null) {
-      throw new runtime.RequiredError(
-        'emailListRequest',
-        'Required parameter "emailListRequest" was null or undefined when calling emailList().'
-      );
-    }
-
-    const queryParameters: any = {};
-
-    const headerParameters: runtime.HTTPHeaders = {};
-
-    headerParameters['Content-Type'] = 'application/json';
-
-    let urlPath = `/email/list`;
-
-    const response = await this.request(
-      {
-        path: urlPath,
-        method: 'POST',
-        headers: headerParameters,
-        query: queryParameters,
-        body: EmailListRequestToJSON(requestParameters['emailListRequest']),
-      },
-      initOverrides
-    );
-
-    return new runtime.JSONApiResponse(response, (jsonValue) =>
-      EmailMessagesResponseFromJSON(jsonValue)
-    );
-  }
-
-  /**
-   * List recent message headers for a mailbox or flag query
-   */
-  async emailList(
-    requestParameters: EmailListPostRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<EmailMessagesResponse> {
-    const response = await this.emailListRaw(requestParameters, initOverrides);
-    return await response.value();
+  ): Promise<void> {
+    await this.emailImportantRaw(requestParameters, initOverrides);
   }
 
   /**
@@ -680,6 +634,55 @@ export class DefaultApi extends runtime.BaseAPI {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<EmailMessagesResponse> {
     const response = await this.emailInboxRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * List recent message headers for a mailbox or flag query
+   */
+  async emailListRaw(
+    requestParameters: EmailListOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<EmailMessagesResponse>> {
+    if (requestParameters['emailListRequest'] == null) {
+      throw new runtime.RequiredError(
+        'emailListRequest',
+        'Required parameter "emailListRequest" was null or undefined when calling emailList().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters['Content-Type'] = 'application/json';
+
+    let urlPath = `/email/list`;
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'POST',
+        headers: headerParameters,
+        query: queryParameters,
+        body: EmailListRequestToJSON(requestParameters['emailListRequest']),
+      },
+      initOverrides
+    );
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      EmailMessagesResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   * List recent message headers for a mailbox or flag query
+   */
+  async emailList(
+    requestParameters: EmailListOperationRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<EmailMessagesResponse> {
+    const response = await this.emailListRaw(requestParameters, initOverrides);
     return await response.value();
   }
 
@@ -837,6 +840,52 @@ export class DefaultApi extends runtime.BaseAPI {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<Array<CollaboratorDetail>> {
     const response = await this.getCollaboratorsRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * List bridge connections for current user
+   */
+  async getConnectionsRaw(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<Array<BridgeConnection>>> {
+    const queryParameters: any = {};
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token('bearerAuth', []);
+
+      if (tokenString) {
+        headerParameters['Authorization'] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/connections`;
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'GET',
+        headers: headerParameters,
+        query: queryParameters,
+      },
+      initOverrides
+    );
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      jsonValue.map(BridgeConnectionFromJSON)
+    );
+  }
+
+  /**
+   * List bridge connections for current user
+   */
+  async getConnections(
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<Array<BridgeConnection>> {
+    const response = await this.getConnectionsRaw(initOverrides);
     return await response.value();
   }
 

@@ -2,7 +2,10 @@ apis/DefaultApi.ts
 apis/index.ts
 index.ts
 models/AuthResponse.ts
+models/BridgeConnection.ts
+models/BridgeConnectionAccount.ts
 models/CollaboratorDetail.ts
+models/EmailListRequest.ts
 models/EmailLoginRequest.ts
 models/EmailMessageHeader.ts
 models/EmailMessagesResponse.ts
@@ -21,5 +24,8 @@ models/TodoList.ts
 models/UpdateTodoItem.ts
 models/UpdateTodoList.ts
 models/User.ts
+models/WAStartResponse.ts
+models/WAStatusResponse.ts
+models/WAStatusResponseAccount.ts
 models/index.ts
 runtime.ts
