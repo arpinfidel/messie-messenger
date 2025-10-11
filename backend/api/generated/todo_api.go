@@ -5,6 +5,8 @@ package generated
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -18,11 +20,116 @@ const (
 	BearerAuthScopes = "bearerAuth.Scopes"
 )
 
+// Defines values for BridgeConnectionStatus.
+const (
+	Connected    BridgeConnectionStatus = "connected"
+	Connecting   BridgeConnectionStatus = "connecting"
+	NotConnected BridgeConnectionStatus = "not_connected"
+)
+
+// Defines values for LoginStepCompleteType.
+const (
+	Complete LoginStepCompleteType = "complete"
+)
+
+// Defines values for LoginStepCookiesType.
+const (
+	LoginStepCookiesTypeCookies LoginStepCookiesType = "cookies"
+)
+
+// Defines values for LoginStepDisplayAndWaitType.
+const (
+	DisplayAndWait LoginStepDisplayAndWaitType = "display_and_wait"
+)
+
+// Defines values for LoginStepUserInputType.
+const (
+	UserInput LoginStepUserInputType = "user_input"
+)
+
+// Defines values for BridgeSubmitLoginStepParamsAction.
+const (
+	BridgeSubmitLoginStepParamsActionCookies        BridgeSubmitLoginStepParamsAction = "cookies"
+	BridgeSubmitLoginStepParamsActionDisplayAndWait BridgeSubmitLoginStepParamsAction = "display_and_wait"
+	BridgeSubmitLoginStepParamsActionUserInput      BridgeSubmitLoginStepParamsAction = "user_input"
+)
+
 // AuthResponse defines model for AuthResponse.
 type AuthResponse struct {
 	// Token JWT token
 	Token string `json:"token"`
 	User  User   `json:"user"`
+}
+
+// BridgeAccount defines model for BridgeAccount.
+type BridgeAccount struct {
+	DisplayName *string `json:"displayName,omitempty"`
+	ExternalId  *string `json:"externalId,omitempty"`
+}
+
+// BridgeConnection defines model for BridgeConnection.
+type BridgeConnection struct {
+	Account  *BridgeAccount          `json:"account,omitempty"`
+	Limits   *map[string]interface{} `json:"limits"`
+	Provider string                  `json:"provider"`
+	Status   BridgeConnectionStatus  `json:"status"`
+}
+
+// BridgeConnectionStatus defines model for BridgeConnection.Status.
+type BridgeConnectionStatus string
+
+// BridgeLoginFlow A login flow that can be used to sign into the remote network.
+type BridgeLoginFlow struct {
+	Description string `json:"description"`
+	Id          string `json:"id"`
+	Name        string `json:"name"`
+}
+
+// BridgeLoginFlowsResponse defines model for BridgeLoginFlowsResponse.
+type BridgeLoginFlowsResponse struct {
+	Flows *[]BridgeLoginFlow `json:"flows,omitempty"`
+}
+
+// BridgeLoginStep defines model for BridgeLoginStep.
+type BridgeLoginStep struct {
+	union json.RawMessage
+}
+
+// BridgeName Info about the bridged network
+type BridgeName struct {
+	BeeperBridgeType *string `json:"beeper_bridge_type,omitempty"`
+	Displayname      string  `json:"displayname"`
+	NetworkIcon      string  `json:"network_icon"`
+	NetworkId        string  `json:"network_id"`
+	NetworkUrl       string  `json:"network_url"`
+}
+
+// BridgeWhoamiLogin Minimal info about an individual login
+type BridgeWhoamiLogin struct {
+	// Id Unique login ID defined by the bridge
+	Id string `json:"id"`
+
+	// Name Human-friendly name of the login
+	Name    string `json:"name"`
+	Profile *struct {
+		DisplayName *string `json:"displayName,omitempty"`
+		ExternalId  *string `json:"externalId,omitempty"`
+	} `json:"profile"`
+
+	// State Optional state label for the login
+	State *string `json:"state,omitempty"`
+}
+
+// BridgeWhoamiResponse Provider metadata and current user logins
+type BridgeWhoamiResponse struct {
+	BridgeBot     *string              `json:"bridge_bot,omitempty"`
+	CommandPrefix *string              `json:"command_prefix,omitempty"`
+	Homeserver    *string              `json:"homeserver,omitempty"`
+	LoginFlows    *[]BridgeLoginFlow   `json:"login_flows,omitempty"`
+	Logins        *[]BridgeWhoamiLogin `json:"logins,omitempty"`
+
+	// Network Info about the bridged network
+	Network *BridgeName `json:"network,omitempty"`
 }
 
 // CollaboratorDetail defines model for CollaboratorDetail.
@@ -37,23 +144,26 @@ type CollaboratorDetail struct {
 	Username string `json:"username"`
 }
 
+// EmailListRequest defines model for EmailListRequest.
+type EmailListRequest struct {
+	AppPassword string              `json:"appPassword"`
+	Email       openapi_types.Email `json:"email"`
+	Host        string              `json:"host"`
+
+	// Mailbox Mailbox name to select (defaults to INBOX when omitted)
+	Mailbox *string `json:"mailbox,omitempty"`
+	Port    int32   `json:"port"`
+
+	// SearchFlags Optional IMAP flags to filter on (e.g. ["\\Flagged"])
+	SearchFlags *[]string `json:"searchFlags,omitempty"`
+}
+
 // EmailLoginRequest defines model for EmailLoginRequest.
 type EmailLoginRequest struct {
 	AppPassword string              `json:"appPassword"`
 	Email       openapi_types.Email `json:"email"`
 	Host        string              `json:"host"`
 	Port        int32               `json:"port"`
-}
-
-// EmailListRequest defines model for EmailListRequest.
-type EmailListRequest struct {
-	EmailLoginRequest
-
-	// Mailbox name to select (defaults to INBOX when omitted)
-	Mailbox *string `json:"mailbox,omitempty"`
-
-	// Optional IMAP flags to filter on (e.g. ["\\Flagged"])
-	SearchFlags []string `json:"searchFlags,omitempty"`
 }
 
 // EmailMessageHeader defines model for EmailMessageHeader.
@@ -94,6 +204,57 @@ type LoginRequest struct {
 	Email    openapi_types.Email `json:"email"`
 	Password string              `json:"password"`
 }
+
+// LoginStepComplete defines model for LoginStepComplete.
+type LoginStepComplete struct {
+	Complete struct {
+		UserLoginId *string `json:"user_login_id,omitempty"`
+	} `json:"complete"`
+	Type LoginStepCompleteType `json:"type"`
+}
+
+// LoginStepCompleteType defines model for LoginStepComplete.Type.
+type LoginStepCompleteType string
+
+// LoginStepCookies defines model for LoginStepCookies.
+type LoginStepCookies struct {
+	Cookies struct {
+		Names *[]string `json:"names,omitempty"`
+	} `json:"cookies"`
+	Type LoginStepCookiesType `json:"type"`
+}
+
+// LoginStepCookiesType defines model for LoginStepCookies.Type.
+type LoginStepCookiesType string
+
+// LoginStepDisplayAndWait defines model for LoginStepDisplayAndWait.
+type LoginStepDisplayAndWait struct {
+	DisplayAndWait struct {
+		Data     *string `json:"data,omitempty"`
+		ImageUrl *string `json:"image_url,omitempty"`
+		Message  *string `json:"message,omitempty"`
+	} `json:"display_and_wait"`
+	Type LoginStepDisplayAndWaitType `json:"type"`
+}
+
+// LoginStepDisplayAndWaitType defines model for LoginStepDisplayAndWait.Type.
+type LoginStepDisplayAndWaitType string
+
+// LoginStepUserInput defines model for LoginStepUserInput.
+type LoginStepUserInput struct {
+	Type      LoginStepUserInputType `json:"type"`
+	UserInput struct {
+		Fields *[]struct {
+			Id     *string `json:"id,omitempty"`
+			Kind   *string `json:"kind,omitempty"`
+			Label  *string `json:"label,omitempty"`
+			Secret *bool   `json:"secret,omitempty"`
+		} `json:"fields,omitempty"`
+	} `json:"user_input"`
+}
+
+// LoginStepUserInputType defines model for LoginStepUserInput.Type.
+type LoginStepUserInputType string
 
 // MatrixAuthResponse defines model for MatrixAuthResponse.
 type MatrixAuthResponse struct {
@@ -201,6 +362,37 @@ type User struct {
 	UpdatedAt *time.Time `json:"updated_at,omitempty"`
 }
 
+// BridgeGetLoginFlowsParams defines parameters for BridgeGetLoginFlows.
+type BridgeGetLoginFlowsParams struct {
+	Provider string `form:"provider" json:"provider"`
+}
+
+// BridgeStartLoginParams defines parameters for BridgeStartLogin.
+type BridgeStartLoginParams struct {
+	Provider string `form:"provider" json:"provider"`
+}
+
+// BridgeSubmitLoginStepJSONBody defines parameters for BridgeSubmitLoginStep.
+type BridgeSubmitLoginStepJSONBody map[string]interface{}
+
+// BridgeSubmitLoginStepParams defines parameters for BridgeSubmitLoginStep.
+type BridgeSubmitLoginStepParams struct {
+	Provider string `form:"provider" json:"provider"`
+}
+
+// BridgeSubmitLoginStepParamsAction defines parameters for BridgeSubmitLoginStep.
+type BridgeSubmitLoginStepParamsAction string
+
+// BridgeLogoutParams defines parameters for BridgeLogout.
+type BridgeLogoutParams struct {
+	Provider string `form:"provider" json:"provider"`
+}
+
+// BridgeWhoamiParams defines parameters for BridgeWhoami.
+type BridgeWhoamiParams struct {
+	Provider string `form:"provider" json:"provider"`
+}
+
 // GetTodoListsByUserIdParams defines parameters for GetTodoListsByUserId.
 type GetTodoListsByUserIdParams struct {
 	// UserId ID of the user to retrieve todo lists for
@@ -210,17 +402,20 @@ type GetTodoListsByUserIdParams struct {
 // PostMatrixAuthJSONRequestBody defines body for PostMatrixAuth for application/json ContentType.
 type PostMatrixAuthJSONRequestBody = MatrixOpenIDRequest
 
+// BridgeSubmitLoginStepJSONRequestBody defines body for BridgeSubmitLoginStep for application/json ContentType.
+type BridgeSubmitLoginStepJSONRequestBody BridgeSubmitLoginStepJSONBody
+
 // EmailHeadersJSONRequestBody defines body for EmailHeaders for application/json ContentType.
 type EmailHeadersJSONRequestBody = EmailLoginRequest
 
 // EmailImportantJSONRequestBody defines body for EmailImportant for application/json ContentType.
 type EmailImportantJSONRequestBody = EmailLoginRequest
 
-// EmailListJSONRequestBody defines body for EmailList for application/json ContentType.
-type EmailListJSONRequestBody = EmailListRequest
-
 // EmailInboxJSONRequestBody defines body for EmailInbox for application/json ContentType.
 type EmailInboxJSONRequestBody = EmailLoginRequest
+
+// EmailListJSONRequestBody defines body for EmailList for application/json ContentType.
+type EmailListJSONRequestBody = EmailListRequest
 
 // EmailLoginTestJSONRequestBody defines body for EmailLoginTest for application/json ContentType.
 type EmailLoginTestJSONRequestBody = EmailLoginRequest
@@ -249,23 +444,190 @@ type CreateTodoItemJSONRequestBody = NewTodoItem
 // UpdateTodoItemJSONRequestBody defines body for UpdateTodoItem for application/json ContentType.
 type UpdateTodoItemJSONRequestBody = UpdateTodoItem
 
+// AsLoginStepDisplayAndWait returns the union data inside the BridgeLoginStep as a LoginStepDisplayAndWait
+func (t BridgeLoginStep) AsLoginStepDisplayAndWait() (LoginStepDisplayAndWait, error) {
+	var body LoginStepDisplayAndWait
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromLoginStepDisplayAndWait overwrites any union data inside the BridgeLoginStep as the provided LoginStepDisplayAndWait
+func (t *BridgeLoginStep) FromLoginStepDisplayAndWait(v LoginStepDisplayAndWait) error {
+	v.Type = "display_and_wait"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeLoginStepDisplayAndWait performs a merge with any union data inside the BridgeLoginStep, using the provided LoginStepDisplayAndWait
+func (t *BridgeLoginStep) MergeLoginStepDisplayAndWait(v LoginStepDisplayAndWait) error {
+	v.Type = "display_and_wait"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsLoginStepUserInput returns the union data inside the BridgeLoginStep as a LoginStepUserInput
+func (t BridgeLoginStep) AsLoginStepUserInput() (LoginStepUserInput, error) {
+	var body LoginStepUserInput
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromLoginStepUserInput overwrites any union data inside the BridgeLoginStep as the provided LoginStepUserInput
+func (t *BridgeLoginStep) FromLoginStepUserInput(v LoginStepUserInput) error {
+	v.Type = "user_input"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeLoginStepUserInput performs a merge with any union data inside the BridgeLoginStep, using the provided LoginStepUserInput
+func (t *BridgeLoginStep) MergeLoginStepUserInput(v LoginStepUserInput) error {
+	v.Type = "user_input"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsLoginStepCookies returns the union data inside the BridgeLoginStep as a LoginStepCookies
+func (t BridgeLoginStep) AsLoginStepCookies() (LoginStepCookies, error) {
+	var body LoginStepCookies
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromLoginStepCookies overwrites any union data inside the BridgeLoginStep as the provided LoginStepCookies
+func (t *BridgeLoginStep) FromLoginStepCookies(v LoginStepCookies) error {
+	v.Type = "cookies"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeLoginStepCookies performs a merge with any union data inside the BridgeLoginStep, using the provided LoginStepCookies
+func (t *BridgeLoginStep) MergeLoginStepCookies(v LoginStepCookies) error {
+	v.Type = "cookies"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+// AsLoginStepComplete returns the union data inside the BridgeLoginStep as a LoginStepComplete
+func (t BridgeLoginStep) AsLoginStepComplete() (LoginStepComplete, error) {
+	var body LoginStepComplete
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromLoginStepComplete overwrites any union data inside the BridgeLoginStep as the provided LoginStepComplete
+func (t *BridgeLoginStep) FromLoginStepComplete(v LoginStepComplete) error {
+	v.Type = "complete"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeLoginStepComplete performs a merge with any union data inside the BridgeLoginStep, using the provided LoginStepComplete
+func (t *BridgeLoginStep) MergeLoginStepComplete(v LoginStepComplete) error {
+	v.Type = "complete"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t BridgeLoginStep) Discriminator() (string, error) {
+	var discriminator struct {
+		Discriminator string `json:"type"`
+	}
+	err := json.Unmarshal(t.union, &discriminator)
+	return discriminator.Discriminator, err
+}
+
+func (t BridgeLoginStep) ValueByDiscriminator() (interface{}, error) {
+	discriminator, err := t.Discriminator()
+	if err != nil {
+		return nil, err
+	}
+	switch discriminator {
+	case "complete":
+		return t.AsLoginStepComplete()
+	case "cookies":
+		return t.AsLoginStepCookies()
+	case "display_and_wait":
+		return t.AsLoginStepDisplayAndWait()
+	case "user_input":
+		return t.AsLoginStepUserInput()
+	default:
+		return nil, errors.New("unknown discriminator value: " + discriminator)
+	}
+}
+
+func (t BridgeLoginStep) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *BridgeLoginStep) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
+
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// Authenticate using Matrix OpenID
 	// (POST /auth/matrix/openid)
 	PostMatrixAuth(w http.ResponseWriter, r *http.Request)
+	// Get available login flows for a provider
+	// (GET /bridge/provision/v3/login/flows)
+	BridgeGetLoginFlows(w http.ResponseWriter, r *http.Request, params BridgeGetLoginFlowsParams)
+	// Start a login process for a provider
+	// (POST /bridge/provision/v3/login/start/{flow})
+	BridgeStartLogin(w http.ResponseWriter, r *http.Request, flow string, params BridgeStartLoginParams)
+	// Submit a login step
+	// (POST /bridge/provision/v3/login/step/{process_id}/{step_id}/{action})
+	BridgeSubmitLoginStep(w http.ResponseWriter, r *http.Request, processId string, stepId string, action BridgeSubmitLoginStepParamsAction, params BridgeSubmitLoginStepParams)
+	// Log out a specific login or all
+	// (POST /bridge/provision/v3/logout/{login_id})
+	BridgeLogout(w http.ResponseWriter, r *http.Request, loginId string, params BridgeLogoutParams)
+	// Get provider-specific whoami with logins
+	// (GET /bridge/provision/v3/whoami)
+	BridgeWhoami(w http.ResponseWriter, r *http.Request, params BridgeWhoamiParams)
+	// List bridge connections for current user
+	// (GET /connections)
+	GetConnections(w http.ResponseWriter, r *http.Request)
 	// List recent email headers with threading metadata
 	// (POST /email/headers)
 	EmailHeaders(w http.ResponseWriter, r *http.Request)
-	// List recent important message headers
+	// List recent important message headers (deprecated)
 	// (POST /email/important)
 	EmailImportant(w http.ResponseWriter, r *http.Request)
-	// List recent message headers for a mailbox or flag query
-	// (POST /email/list)
-	EmailList(w http.ResponseWriter, r *http.Request)
 	// List recent inbox message headers
 	// (POST /email/inbox)
 	EmailInbox(w http.ResponseWriter, r *http.Request)
+	// List recent message headers for a mailbox or flag query
+	// (POST /email/list)
+	EmailList(w http.ResponseWriter, r *http.Request)
 	// Test email login and fetch recent message headers
 	// (POST /email/login-test)
 	EmailLoginTest(w http.ResponseWriter, r *http.Request)
@@ -335,27 +697,63 @@ func (_ Unimplemented) PostMatrixAuth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Get available login flows for a provider
+// (GET /bridge/provision/v3/login/flows)
+func (_ Unimplemented) BridgeGetLoginFlows(w http.ResponseWriter, r *http.Request, params BridgeGetLoginFlowsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Start a login process for a provider
+// (POST /bridge/provision/v3/login/start/{flow})
+func (_ Unimplemented) BridgeStartLogin(w http.ResponseWriter, r *http.Request, flow string, params BridgeStartLoginParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Submit a login step
+// (POST /bridge/provision/v3/login/step/{process_id}/{step_id}/{action})
+func (_ Unimplemented) BridgeSubmitLoginStep(w http.ResponseWriter, r *http.Request, processId string, stepId string, action BridgeSubmitLoginStepParamsAction, params BridgeSubmitLoginStepParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Log out a specific login or all
+// (POST /bridge/provision/v3/logout/{login_id})
+func (_ Unimplemented) BridgeLogout(w http.ResponseWriter, r *http.Request, loginId string, params BridgeLogoutParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get provider-specific whoami with logins
+// (GET /bridge/provision/v3/whoami)
+func (_ Unimplemented) BridgeWhoami(w http.ResponseWriter, r *http.Request, params BridgeWhoamiParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List bridge connections for current user
+// (GET /connections)
+func (_ Unimplemented) GetConnections(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List recent email headers with threading metadata
 // (POST /email/headers)
 func (_ Unimplemented) EmailHeaders(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// List recent important message headers
+// List recent important message headers (deprecated)
 // (POST /email/important)
 func (_ Unimplemented) EmailImportant(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// List recent message headers for a mailbox or flag query
-// (POST /email/list)
-func (_ Unimplemented) EmailList(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
 // List recent inbox message headers
 // (POST /email/inbox)
 func (_ Unimplemented) EmailInbox(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List recent message headers for a mailbox or flag query
+// (POST /email/list)
+func (_ Unimplemented) EmailList(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -496,6 +894,271 @@ func (siw *ServerInterfaceWrapper) PostMatrixAuth(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// BridgeGetLoginFlows operation middleware
+func (siw *ServerInterfaceWrapper) BridgeGetLoginFlows(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params BridgeGetLoginFlowsParams
+
+	// ------------- Required query parameter "provider" -------------
+
+	if paramValue := r.URL.Query().Get("provider"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "provider"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "provider", r.URL.Query(), &params.Provider)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BridgeGetLoginFlows(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// BridgeStartLogin operation middleware
+func (siw *ServerInterfaceWrapper) BridgeStartLogin(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "flow" -------------
+	var flow string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "flow", chi.URLParam(r, "flow"), &flow, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "flow", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params BridgeStartLoginParams
+
+	// ------------- Required query parameter "provider" -------------
+
+	if paramValue := r.URL.Query().Get("provider"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "provider"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "provider", r.URL.Query(), &params.Provider)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BridgeStartLogin(w, r, flow, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// BridgeSubmitLoginStep operation middleware
+func (siw *ServerInterfaceWrapper) BridgeSubmitLoginStep(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "process_id" -------------
+	var processId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "process_id", chi.URLParam(r, "process_id"), &processId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "process_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "step_id" -------------
+	var stepId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "step_id", chi.URLParam(r, "step_id"), &stepId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "step_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "action" -------------
+	var action BridgeSubmitLoginStepParamsAction
+
+	err = runtime.BindStyledParameterWithOptions("simple", "action", chi.URLParam(r, "action"), &action, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params BridgeSubmitLoginStepParams
+
+	// ------------- Required query parameter "provider" -------------
+
+	if paramValue := r.URL.Query().Get("provider"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "provider"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "provider", r.URL.Query(), &params.Provider)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BridgeSubmitLoginStep(w, r, processId, stepId, action, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// BridgeLogout operation middleware
+func (siw *ServerInterfaceWrapper) BridgeLogout(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "login_id" -------------
+	var loginId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "login_id", chi.URLParam(r, "login_id"), &loginId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "login_id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params BridgeLogoutParams
+
+	// ------------- Required query parameter "provider" -------------
+
+	if paramValue := r.URL.Query().Get("provider"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "provider"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "provider", r.URL.Query(), &params.Provider)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BridgeLogout(w, r, loginId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// BridgeWhoami operation middleware
+func (siw *ServerInterfaceWrapper) BridgeWhoami(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params BridgeWhoamiParams
+
+	// ------------- Required query parameter "provider" -------------
+
+	if paramValue := r.URL.Query().Get("provider"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "provider"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "provider", r.URL.Query(), &params.Provider)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BridgeWhoami(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetConnections operation middleware
+func (siw *ServerInterfaceWrapper) GetConnections(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetConnections(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // EmailHeaders operation middleware
 func (siw *ServerInterfaceWrapper) EmailHeaders(w http.ResponseWriter, r *http.Request) {
 
@@ -524,11 +1187,11 @@ func (siw *ServerInterfaceWrapper) EmailImportant(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
-// EmailList operation middleware
-func (siw *ServerInterfaceWrapper) EmailList(w http.ResponseWriter, r *http.Request) {
+// EmailInbox operation middleware
+func (siw *ServerInterfaceWrapper) EmailInbox(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.EmailList(w, r)
+		siw.Handler.EmailInbox(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -538,11 +1201,11 @@ func (siw *ServerInterfaceWrapper) EmailList(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
-// EmailInbox operation middleware
-func (siw *ServerInterfaceWrapper) EmailInbox(w http.ResponseWriter, r *http.Request) {
+// EmailList operation middleware
+func (siw *ServerInterfaceWrapper) EmailList(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.EmailInbox(w, r)
+		siw.Handler.EmailList(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1213,16 +1876,34 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/auth/matrix/openid", wrapper.PostMatrixAuth)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/bridge/provision/v3/login/flows", wrapper.BridgeGetLoginFlows)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/bridge/provision/v3/login/start/{flow}", wrapper.BridgeStartLogin)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/bridge/provision/v3/login/step/{process_id}/{step_id}/{action}", wrapper.BridgeSubmitLoginStep)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/bridge/provision/v3/logout/{login_id}", wrapper.BridgeLogout)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/bridge/provision/v3/whoami", wrapper.BridgeWhoami)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/connections", wrapper.GetConnections)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/email/headers", wrapper.EmailHeaders)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/email/important", wrapper.EmailImportant)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/email/list", wrapper.EmailList)
+		r.Post(options.BaseURL+"/email/inbox", wrapper.EmailInbox)
 	})
 	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/email/inbox", wrapper.EmailInbox)
+		r.Post(options.BaseURL+"/email/list", wrapper.EmailList)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/email/login-test", wrapper.EmailLoginTest)

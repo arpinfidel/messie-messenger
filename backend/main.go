@@ -1,9 +1,10 @@
 package main
 
 import (
-	"log"
-	"net/http"
-	"os"
+    "context"
+    "log"
+    "net/http"
+    "os"
 
 	"messenger/backend/api/generated"
 	"messenger/backend/pkg/auth"
@@ -16,17 +17,21 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	// Added for uuid.Parse
+    "github.com/google/uuid"
 
 	emailHandler "messenger/backend/internal/email/handler"
+	bridgeEntity "messenger/backend/internal/bridge/entity"
+	bridgeRepo "messenger/backend/internal/bridge/repository"
+	waHandler "messenger/backend/internal/wa/handler"
+	waProvider "messenger/backend/internal/wa/provider"
 	todoEntity "messenger/backend/internal/todo/entity"
 	"messenger/backend/internal/todo/repository"
 	"messenger/backend/internal/todo/todohandler"
 	"messenger/backend/internal/todo/usecase"
 	userEntity "messenger/backend/internal/user/entity"
 	authHandler "messenger/backend/internal/user/handler"
-	userRepo "messenger/backend/internal/user/repository"
-	authUsecase "messenger/backend/internal/user/usecase"
+    userRepo "messenger/backend/internal/user/repository"
+    authUsecase "messenger/backend/internal/user/usecase"
 )
 
 func main() {
@@ -102,14 +107,44 @@ func main() {
 	emailH := emailHandler.NewEmailHandler()
 	log.Printf("Email Handler initialized.")
 
+	// AutoMigrate bridge-related models
+	log.Printf("Auto-migrating bridge models...")
+	if err := db.AutoMigrate(&bridgeEntity.Provider{}, &bridgeEntity.UserBridgeAccount{}, &bridgeEntity.BridgePairing{}, &bridgeEntity.Plan{}, &bridgeEntity.PlanLimit{}, &bridgeEntity.UserPlanOverride{}, &bridgeEntity.UsageCounter{}, &bridgeEntity.UserPlan{}); err != nil {
+		log.Fatalf("Failed to auto-migrate bridge models: %v", err)
+	}
+	log.Printf("Bridge models migrated.")
+
+	// Ensure WA provider exists
+	brepo := bridgeRepo.NewRepo(db)
+	waProv, err := brepo.EnsureProvider(context.Background(), "whatsapp", "WhatsApp")
+	if err != nil {
+		log.Fatalf("Failed to ensure WA provider: %v", err)
+	}
+
+	// Seed default plan and limits (dev defaults): free plan with WA max_accounts=1
+	if err := seedDefaultPlans(db, waProv.ID); err != nil {
+		log.Fatalf("Failed to seed default plans: %v", err)
+	}
+
+	// Configure WA provider adapter from env (with sane defaults for dev)
+	waBaseURL := os.Getenv("WA_BRIDGE_BASE_URL")
+	if waBaseURL == "" { waBaseURL = "http://mautrix-whatsapp:29319" }
+	waSecret := os.Getenv("WA_BRIDGE_SHARED_SECRET") // must match bridge provisioning.shared_secret
+	if waSecret == "" {
+		log.Printf("WARNING: WA_BRIDGE_SHARED_SECRET is empty; WA adapter will not authenticate against provisioning API.")
+	}
+	waAdapter := waProvider.New(waBaseURL, waSecret)
+
 	handlers := struct {
 		*authHandler.AuthHandler
 		*todohandler.TodoHandler
 		*emailHandler.EmailHandler
+		*waHandler.WAHandler
 	}{
 		AuthHandler:  authH,
 		TodoHandler:  todoH,
 		EmailHandler: emailH,
+		WAHandler:    waHandler.NewWAHandler(brepo, waAdapter, waProv.ID, userRepository),
 	}
 
 	// Setup Chi router
@@ -130,11 +165,19 @@ func main() {
 	r.Mount("/api/v1", h)
 	log.Printf("API routes registered at /api/v1.")
 
-	// Start HTTP server
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
+    // Provisioning endpoints are defined in docs/openapi.yaml.
+    // Ensure 'make gen-be' is run to mount them through the generated router.
+
+    // Start HTTP server
+    r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
+        w.WriteHeader(http.StatusOK)
+        _, _ = w.Write([]byte("ok"))
+    })
+    // Convenience: expose health under /api/v1 for mobile clients using the API base path
+    r.Get("/api/v1/health", func(w http.ResponseWriter, r *http.Request) {
+        w.WriteHeader(http.StatusOK)
+        _, _ = w.Write([]byte("ok"))
+    })
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -144,4 +187,21 @@ func main() {
 	if err := http.ListenAndServe(":"+port, r); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
+}
+
+// seedDefaultPlans ensures a default "free" plan exists with WA max_accounts=1
+func seedDefaultPlans(db *gorm.DB, waProviderID uuid.UUID) error {
+    // ensure free plan
+    var plan bridgeEntity.Plan
+    if err := db.Where("key = ?", "free").First(&plan).Error; err != nil {
+        plan = bridgeEntity.Plan{Key: "free", Name: "Free"}
+        if err := db.Create(&plan).Error; err != nil { return err }
+    }
+    // ensure plan limit for WA max_accounts=1
+    var pl bridgeEntity.PlanLimit
+    if err := db.Where("plan_id = ? AND provider_id = ? AND limit_key = ?", plan.ID, waProviderID, "max_accounts").First(&pl).Error; err != nil {
+        pl = bridgeEntity.PlanLimit{PlanID: plan.ID, ProviderID: &waProviderID, LimitKey: "max_accounts", Value: 1}
+        if err := db.Create(&pl).Error; err != nil { return err }
+    }
+    return nil
 }

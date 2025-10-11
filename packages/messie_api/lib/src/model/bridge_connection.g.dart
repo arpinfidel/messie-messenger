@@ -73,7 +73,7 @@ class _$BridgeConnection extends BridgeConnection {
   @override
   final BridgeConnectionStatusEnum status;
   @override
-  final BridgeConnectionAccount? account;
+  final BridgeAccount? account;
   @override
   final BuiltMap<String, JsonObject?>? limits;
 
@@ -136,11 +136,10 @@ class BridgeConnectionBuilder
   BridgeConnectionStatusEnum? get status => _$this._status;
   set status(BridgeConnectionStatusEnum? status) => _$this._status = status;
 
-  BridgeConnectionAccountBuilder? _account;
-  BridgeConnectionAccountBuilder get account =>
-      _$this._account ??= BridgeConnectionAccountBuilder();
-  set account(BridgeConnectionAccountBuilder? account) =>
-      _$this._account = account;
+  BridgeAccountBuilder? _account;
+  BridgeAccountBuilder get account =>
+      _$this._account ??= BridgeAccountBuilder();
+  set account(BridgeAccountBuilder? account) => _$this._account = account;
 
   MapBuilder<String, JsonObject?>? _limits;
   MapBuilder<String, JsonObject?> get limits =>

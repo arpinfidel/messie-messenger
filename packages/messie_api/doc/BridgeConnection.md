@@ -10,7 +10,7 @@ Name | Type | Description | Notes
 ------------ | ------------- | ------------- | -------------
 **provider** | **String** |  | 
 **status** | **String** |  | 
-**account** | [**BridgeConnectionAccount**](BridgeConnectionAccount.md) |  | [optional] 
+**account** | [**BridgeAccount**](BridgeAccount.md) |  | [optional] 
 **limits** | [**BuiltMap&lt;String, JsonObject&gt;**](JsonObject.md) |  | [optional] 
 
 [[Back to Model list]](../README.md#documentation-for-models) [[Back to API list]](../README.md#documentation-for-api-endpoints) [[Back to README]](../README.md)

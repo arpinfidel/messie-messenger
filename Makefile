@@ -5,6 +5,8 @@ ARGS = $(filter-out $@,$(MAKECMDGOALS))
 MATRIX_SERVER_URL ?= http://localhost:8008
 MATRIX_SERVER_NAME ?= messie.localhost
 MATRIX_REGISTRATION_SHARED_SECRET ?= dev_matrix_shared_secret
+MATRIX_REPORT_STATS ?= no
+MATRIX_ENABLE_REGISTRATION ?= true
 
 MATRIX_SEED_ADMIN_USER ?= bridge-admin
 MATRIX_SEED_ADMIN_PASSWORD ?= bridgeAdminPass!
@@ -20,6 +22,10 @@ MATRIX_SEED_STATE_MOUNT ?= scripts/matrix/.state
 MATRIX_SEED_STATE_DIR ?= scripts/matrix/.state
 # Absolute path used by the local seeder to avoid nested prefixes
 SEED_STATE_DIR_ABS := $(CURDIR)/$(MATRIX_SEED_STATE_DIR)
+
+# Backend API base URL for Flutter (used via --dart-define)
+# For Android emulator, 10.0.2.2 points to host loopback. Override for iOS/desktop if needed.
+APP_API_BASE_URL ?= http://10.0.2.2:8080/api/v1
 
 STACK ?= dev
 COMPOSE = docker compose -f docker-compose.$(STACK).yml
@@ -45,7 +51,6 @@ build:
 	$(COMPOSE) build $(ARGS)
 
 rebuild:
-	$(COMPOSE) up -d $(ARGS)
 	$(COMPOSE) up --build -d $(ARGS)
 
 ps:
@@ -72,13 +77,13 @@ flutter-run-android:
 	make bridge-build-android
 	cd app && flutter pub get
 	cd app && flutter gen-l10n
-	cd app && flutter run -d emulator-5554
+	cd app && flutter run -d emulator-5554 --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
 
 flutter-run-ios:
 	# Ensure Rust iOS/macOS libraries are built (if needed for your flow)
 	make bridge-build-ios
 	cd app && flutter pub get
-	cd app && flutter run -d ios
+	cd app && flutter run -d ios --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
 
 test-e2e-codegen:
 	cd frontend && npm run test:e2e:codegen
@@ -117,10 +122,7 @@ bridge-wa-generate-registration:
 bridge-wa-install-config:
 	@echo "Installing WhatsApp bridge config and registration into Docker volume..."
 	@vol=$$(basename $$(pwd))_whatsapp_data; \
-	CFG=infra/mautrix-whatsapp/config.min.yaml; \
-	if [ ! -f $$CFG ]; then \
-	  CFG=infra/mautrix-whatsapp/config.yaml; \
-	fi; \
+	CFG=infra/mautrix-whatsapp/config.yaml; \
 	if [ ! -f infra/mautrix-whatsapp/registration.yaml ]; then \
 	  echo "Missing infra/mautrix-whatsapp/registration.yaml. Run: make bridge-wa-generate-registration"; exit 2; \
 	fi; \
@@ -175,10 +177,7 @@ bridge-wa-clean:
 bridge-wa-install-config-safe:
 	@echo "Installing WhatsApp bridge config and registration into Docker volume (safe)..."
 	@vol=$$(basename $$(pwd))_whatsapp_data; \
-	CFG=infra/mautrix-whatsapp/config.min.yaml; \
-	if [ ! -f $$CFG ]; then \
-	  CFG=infra/mautrix-whatsapp/config.yaml; \
-	fi; \
+	CFG=infra/mautrix-whatsapp/config.yaml; \
 	if [ ! -f infra/mautrix-whatsapp/registration.yaml ]; then \
 	  echo "Missing infra/mautrix-whatsapp/registration.yaml. Run: make bridge-wa-generate-registration"; exit 2; \
 	fi; \
@@ -210,6 +209,12 @@ matrix-snapshot-restore:
 matrix-snapshot-delete:
 	bash ./scripts/matrix/snapshots.sh delete $(ARGS)
 
+# Force Synapse to regenerate /data/homeserver.yaml by deleting it from the volume.
+.PHONY: matrix-reset-config
+matrix-reset-config:
+	@echo "Removing /data/homeserver.yaml from matrix_data volume to force regen..."
+	@vol=$$(basename $$(pwd))_matrix_data; \
+	docker run --rm -v $$vol:/data alpine:3.20 sh -lc 'rm -f /data/homeserver.yaml && echo "Deleted /data/homeserver.yaml"'
 
 matrix-register:
 	@if [ -z "$(ARGS)" ]; then \
@@ -325,7 +330,7 @@ psql:
 
 gen-fe:
 	@echo "Generating frontend API client..."
-	cd frontend && openapi-generator-cli generate -i ../docs/openapi.yaml -g typescript-fetch -o src/api/generated
+	cd frontend && npx openapi-generator-cli generate -i ../docs/openapi.yaml -g typescript-fetch -o src/api/generated
 	cd frontend && npx prettier --write src/api/generated
 
 gen-be:
@@ -334,6 +339,48 @@ gen-be:
 
 gen: gen-fe gen-be
 	@echo "Code generation complete."
+
+# (removed) client codegen targets for mautrix; sticking to manual adapter for now
+
+# ------- Bridge Provisioning quick tests (dev) -------
+.PHONY: bridge-wa-provision-test-start bridge-wa-provision-test-list bridge-wa-provision-test-unlink
+WA_BRIDGE_URL ?= http://mautrix-whatsapp:29319
+WA_PROV_SECRET ?= TqVJ7k4v2YcZp3xJw9Lm6sAbN2qR8fH5dC1eG7yK0mP4rU6t
+WA_PROVISION_USER ?= $(MATRIX_SEED_ADMIN_USER)
+
+bridge-wa-provision-test-start:
+	@echo "Starting WA QR login via provisioning v3..."
+	$(COMPOSE_MATRIX) exec -T mautrix-whatsapp sh -lc "wget -qO- --header 'Authorization: Bearer $(WA_PROV_SECRET)' --header 'Content-Type: application/json' --post-data='{}' \
+	  '$(WA_BRIDGE_URL)/_matrix/provision/v3/login/start/qr?user_id=@$(WA_PROVISION_USER):$(MATRIX_SERVER_NAME)'" | jq .
+
+bridge-wa-provision-test-list:
+	@echo "Listing WA logins (IDs) via provisioning v3..."
+	$(COMPOSE_MATRIX) exec -T mautrix-whatsapp sh -lc "wget -qO- --header 'Authorization: Bearer $(WA_PROV_SECRET)' \
+	  '$(WA_BRIDGE_URL)/_matrix/provision/v3/logins?user_id=@$(WA_PROVISION_USER):$(MATRIX_SERVER_NAME)'" | jq .
+
+.PHONY: bridge-wa-provision-test-whoami bridge-wa-provision-test-flows
+bridge-wa-provision-test-whoami:
+	@echo "Whoami (details + states) via provisioning v3..."
+	$(COMPOSE_MATRIX) exec -T mautrix-whatsapp sh -lc "wget -qO- --header 'Authorization: Bearer $(WA_PROV_SECRET)' \
+	  '$(WA_BRIDGE_URL)/_matrix/provision/v3/whoami?user_id=@$(WA_PROVISION_USER):$(MATRIX_SERVER_NAME)'" | jq .
+
+bridge-wa-provision-test-flows:
+	@echo "Login flows via provisioning v3..."
+	$(COMPOSE_MATRIX) exec -T mautrix-whatsapp sh -lc "wget -qO- --header 'Authorization: Bearer $(WA_PROV_SECRET)' \
+	  '$(WA_BRIDGE_URL)/_matrix/provision/v3/login/flows?user_id=@$(WA_PROVISION_USER):$(MATRIX_SERVER_NAME)'" | jq .
+
+bridge-wa-provision-test-unlink:
+	@echo "Logging out WA session via provisioning v3... SESSION_ID=<id> make bridge-wa-provision-test-unlink"
+	$(COMPOSE_MATRIX) exec -T mautrix-whatsapp sh -lc "wget -qO- --header 'Authorization: Bearer $(WA_PROV_SECRET)' --post-data='' \
+	  '$(WA_BRIDGE_URL)/_matrix/provision/v3/logout/$(SESSION_ID)?user_id=@$(WA_PROVISION_USER):$(MATRIX_SERVER_NAME)'" | jq .
+
+# Generate Flutter (Dart) API client from OpenAPI
+.PHONY: gen-app
+gen-app:
+	@echo "Generating Flutter (Dart) API client as a standalone package..."
+	mkdir -p packages
+	cd frontend && npx openapi-generator-cli generate -i ../docs/openapi.yaml -g dart-dio -o ../packages/messie_api --additional-properties=pubName=messie_api,pubLibrary=messie_api
+	cd packages/messie_api && flutter pub get && dart run build_runner build --delete-conflicting-outputs
 
 # -------- FRB bindings & native builds --------
 bridge-generate:
@@ -344,3 +391,13 @@ bridge-build-android:
 
 bridge-build-ios:
 	./bindings/ios/build.sh
+app-dev:
+	@echo "Generating API client, resolving deps, and running Flutter (Android emulator)..."
+	$(MAKE) gen-app
+	cd app && flutter pub get
+	cd app && flutter gen-l10n
+	cd app && flutter run -d emulator-5554 --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+backend-tidy:
+	@echo "Tidying Go modules inside backend container..."
+	$(COMPOSE) exec -T backend sh -lc 'cd /backend && go mod tidy && go mod download'
+	@echo "Done. If files changed, update your local repo (bind-mount overwrites container files)."

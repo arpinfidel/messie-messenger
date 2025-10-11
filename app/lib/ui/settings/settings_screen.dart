@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../main.dart';
@@ -455,6 +456,13 @@ class SettingsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
+        actions: [
+          IconButton(
+            tooltip: 'Bridges & Connections',
+            onPressed: () => context.push('/connections'),
+            icon: const Icon(Icons.link_rounded),
+          ),
+        ],
       ),
       body: DecoratedBox(
         decoration: BoxDecoration(

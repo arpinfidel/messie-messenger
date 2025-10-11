@@ -17,6 +17,11 @@ services:
       PORT: ${BACKEND_PORT:-8080}
       DATABASE_URL: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-todo_db}?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-supersecretjwtkey}
+      DEV_MATRIX_SERVER_NAME: ${MATRIX_SERVER_NAME:-messie.localhost}
+      DEV_MATRIX_FED_BASE: ${DEV_MATRIX_FED_BASE:-http://matrix:8008}
+      # WhatsApp bridge provisioning API (dev defaults)
+      WA_BRIDGE_BASE_URL: ${WA_BRIDGE_BASE_URL:-http://mautrix-whatsapp:29319}
+      WA_BRIDGE_SHARED_SECRET: ${WA_BRIDGE_SHARED_SECRET:-TqVJ7k4v2YcZp3xJw9Lm6sAbN2qR8fH5dC1eG7yK0mP4rU6t}
     volumes:
       - ./backend:/backend
       - go-mod-cache:/go/pkg/mod
@@ -42,7 +47,13 @@ services:
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:5173', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:5173', r => process.exit(r.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
       interval: 5s
       timeout: 3s
       retries: 50
@@ -57,8 +68,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-      frontend:
-        condition: service_healthy
+      # frontend:
+      #   condition: service_healthy
     restart: unless-stopped
 
   matrix:
@@ -73,14 +84,25 @@ services:
       SYNAPSE_ADDITIONAL_CONFIG_DIR: /etc/synapse/conf.d
       UID: "991"
       GID: "991"
+      # Ensure local spam-checker module is importable regardless of python_paths merge order
+      PYTHONPATH: /data/custom_modules
     volumes:
       - matrix_data:/data
+      # Mount explicit homeserver config to avoid generation merge issues
+      - ./infra/matrix/homeserver.dev.yaml:/data/homeserver.yaml:ro
       - ./infra/matrix/conf.d:/etc/synapse/conf.d:ro
+      # Custom Synapse modules mounted under /data for python_paths
+      - ./infra/matrix/modules:/data/custom_modules:ro
       # Appservice registrations are mounted inside /data/appservices
       - ./infra/mautrix-whatsapp/registration.yaml:/data/appservices/whatsapp-registration.yaml:ro
+      - ./infra/matrix/appservices/doublepuppet-registration.yaml:/data/appservices/doublepuppet-registration.yaml:ro
     ports:
       - "${MATRIX_PORT:-8008}:8008"
     restart: unless-stopped
+    networks:
+      default:
+        aliases:
+          - ${MATRIX_SERVER_NAME:-messie.localhost}
 
   mautrix-whatsapp:
     image: dock.mau.dev/mautrix/whatsapp:latest

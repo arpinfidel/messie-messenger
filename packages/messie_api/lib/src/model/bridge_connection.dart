@@ -3,8 +3,8 @@
 //
 
 // ignore_for_file: unused_element
+import 'package:messie_api/src/model/bridge_account.dart';
 import 'package:built_collection/built_collection.dart';
-import 'package:messie_api/src/model/bridge_connection_account.dart';
 import 'package:built_value/json_object.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -28,7 +28,7 @@ abstract class BridgeConnection implements Built<BridgeConnection, BridgeConnect
   // enum statusEnum {  not_connected,  connecting,  connected,  };
 
   @BuiltValueField(wireName: r'account')
-  BridgeConnectionAccount? get account;
+  BridgeAccount? get account;
 
   @BuiltValueField(wireName: r'limits')
   BuiltMap<String, JsonObject?>? get limits;
@@ -70,7 +70,7 @@ class _$BridgeConnectionSerializer implements PrimitiveSerializer<BridgeConnecti
       yield r'account';
       yield serializers.serialize(
         object.account,
-        specifiedType: const FullType.nullable(BridgeConnectionAccount),
+        specifiedType: const FullType(BridgeAccount),
       );
     }
     if (object.limits != null) {
@@ -120,9 +120,8 @@ class _$BridgeConnectionSerializer implements PrimitiveSerializer<BridgeConnecti
         case r'account':
           final valueDes = serializers.deserialize(
             value,
-            specifiedType: const FullType.nullable(BridgeConnectionAccount),
-          ) as BridgeConnectionAccount?;
-          if (valueDes == null) continue;
+            specifiedType: const FullType(BridgeAccount),
+          ) as BridgeAccount;
           result.account.replace(valueDes);
           break;
         case r'limits':

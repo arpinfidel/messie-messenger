@@ -1,0 +1,12 @@
+id: doublepuppet
+# No URL: the homeserver shouldn't push events to this appservice.
+url:
+as_token: dev_dp_as_token_0b1c2d3e4f
+hs_token: dev_dp_hs_token_5f4e3d2c1b
+sender_localpart: dp_dummy
+rate_limited: false
+namespaces:
+  users:
+    - regex: '@.*:messie\.localhost'
+      exclusive: false
+
