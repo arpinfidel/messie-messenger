@@ -13,20 +13,36 @@
  */
 
 import { mapValues } from '../runtime';
-import type { EmailLoginRequest } from './EmailLoginRequest';
-import {
-  EmailLoginRequestFromJSON,
-  EmailLoginRequestFromJSONTyped,
-  EmailLoginRequestToJSON,
-  EmailLoginRequestToJSONTyped,
-  instanceOfEmailLoginRequest,
-} from './EmailLoginRequest';
 /**
  *
  * @export
  * @interface EmailListRequest
  */
-export interface EmailListRequest extends EmailLoginRequest {
+export interface EmailListRequest {
+  /**
+   *
+   * @type {string}
+   * @memberof EmailListRequest
+   */
+  host: string;
+  /**
+   *
+   * @type {number}
+   * @memberof EmailListRequest
+   */
+  port: number;
+  /**
+   *
+   * @type {string}
+   * @memberof EmailListRequest
+   */
+  email: string;
+  /**
+   *
+   * @type {string}
+   * @memberof EmailListRequest
+   */
+  appPassword: string;
   /**
    * Mailbox name to select (defaults to INBOX when omitted)
    * @type {string}
@@ -45,7 +61,10 @@ export interface EmailListRequest extends EmailLoginRequest {
  * Check if a given object implements the EmailListRequest interface.
  */
 export function instanceOfEmailListRequest(value: object): value is EmailListRequest {
-  if (!instanceOfEmailLoginRequest(value)) return false;
+  if (!('host' in value) || value['host'] === undefined) return false;
+  if (!('port' in value) || value['port'] === undefined) return false;
+  if (!('email' in value) || value['email'] === undefined) return false;
+  if (!('appPassword' in value) || value['appPassword'] === undefined) return false;
   return true;
 }
 
@@ -61,7 +80,10 @@ export function EmailListRequestFromJSONTyped(
     return json;
   }
   return {
-    ...EmailLoginRequestFromJSONTyped(json, ignoreDiscriminator),
+    host: json['host'],
+    port: json['port'],
+    email: json['email'],
+    appPassword: json['appPassword'],
     mailbox: json['mailbox'] == null ? undefined : json['mailbox'],
     searchFlags: json['searchFlags'] == null ? undefined : json['searchFlags'],
   };
@@ -80,7 +102,10 @@ export function EmailListRequestToJSONTyped(
   }
 
   return {
-    ...EmailLoginRequestToJSONTyped(value, ignoreDiscriminator),
+    host: value['host'],
+    port: value['port'],
+    email: value['email'],
+    appPassword: value['appPassword'],
     mailbox: value['mailbox'],
     searchFlags: value['searchFlags'],
   };
