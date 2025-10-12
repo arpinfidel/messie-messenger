@@ -69,4 +69,18 @@ class BridgesService {
     final res = await _dio.post(path, queryParameters: {'provider': provider});
     return (res.data as Map).cast<String, dynamic>();
   }
+
+  Future<Map<String, dynamic>> submitUserInput({
+    required String processId,
+    required String stepId,
+    required Map<String, String> fields,
+    String provider = 'whatsapp',
+  }) async {
+    // For user_input, the bridge expects a flat object mapping field IDs to values.
+    // Example: {"phone": "+123456789"}
+    final path = 'bridge/provision/v3/login/step/$processId/$stepId/user_input';
+    final res = await _dio.post(path,
+        queryParameters: {'provider': provider}, data: fields);
+    return (res.data as Map).cast<String, dynamic>();
+  }
 }

@@ -210,6 +210,11 @@ func (a *Adapter) startLoginRaw(ctx context.Context, mxid, flow string) (map[str
 // mapToLoginStep maps a raw step payload to a typed struct.
 func mapToLoginStep(out map[string]any) (LoginStep, error) {
     t, _ := out["type"].(string)
+    // Common metadata
+    var proc, login, step *string
+    if v, ok := out["process_id"].(string); ok { proc = &v }
+    if v, ok := out["login_id"].(string); ok { login = &v }
+    if v, ok := out["step_id"].(string); ok { step = &v }
     switch t {
     case "display_and_wait":
         var msg, data, img *string
@@ -218,7 +223,7 @@ func mapToLoginStep(out map[string]any) (LoginStep, error) {
             if v, ok := m["data"].(string); ok { data = &v }
             if v, ok := m["image_url"].(string); ok { img = &v }
         }
-        return &LoginStepDisplayAndWait{Type: "display_and_wait", DisplayAndWait: &LoginStepDisplayAndWaitDef{Message: msg, Data: data, ImageURL: img}}, nil
+        return &LoginStepDisplayAndWait{Type: "display_and_wait", ProcessID: proc, LoginID: login, StepID: step, DisplayAndWait: &LoginStepDisplayAndWaitDef{Message: msg, Data: data, ImageURL: img}}, nil
     case "user_input":
         var fields []LoginStepUserInputField
         if uin, ok := out["user_input"].(map[string]any); ok {
@@ -235,17 +240,17 @@ func mapToLoginStep(out map[string]any) (LoginStep, error) {
                 }
             }
         }
-        return &LoginStepUserInput{Type: "user_input", UserInput: &LoginStepUserInputDef{Fields: fields}}, nil
+        return &LoginStepUserInput{Type: "user_input", ProcessID: proc, LoginID: login, StepID: step, UserInput: &LoginStepUserInputDef{Fields: fields}}, nil
     case "cookies":
         var names []string
         if ck, ok := out["cookies"].(map[string]any); ok {
             if arr, ok := ck["names"].([]any); ok { for _, it := range arr { if s, ok := it.(string); ok { names = append(names, s) } } }
         }
-        return &LoginStepCookies{Type: "cookies", Cookies: &LoginStepCookiesDef{Names: names}}, nil
+        return &LoginStepCookies{Type: "cookies", ProcessID: proc, LoginID: login, StepID: step, Cookies: &LoginStepCookiesDef{Names: names}}, nil
     case "complete":
         var id *string
         if comp, ok := out["complete"].(map[string]any); ok { if v, ok := comp["user_login_id"].(string); ok { id = &v } }
-        return &LoginStepComplete{Type: "complete", Complete: &LoginStepCompleteDef{UserLoginID: id}}, nil
+        return &LoginStepComplete{Type: "complete", ProcessID: proc, LoginID: login, StepID: step, Complete: &LoginStepCompleteDef{UserLoginID: id}}, nil
     default:
         // Unknown shape: return a minimal display_and_wait so clients have something to render.
         if m, ok := out["display_and_wait"].(map[string]any); ok {
@@ -253,9 +258,9 @@ func mapToLoginStep(out map[string]any) (LoginStep, error) {
             if v, ok := m["message"].(string); ok { msg = &v }
             if v, ok := m["data"].(string); ok { data = &v }
             if v, ok := m["image_url"].(string); ok { img = &v }
-            return &LoginStepDisplayAndWait{Type: "display_and_wait", DisplayAndWait: &LoginStepDisplayAndWaitDef{Message: msg, Data: data, ImageURL: img}}, nil
+            return &LoginStepDisplayAndWait{Type: "display_and_wait", ProcessID: proc, LoginID: login, StepID: step, DisplayAndWait: &LoginStepDisplayAndWaitDef{Message: msg, Data: data, ImageURL: img}}, nil
         }
-        return &LoginStepDisplayAndWait{Type: "display_and_wait", DisplayAndWait: &LoginStepDisplayAndWaitDef{}}, nil
+        return &LoginStepDisplayAndWait{Type: "display_and_wait", ProcessID: proc, LoginID: login, StepID: step, DisplayAndWait: &LoginStepDisplayAndWaitDef{}}, nil
     }
 }
 
