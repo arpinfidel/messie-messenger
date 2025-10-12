@@ -3,7 +3,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../main.dart' show HomeScreen; // Reuse existing root screen for now.
 import '../settings/settings_screen.dart';
-import '../../screens/connections_screen.dart';
+import '../pages/chats/chats_page.dart';
+import '../pages/settings/connections/connections_list_page.dart';
+import '../pages/settings/connections/provider_detail_page.dart';
+import '../pages/settings/theme_demo_page.dart';
 
 GoRouter buildAppRouter() {
   return GoRouter(
@@ -18,10 +21,29 @@ GoRouter buildAppRouter() {
         name: 'settings',
         builder: (context, state) => const SettingsScreen(),
       ),
+      // New UI demo routes (non-breaking):
       GoRoute(
-        path: '/connections',
-        name: 'connections',
-        builder: (context, state) => const ConnectionsScreen(),
+        path: '/chats',
+        name: 'chats',
+        builder: (context, state) => const ChatsPage(),
+      ),
+      GoRoute(
+        path: '/settings/connections',
+        name: 'connections_list',
+        builder: (context, state) => const ConnectionsListPage(),
+      ),
+      GoRoute(
+        path: '/settings/connections/provider',
+        name: 'provider_detail',
+        builder: (context, state) {
+          final provider = state.extra as String? ?? 'provider';
+          return ProviderDetailPage(provider: provider);
+        },
+      ),
+      GoRoute(
+        path: '/settings/theme-demo',
+        name: 'theme_demo',
+        builder: (context, state) => const ThemeDemoPage(),
       ),
     ],
     // Reserved for deep links and state restoration later

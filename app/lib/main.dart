@@ -20,7 +20,8 @@ import 'state/timeline_controller.dart';
 import 'state/backup_controller.dart';
 import 'state/verification_controller.dart';
 import 'state/secure_secrets.dart';
-import 'theme/app_theme.dart';
+// Legacy theme remains for reference, but global theme now uses OKLCH builder.
+// import 'theme/app_theme.dart';
 import 'theme/messie_tokens.dart';
 import 'ui/core/back_esc/back_esc_host.dart';
 import 'ui/core/back_esc/back_esc_policy.dart';
@@ -29,6 +30,10 @@ import 'ui/core/layout/app_layout.dart';
 import 'ui/navigation/app_router.dart';
 import 'package:go_router/go_router.dart';
 import 'ui/theme/theme_controller.dart';
+import 'ui/theme/theme.dart' as messie_theme;
+import 'ui/theme/colors.dart' show MessieAccent;
+import 'ui/theme/accent_controller.dart';
+import 'ui/components/segmented_control.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -59,11 +64,21 @@ class MessieApp extends ConsumerWidget {
           data: (m) => m,
           orElse: () => ThemeMode.system,
         );
+    final accent = ref.watch(accentControllerProvider).maybeWhen(
+          data: (a) => a,
+          orElse: () => MessieAccent.aqua,
+        );
 
     return MaterialApp.router(
       title: 'Messie',
-      theme: AppTheme.light,
-      darkTheme: AppTheme.dark,
+      theme: messie_theme.MessieThemeBuilder.build(
+        brightness: Brightness.light,
+        accent: accent,
+      ),
+      darkTheme: messie_theme.MessieThemeBuilder.build(
+        brightness: Brightness.dark,
+        accent: accent,
+      ),
       themeMode: themeMode,
       debugShowCheckedModeBanner: false,
       routerConfig: buildAppRouter(),
@@ -480,15 +495,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
 
     return Scaffold(
       body: SafeArea(
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [surfaces.surface3, surfaces.surface1],
-            ),
-          ),
-          child: Center(
+        child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 520),
               child: SingleChildScrollView(
@@ -496,11 +503,13 @@ class _LoginViewState extends ConsumerState<LoginView> {
                   horizontal: gutter,
                   vertical: spacing.gap.xxl,
                 ),
-                child: Card(
-                  margin: EdgeInsets.zero,
-                  color: surfaces.surface2,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(radii.xl),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: surfaces.surface1,
+                    borderRadius: BorderRadius.circular(radii.lg),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
                   ),
                   child: Padding(
                     padding: EdgeInsets.symmetric(
@@ -657,7 +666,6 @@ class _LoginViewState extends ConsumerState<LoginView> {
                   ),
                 ),
               ),
-            ),
           ),
         ),
       ),
@@ -1137,18 +1145,16 @@ class LoggedInView extends ConsumerWidget {
       ),
     ); */
 
-    final roomListCard = Card(
-      child: Padding(
-        padding: EdgeInsets.all(spacing.gap.xl),
-        child: _RoomListSection(
-          state: roomListState,
-          onLoadMore: () =>
-              ref.read(roomListControllerProvider.notifier).loadMoreLp(),
-          onResubscribe: () =>
-              ref.read(roomListControllerProvider.notifier).resubscribeAll(),
-          onSelectRoom: selectRoom,
-          selectedRoomId: selectedRoomId,
-        ),
+    final roomListCard = Padding(
+      padding: EdgeInsets.all(spacing.gap.sm),
+      child: _RoomListSection(
+        state: roomListState,
+        onLoadMore: () =>
+            ref.read(roomListControllerProvider.notifier).loadMoreLp(),
+        onResubscribe: () =>
+            ref.read(roomListControllerProvider.notifier).resubscribeAll(),
+        onSelectRoom: selectRoom,
+        selectedRoomId: selectedRoomId,
       ),
     );
 
@@ -1161,133 +1167,126 @@ class LoggedInView extends ConsumerWidget {
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Messie Messenger'),
-        actions: [
-          PopupMenuButton<String>(
-            tooltip: 'Menu',
-            icon: const Icon(Icons.more_vert_rounded),
-            onSelected: (value) {
-              switch (value) {
-                case 'settings':
-                  context.push('/settings');
-                  break;
-              }
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem<String>(
-                value: 'settings',
-                child: Text('Settings'),
-              ),
-            ],
-          ),
-        ],
-      ),
-      body: DecoratedBox(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [surfaces.surface3, surfaces.surface1],
-          ),
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final isWide = constraints.maxWidth >= 960;
-            if (isWide) {
-              return Padding(
-                padding: EdgeInsets.symmetric(
-                  horizontal: gutter,
-                  vertical: spacing.gap.xl,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= 960;
+
+        // Build main content for list/timeline
+        late final Widget content;
+        if (isWide) {
+          content = Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: gutter,
+              vertical: spacing.gap.xl,
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 320,
+                  child: ListView(
+                    padding: EdgeInsets.zero,
+                    children: [
+                      roomListCard,
+                    ],
+                  ),
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    SizedBox(
-                      width: 320,
-                      child: ListView(
-                        padding: EdgeInsets.zero,
-                        children: [
-                          roomListCard,
-                        ],
-                      ),
+                SizedBox(width: spacing.gap.xl),
+                Expanded(
+                  child: Padding(
+                    padding: EdgeInsets.all(spacing.gap.sm),
+                    child: buildTimelinePane(),
+                  ),
+                ),
+              ],
+            ),
+          );
+        } else {
+          content = AnimatedSwitcher(
+            duration: const Duration(milliseconds: 220),
+            switchInCurve: Curves.easeOut,
+            switchOutCurve: Curves.easeIn,
+            child: selectedRoomId == null
+                ? ListView(
+                    key: const ValueKey('mobile-list'),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: gutter,
+                      vertical: spacing.gap.xl,
                     ),
-                    SizedBox(width: spacing.gap.xl),
-                    Expanded(
-                      child: Card(
-                        child: Padding(
-                          padding: EdgeInsets.all(spacing.gap.lg),
-                          child: buildTimelinePane(),
+                    children: [
+                      roomListCard,
+                    ],
+                  )
+                : Column(
+                    key: const ValueKey('mobile-timeline'),
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Padding(
+                        padding: EdgeInsets.all(spacing.gap.md),
+                        child: Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                              tooltip: 'Close conversation',
+                              onPressed: closeRoom,
+                            ),
+                            Expanded(
+                              child: Text(
+                                selectedRoom?.name ?? 'Conversation',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w600),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
+                      Expanded(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(
+                            horizontal: gutter,
+                            vertical: spacing.gap.md,
+                          ),
+                          child: buildTimelinePane(isMobile: true),
+                        ),
+                      ),
+                    ],
+                  ),
+          );
+        }
+
+        // Keep AppBar on home list and wide layouts; hide on mobile chat
+        final showAppBar = selectedRoomId == null || isWide;
+        return Scaffold(
+          appBar: showAppBar
+              ? AppBar(
+                  title: const Text('Messie'),
+                  actions: [
+                    PopupMenuButton<String>(
+                      tooltip: 'Menu',
+                      icon: const Icon(Icons.more_vert_rounded),
+                      onSelected: (value) {
+                        switch (value) {
+                          case 'settings':
+                            context.push('/settings');
+                            break;
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem<String>(
+                          value: 'settings',
+                          child: Text('Settings'),
+                        ),
+                      ],
                     ),
                   ],
-                ),
-              );
-            }
-
-            return AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              switchInCurve: Curves.easeOut,
-              switchOutCurve: Curves.easeIn,
-              child: selectedRoomId == null
-                  ? ListView(
-                      key: const ValueKey('mobile-list'),
-                      padding: EdgeInsets.symmetric(
-                        horizontal: gutter,
-                        vertical: spacing.gap.xl,
-                      ),
-                      children: [
-                        roomListCard,
-                      ],
-                    )
-                  : Column(
-                      key: const ValueKey('mobile-timeline'),
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Padding(
-                          padding: EdgeInsets.all(spacing.gap.md),
-                          child: Row(
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.arrow_back_ios_new_rounded),
-                                tooltip: 'Close conversation',
-                                onPressed: closeRoom,
-                              ),
-                              Expanded(
-                                child: Text(
-                                  selectedRoom?.name ?? 'Conversation',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.w600),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: gutter,
-                              vertical: spacing.gap.md,
-                            ),
-                            child: Card(
-                              child: Padding(
-                                padding: EdgeInsets.all(spacing.gap.lg),
-                                child: buildTimelinePane(isMobile: true),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-            );
-          },
-        ),
-      ),
+                )
+              : null,
+          body: SafeArea(child: content),
+        );
+      },
     );
   }
 }
@@ -1313,6 +1312,25 @@ class _RoomListSection extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     final spacing = MessieSpacing.of(context);
 
+    // Simple filter segmented control (visual only for now)
+    Widget filters() {
+      return Padding(
+        padding: EdgeInsets.only(bottom: spacing.gap.md),
+        child: MessieSegmentedControl<String>(
+          value: 'all',
+          segments: const ['all', 'unread', 'favorites'],
+          labelBuilder: (s) => Text(
+            switch (s) {
+              'unread' => 'Unread',
+              'favorites' => 'Favorites',
+              _ => 'All',
+            },
+          ),
+          onChanged: (_) {},
+        ),
+      );
+    }
+
     if (state.isLoading) {
       return Center(
         child: Padding(
@@ -1323,6 +1341,9 @@ class _RoomListSection extends StatelessWidget {
     }
 
     final children = <Widget>[];
+
+    // Top filters
+    children.add(filters());
 
     if (state.error != null) {
       children.add(
@@ -1451,7 +1472,7 @@ class _RoomTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final spacing = MessieSpacing.of(context);
-    final colors = Theme.of(context).colorScheme;
+    final scheme = Theme.of(context).colorScheme;
     final unread = room.notificationCount;
     final isMuted = room.isMuted;
     final showBadge = unread > 0 && !isMuted;
@@ -1462,19 +1483,15 @@ class _RoomTile extends StatelessWidget {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(MessieRadii.of(context).md),
         ),
-        contentPadding: EdgeInsets.symmetric(horizontal: spacing.gap.sm),
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: spacing.gap.md,
+          vertical: spacing.gap.xs,
+        ),
         leading: _AvatarPlaceholder(name: room.name, avatarUrl: room.avatarUrl),
         title: Text(room.name),
-        subtitle: Text(
-          room.roomId,
-          style: Theme.of(context)
-              .textTheme
-              .bodySmall
-              ?.copyWith(color: colors.onSurfaceVariant),
-        ),
         selected: isActive,
         onTap: onTap,
-        selectedTileColor: colors.primaryContainer.withOpacity(0.2),
+        selectedTileColor: scheme.secondaryContainer,
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -1485,7 +1502,7 @@ class _RoomTile extends StatelessWidget {
                   vertical: spacing.gap.xs,
                 ),
                 decoration: BoxDecoration(
-                  color: colors.primaryContainer,
+                  color: scheme.primaryContainer,
                   borderRadius: BorderRadius.circular(spacing.gap.sm),
                 ),
                 child: Text(
@@ -1493,7 +1510,7 @@ class _RoomTile extends StatelessWidget {
                   style: Theme.of(context)
                       .textTheme
                       .labelSmall
-                      ?.copyWith(color: colors.onPrimaryContainer),
+                      ?.copyWith(color: scheme.onPrimaryContainer),
                 ),
               ),
             IconButton(
@@ -1526,6 +1543,61 @@ class _SenderAvatar extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<_SenderAvatar> createState() => _SenderAvatarState();
+}
+
+class _SenderName extends ConsumerStatefulWidget {
+  const _SenderName({required this.roomId, required this.userId});
+
+  final String roomId;
+  final String userId;
+
+  @override
+  ConsumerState<_SenderName> createState() => _SenderNameState();
+}
+
+class _SenderNameState extends ConsumerState<_SenderName> {
+  MemberProfileData? _profile;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SenderName oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.roomId != widget.roomId || oldWidget.userId != widget.userId) {
+      _load();
+    }
+  }
+
+  Future<void> _load() async {
+    final res = await rustMemberProfile(roomId: widget.roomId, userId: widget.userId);
+    if (!mounted) return;
+    if (res.isOk && res.data != null) {
+      setState(() { _profile = res.data; });
+    } else {
+      setState(() { _profile = null; });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final colors = Theme.of(context).colorScheme;
+    String name = _profile?.displayName ?? widget.userId;
+    // If userId looks like @local:server, collapse to local part for readability
+    final at = name.indexOf(':');
+    if (name.startsWith('@') && at > 1) {
+      name = name.substring(1, at);
+    }
+    return Text(
+      name,
+      style: textTheme.labelSmall?.copyWith(color: colors.onSurfaceVariant),
+      overflow: TextOverflow.ellipsis,
+    );
+  }
 }
 
 class _SenderAvatarState extends ConsumerState<_SenderAvatar> {
@@ -1938,14 +2010,23 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
                           _SenderAvatar(roomId: roomId, userId: item.sender),
                           SizedBox(width: spacing.gap.sm),
                           Expanded(
-                            child: _TimelineBubble(
-                              item: item,
-                              onLongPress: () {
-                                if (item.key.eventId != null) {
-                                  setState(() { _replyTo = item; });
-                                  _composerFocus.requestFocus();
-                                }
-                              },
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Padding(
+                                  padding: EdgeInsets.only(left: spacing.gap.xs, bottom: spacing.gap.xs),
+                                  child: _SenderName(roomId: roomId, userId: item.sender),
+                                ),
+                                _TimelineBubble(
+                                  item: item,
+                                  onLongPress: () {
+                                    if (item.key.eventId != null) {
+                                      setState(() { _replyTo = item; });
+                                      _composerFocus.requestFocus();
+                                    }
+                                  },
+                                ),
+                              ],
                             ),
                           ),
                         ],
@@ -2079,10 +2160,9 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
                     ),
                   ),
                   SizedBox(width: spacing.gap.sm),
-                  IconButton(
+                  FilledButton(
                     onPressed: sendMessage,
-                    icon: const Icon(Icons.send_rounded),
-                    tooltip: 'Send',
+                    child: const Icon(Icons.send_rounded),
                   ),
                 ],
               ),
@@ -2110,12 +2190,13 @@ class _TimelineBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final spacing = MessieSpacing.of(context);
-    final colors = Theme.of(context).colorScheme;
+    final scheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
 
-    final background = item.isOwn ? colors.primary : colors.surfaceVariant;
-    final foreground =
-        item.isOwn ? colors.onPrimary : colors.onSurfaceVariant;
+    // Improve contrast: own = primaryContainer, others = surfaceContainer with outline.
+    final bool isOwn = item.isOwn;
+    final background = isOwn ? scheme.primaryContainer : scheme.surfaceContainer;
+    final foreground = isOwn ? scheme.onPrimaryContainer : scheme.onSurface;
 
     final timestamp = item.timestamp != null
         ? TimeOfDay.fromDateTime(item.timestamp!.toLocal())
@@ -2129,39 +2210,40 @@ class _TimelineBubble extends StatelessWidget {
         child: GestureDetector(
           onLongPress: onLongPress,
           child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: background,
-            borderRadius: BorderRadius.circular(spacing.gap.md),
-          ),
-          child: Padding(
-            padding: EdgeInsets.all(spacing.gap.md),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  item.sender,
-                  style: textTheme.labelMedium
-                      ?.copyWith(color: foreground.withOpacity(0.8)),
-                ),
-                SizedBox(height: spacing.gap.xs),
-                Text(
-                  item.body ?? '[Unsupported message]',
-                  style: textTheme.bodyMedium?.copyWith(color: foreground),
-                ),
-                if (timestamp != null)
-                  Align(
-                    alignment: Alignment.bottomRight,
-                    child: Text(
-                      timestamp.format(context),
-                      style: textTheme.labelSmall
-                          ?.copyWith(color: foreground.withOpacity(0.7)),
-                    ),
-                  ),
-              ],
+            decoration: BoxDecoration(
+              color: background,
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(spacing.gap.md),
+                topRight: Radius.circular(spacing.gap.md),
+                bottomLeft: Radius.circular(isOwn ? spacing.gap.md : spacing.gap.sm),
+                bottomRight: Radius.circular(isOwn ? spacing.gap.sm : spacing.gap.md),
+              ),
+              border: isOwn
+                  ? null
+                  : Border.all(color: scheme.outlineVariant),
             ),
-          ),
+            child: Padding(
+              padding: EdgeInsets.all(spacing.gap.md),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.body ?? '[Unsupported message]',
+                    style: textTheme.bodyMedium?.copyWith(color: foreground),
+                  ),
+                  if (timestamp != null)
+                    Align(
+                      alignment: Alignment.bottomRight,
+                      child: Text(
+                        timestamp.format(context),
+                        style: textTheme.labelSmall?.copyWith(color: foreground.withOpacity(0.7)),
+                      ),
+                    ),
+                ],
+              ),
+            ),
         ),
-        ),
+      ),
       ),
     );
   }

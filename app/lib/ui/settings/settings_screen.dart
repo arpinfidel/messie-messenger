@@ -453,16 +453,39 @@ class SettingsScreen extends ConsumerWidget {
       ),
     );
 
+    final preferencesCard = Card(
+      child: Padding(
+        padding: EdgeInsets.all(spacing.gap.xl),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Preferences', style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            SizedBox(height: spacing.gap.md),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.link_rounded),
+              title: const Text('Connections'),
+              subtitle: Text('Manage bridges like WhatsApp and Email', style: textTheme.bodySmall),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/settings/connections'),
+            ),
+            Divider(color: colors.divider),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.palette_outlined),
+              title: const Text('Appearance & Theme'),
+              subtitle: Text('Light/Dark and accent colors', style: textTheme.bodySmall),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push('/settings/theme-demo'),
+            ),
+          ],
+        ),
+      ),
+    );
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
-        actions: [
-          IconButton(
-            tooltip: 'Bridges & Connections',
-            onPressed: () => context.push('/connections'),
-            icon: const Icon(Icons.link_rounded),
-          ),
-        ],
       ),
       body: DecoratedBox(
         decoration: BoxDecoration(
@@ -481,6 +504,8 @@ class SettingsScreen extends ConsumerWidget {
             accountCard,
             SizedBox(height: spacing.gap.xl),
             securityCard,
+            SizedBox(height: spacing.gap.xl),
+            preferencesCard,
             SizedBox(height: spacing.gap.xl),
             pingCard,
           ],
