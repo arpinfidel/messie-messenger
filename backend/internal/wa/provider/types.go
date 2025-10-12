@@ -7,6 +7,10 @@ type LoginStep interface{ StepType() string }
 
 type LoginStepDisplayAndWait struct {
     Type           string                      `json:"type"`
+    // Metadata from bridge step
+    ProcessID      *string                     `json:"process_id,omitempty"`
+    LoginID        *string                     `json:"login_id,omitempty"`
+    StepID         *string                     `json:"step_id,omitempty"`
     DisplayAndWait *LoginStepDisplayAndWaitDef `json:"display_and_wait"`
 }
 
@@ -20,6 +24,10 @@ type LoginStepDisplayAndWaitDef struct {
 
 type LoginStepUserInput struct {
     Type      string                 `json:"type"`
+    // Metadata from bridge step
+    ProcessID *string                `json:"process_id,omitempty"`
+    LoginID   *string                `json:"login_id,omitempty"`
+    StepID    *string                `json:"step_id,omitempty"`
     UserInput *LoginStepUserInputDef `json:"user_input"`
 }
 
@@ -38,6 +46,10 @@ type LoginStepUserInputField struct {
 
 type LoginStepCookies struct {
     Type    string                 `json:"type"`
+    // Metadata from bridge step
+    ProcessID *string              `json:"process_id,omitempty"`
+    LoginID   *string              `json:"login_id,omitempty"`
+    StepID    *string              `json:"step_id,omitempty"`
     Cookies *LoginStepCookiesDef   `json:"cookies"`
 }
 
@@ -49,6 +61,10 @@ type LoginStepCookiesDef struct {
 
 type LoginStepComplete struct {
     Type     string                  `json:"type"`
+    // Metadata from bridge step
+    ProcessID *string                `json:"process_id,omitempty"`
+    LoginID   *string                `json:"login_id,omitempty"`
+    StepID    *string                `json:"step_id,omitempty"`
     Complete *LoginStepCompleteDef   `json:"complete"`
 }
 

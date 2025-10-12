@@ -22,6 +22,10 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
   String _state = 'not_connected';
   Timer? _poll;
   bool _stopAwaitLoop = false;
+  final Map<String, String> _userInputValues = {};
+  // Track selected flow id to render the right UI (qr vs pairing code)
+  String _currentFlowId = '';
+  String _currentProvider = 'whatsapp';
 
   @override
   void initState() {
@@ -58,22 +62,24 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
     );
   }
 
-  void _startWA() async {
+  void _startWA({String provider = 'whatsapp'}) async {
     final jwt = ref.read(authControllerProvider).asData?.value?.backendJwt; // backend JWT
     _svc ??= BridgesService(bearerToken: jwt);
     try {
+      _currentProvider = provider;
       // Discover flows, then let the user pick (default to qr if present)
-      final flows = await _svc!.getLoginFlows();
-      String flow = 'qr';
+      final flows = await _svc!.getLoginFlows(provider: provider);
+      String? flow;
       if (flows.isNotEmpty) {
-        final hasQr = flows.any((f) => (f['id'] ?? f['flow'] ?? '') == 'qr');
-        if (!hasQr) {
-          final choice = await _pickFlow(flows);
-          if (choice == null) return; // canceled
-          flow = choice;
-        }
+        // Always show all options from the bridge
+        flow = await _pickFlow(flows);
+        if (flow == null) return; // canceled
+      } else {
+        // Fallback to QR if bridge doesn't advertise flows
+        flow = 'qr';
       }
-      final step = await _svc!.startLogin(flow);
+      _currentFlowId = flow;
+      final step = await _svc!.startLogin(flow, provider: provider);
       // Handle either a typed WAStartResponse or a step-shaped response.
       final method = step['method'] as String?;
       if (method != null) {
@@ -104,6 +110,9 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
         if (type == 'display_and_wait' && processId != null && stepId != null) {
           // ignore: unawaited_futures
           _displayAndWaitLoop(processId, stepId);
+        } else if (type == 'user_input') {
+          // Reset any previous input caching
+          _userInputValues.clear();
         }
       } catch (e) {
         // ignore: avoid_print
@@ -116,7 +125,7 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
           // Prefer backend aggregator; supports multi-account out of the box
           final conns = await _svc!.listConnections();
           final wa = conns.firstWhere(
-            (c) => (c['provider'] as String?) == 'whatsapp',
+            (c) => (c['provider'] as String?) == provider,
             orElse: () => const {},
           );
           connected = (wa['status'] as String?) == 'connected';
@@ -153,10 +162,40 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
     }
   }
 
+  Future<void> _submitUserInput(String processId, String stepId) async {
+    try {
+      final next = await _svc!.submitUserInput(
+        processId: processId,
+        stepId: stepId,
+        fields: Map<String, String>.from(_userInputValues),
+        provider: _currentProvider,
+      );
+      if (!mounted) return;
+      final nextType = next['type'] as String?;
+      setState(() {
+        _loginStep = nextType == 'complete' ? null : next;
+      });
+      if (nextType == 'display_and_wait') {
+        final nextProcessId = (next['login_id'] ?? next['process_id']) as String? ?? processId;
+        final nextStepId = next['step_id'] as String? ?? stepId;
+        // ignore: unawaited_futures
+        _displayAndWaitLoop(nextProcessId, nextStepId);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Failed to submit: $e')));
+    }
+  }
+
   Future<void> _displayAndWaitLoop(String processId, String stepId) async {
     while (mounted && !_stopAwaitLoop && _state != 'connected') {
       try {
-        final next = await _svc!.submitDisplayAndWait(processId: processId, stepId: stepId);
+        final next = await _svc!.submitDisplayAndWait(
+          processId: processId,
+          stepId: stepId,
+          provider: _currentProvider,
+        );
         if (!mounted || _stopAwaitLoop) return;
         final nextType = next['type'] as String?;
         final nextStepId = next['step_id'] as String?;
@@ -185,11 +224,11 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
     }
   }
 
-  Future<void> _disconnectWA() async {
+  Future<void> _disconnectWA({String provider = 'whatsapp'}) async {
     final jwt = ref.read(authControllerProvider).asData?.value?.backendJwt; // backend JWT
     _svc ??= BridgesService(bearerToken: jwt);
     try {
-      await _svc!.logoutAll();
+      await _svc!.logoutAll(provider: provider);
       setState(() {
         _state = 'not_connected';
         _loginStep = null;
@@ -270,17 +309,19 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
                 leading: const Icon(Icons.link),
                 title: Text(c['provider'] as String? ?? ''),
                 subtitle: Text(c['status'] as String? ?? ''),
-                trailing: ((c['provider'] as String?) == 'whatsapp')
-                    ? (((c['status'] as String?) == 'connected')
-                        ? ElevatedButton(
-                            onPressed: _disconnectWA,
-                            child: const Text('Disconnect'),
-                          )
-                        : ElevatedButton(
-                            onPressed: _startWA,
-                            child: const Text('Connect'),
-                          ))
-                    : null,
+                trailing: ((c['status'] as String?) == 'connected')
+                    ? ElevatedButton(
+                        onPressed: () => _disconnectWA(
+                          provider: (c['provider'] as String?) ?? 'whatsapp',
+                        ),
+                        child: const Text('Disconnect'),
+                      )
+                    : ElevatedButton(
+                        onPressed: () => _startWA(
+                          provider: (c['provider'] as String?) ?? 'whatsapp',
+                        ),
+                        child: const Text('Connect'),
+                      ),
               ),
             if (_loginStep != null)
               Card(
@@ -290,19 +331,98 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('WhatsApp Pairing',
+                      const Text('Bridge Login',
                           style: TextStyle(fontWeight: FontWeight.bold)),
-                      if ((_loginStep!['type'] == 'display_and_wait') &&
-                          (_loginStep!['display_and_wait']?['data'] != null))
-                        Center(
-                          child: QrImageView(
-                            data: _loginStep!['display_and_wait']['data'] as String,
-                            version: QrVersions.auto,
-                            size: 220,
-                          ),
-                        )
-                      else
+                      if (_loginStep!['type'] == 'display_and_wait') ...[
+                        Builder(builder: (context) {
+                          final dw = (_loginStep!['display_and_wait'] as Map?)?.cast<String, dynamic>();
+                          final msg = dw?['message'] as String?;
+                          final imgUrl = dw?['image_url'] as String?;
+                          final data = dw?['data'] as String?;
+                          return Column(
+                            children: [
+                              if (msg != null && msg.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(msg),
+                                  ),
+                                ),
+                              if (imgUrl != null && imgUrl.isNotEmpty)
+                                Center(
+                                  child: Image.network(imgUrl, width: 220, height: 220, fit: BoxFit.contain),
+                                )
+                              else if (_currentFlowId == 'qr' && data != null && data.isNotEmpty)
+                                Center(
+                                  child: QrImageView(
+                                    data: data,
+                                    version: QrVersions.auto,
+                                    size: 220,
+                                  ),
+                                )
+                              else if (data != null && data.isNotEmpty)
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(context).colorScheme.surfaceVariant,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: SelectableText(
+                                    data,
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontFeatures: [FontFeature.tabularFigures()],
+                                      fontFamily: 'monospace',
+                                      fontSize: 20,
+                                    ),
+                                  ),
+                                )
+                              else
+                                const Text('Follow instructions in your Matrix app.'),
+                            ],
+                          );
+                        }),
+                      ]
+                      else if ((_loginStep!['type'] == 'user_input') &&
+                          (_loginStep!['user_input']?['fields'] is List)) ...[
+                        const SizedBox(height: 8),
+                        for (final f in (_loginStep!['user_input']['fields'] as List))
+                          Builder(builder: (context) {
+                            final m = (f as Map).cast<String, dynamic>();
+                            final id = (m['id'] as String?) ?? '';
+                            final label = (m['label'] as String?) ?? id;
+                            final secret = (m['secret'] as bool?) ?? false;
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: TextFormField(
+                                obscureText: secret,
+                                decoration: InputDecoration(
+                                  border: const OutlineInputBorder(),
+                                  labelText: label,
+                                ),
+                                onChanged: (v) => _userInputValues[id] = v,
+                              ),
+                            );
+                          }),
+                        const SizedBox(height: 8),
+                        Builder(builder: (context) {
+                          final processId = (_loginStep!['login_id'] ?? _loginStep!['process_id']) as String?;
+                          final stepId = _loginStep!['step_id'] as String?;
+                          return Align(
+                            alignment: Alignment.centerRight,
+                            child: ElevatedButton(
+                              onPressed: (processId != null && stepId != null)
+                                  ? () => _submitUserInput(processId, stepId)
+                                  : null,
+                              child: const Text('Continue'),
+                            ),
+                          );
+                        }),
+                      ] else ...[
                         const Text('Follow instructions in your Matrix app.'),
+                      ],
                       const SizedBox(height: 8),
                       Text('Status: $_state'),
                     ],
