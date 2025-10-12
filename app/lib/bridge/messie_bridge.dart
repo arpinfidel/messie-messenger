@@ -80,6 +80,11 @@ typedef _NativeLoadBackward = _PointerUtf8 Function(
 typedef _DartLoadBackward = _PointerUtf8 Function(
     _PointerUtf8, _PointerUtf8, int);
 
+typedef _NativeSlidingSubscribeRooms = _PointerUtf8 Function(
+    _PointerUtf8, _PointerUtf8, ffi.Uint8);
+typedef _DartSlidingSubscribeRooms = _PointerUtf8 Function(
+    _PointerUtf8, _PointerUtf8, int);
+
 typedef _NativeSendText = _PointerUtf8 Function(
     _PointerUtf8, _PointerUtf8, _PointerUtf8);
 typedef _DartSendText = _PointerUtf8 Function(
@@ -317,6 +322,17 @@ Future<RustResult<StartSlidingSyncData>> rustStartSlidingSync({
   return Isolate.run(() => _startSlidingSyncIsolate(args));
 }
 
+Future<RustResult<AckData>> rustSlidingSyncSubscribeRooms({
+  required String handle,
+  required List<String> roomIds,
+  bool reset = false,
+}) {
+  final config = _LibraryConfig.detect();
+  _ensurePostCObjectRegistered(config);
+  final args = _SubscribeRoomsArgs(config, handle, roomIds, reset);
+  return Isolate.run(() => _subscribeRoomsIsolate(args));
+}
+
 Future<RustResult<AckData>> rustRoomListStream({
   required String handle,
   required SendPort port,
@@ -514,6 +530,11 @@ RustResult<StartSlidingSyncData> _startSlidingSyncIsolate(_StartSyncArgs args) {
     args.hpTimeline,
     args.lpTimeline,
   );
+}
+
+RustResult<AckData> _subscribeRoomsIsolate(_SubscribeRoomsArgs args) {
+  final bindings = _RustBindings(_loadLibrary(args.config));
+  return bindings.slidingSubscribeRooms(args.handle, args.roomIds, args.reset);
 }
 
 RustResult<AckData> _roomListStreamIsolate(_RoomListStreamArgs args) {
@@ -990,6 +1011,7 @@ class _RustBindings {
   final _DartOpenRoom _openRoom;
   final _DartTimelineStream _timelineStream;
   final _DartLoadBackward _loadBackward;
+  _DartSlidingSubscribeRooms? _slidingSubscribeRoomsOpt;
   _DartSendText? _sendTextOpt;
   _DartMarkReadUpTo? _markReadUpToOpt;
   _DartSetRoomMute? _setRoomMuteOpt;
@@ -1371,6 +1393,31 @@ class _RustBindings {
     }
   }
 
+  RustResult<AckData> slidingSubscribeRooms(
+    String handle,
+    List<String> roomIds,
+    bool reset,
+  ) {
+    try {
+      _slidingSubscribeRoomsOpt ??= _library.lookupFunction<_NativeSlidingSubscribeRooms, _DartSlidingSubscribeRooms>(
+          'messie_ffi_sliding_subscribe_rooms');
+    } catch (e) {
+      return const RustResult(ok: false, data: null, error: 'sliding_subscribe_rooms not available in FFI');
+    }
+    final handlePtr = handle.toNativeUtf8();
+    final jsonStr = jsonEncode(roomIds);
+    final jsonPtr = jsonStr.toNativeUtf8();
+    try {
+      final result = _stringFromPointer(
+        _slidingSubscribeRoomsOpt!(handlePtr, jsonPtr, reset ? 1 : 0),
+      );
+      return _parse(result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+    } finally {
+      calloc.free(handlePtr);
+      calloc.free(jsonPtr);
+    }
+  }
+
   RustResult<AckData> sendText(String roomId, String body, {String? replyTo}) {
     try {
       _sendTextOpt ??=
@@ -1614,6 +1661,15 @@ class _StartSyncArgs {
   final int lpBatch;
   final int hpTimeline;
   final int lpTimeline;
+}
+
+class _SubscribeRoomsArgs {
+  const _SubscribeRoomsArgs(this.config, this.handle, this.roomIds, this.reset);
+
+  final _LibraryConfig config;
+  final String handle;
+  final List<String> roomIds;
+  final bool reset;
 }
 
 class _RoomListStreamArgs {

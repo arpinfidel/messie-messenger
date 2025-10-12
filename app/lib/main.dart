@@ -1475,7 +1475,8 @@ class _RoomTile extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final unread = room.notificationCount;
     final isMuted = room.isMuted;
-    final showBadge = unread > 0 && !isMuted;
+    // Show badge only when numeric count is available to avoid noisy dots.
+    final hasUnread = unread > 0 && !isMuted;
 
     return Padding(
       padding: EdgeInsets.only(bottom: spacing.gap.sm),
@@ -1495,7 +1496,7 @@ class _RoomTile extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (showBadge)
+            if (hasUnread)
               Container(
                 padding: EdgeInsets.symmetric(
                   horizontal: spacing.gap.sm,
@@ -1514,9 +1515,19 @@ class _RoomTile extends StatelessWidget {
                 ),
               ),
             IconButton(
-              icon: Icon(isMuted ? Icons.volume_off_rounded : Icons.volume_up_rounded),
-              tooltip: isMuted ? 'Unmute' : 'Mute',
+              visualDensity: VisualDensity.compact,
+              splashRadius: 18,
+              icon: Icon(
+                isMuted
+                    ? Icons.notifications_off_rounded
+                    : Icons.notifications_none_rounded,
+              ),
+              tooltip: isMuted ? 'Unmute notifications' : 'Mute notifications',
               onPressed: onToggleMute,
+              color: Theme.of(context)
+                  .colorScheme
+                  .onSurfaceVariant
+                  .withOpacity(0.45),
             ),
           ],
         ),

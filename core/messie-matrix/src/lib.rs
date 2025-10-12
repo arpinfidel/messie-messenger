@@ -27,6 +27,8 @@ use tokio::{
     time::timeout,
 };
 use url::Url;
+use matrix_sdk::ruma::UInt;
+use matrix_sdk::ruma::api::client::read_marker::set_read_marker::v3 as read_marker;
 
 mod sliding_sync;
 mod timeline;
@@ -271,6 +273,12 @@ pub fn init_client(hs_url: &str, base_path: &Path) -> Result<InitClientResponse>
     runtime
         .block_on(async {
             client.restore_session(session).await?;
+            // Perform a one-shot sync after restoring so caches like
+            // unread_notification_counts and recency are populated before
+            // Sliding Sync takes over. This mirrors restore_or_login.
+            let _ = client
+                .sync_once(SyncSettings::default().full_state(true))
+                .await;
             Result::<_, anyhow::Error>::Ok(())
         })
         .context("failed to restore session")?;
@@ -726,6 +734,13 @@ pub fn start_sliding_sync(
     runtime.block_on(sliding_sync::start_sliding_sync(handle, config))
 }
 
+/// Update room subscriptions for a sliding sync handle.
+pub fn sliding_subscribe_rooms(handle: &str, room_ids: Vec<String>, reset: bool) -> Result<AckResponse> {
+    let runtime = runtime();
+    let _guard = runtime.enter();
+    runtime.block_on(sliding_sync::subscribe_rooms(handle, room_ids, reset))
+}
+
 /// Ensure that the given room has an active timeline controller.
 pub fn open_room(handle: &str, room_id: &str) -> Result<OpenRoomResponse> {
     let runtime = runtime();
@@ -971,22 +986,57 @@ pub struct Ack { pub ok: bool }
 pub fn mark_read_up_to(room_id: &str, event_id: &str) -> Result<Ack> {
     let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
     let room_id: OwnedRoomId = room_id.parse().map_err(|_| anyhow!("invalid room id"))?;
-    let event_id = matrix_sdk::ruma::OwnedEventId::try_from(event_id)
-        .map_err(|_| anyhow!("invalid event id"))?;
+    let event_id_str = event_id.to_owned();
     let runtime = runtime();
     let _guard = runtime.enter();
     runtime.block_on(async move {
         let Some(room) = client.get_room(&room_id) else { return Err(anyhow!("room not found")); };
+        // Resolve target event id. Support a special "__LATEST__" sentinel that
+        // fetches the newest event id from the server for deterministic tests.
+        let target_eid = if event_id_str == "__LATEST__" {
+            let mut opts = MessagesOptions::backward();
+            opts.limit = UInt::from(1u32);
+            let resp = room
+                .messages(opts)
+                .await
+                .map_err(|e| anyhow!(format!("failed to fetch latest message: {e:?}")))?;
+            let eid = resp
+                .chunk
+                .first()
+                .and_then(|ev| ev.event_id())
+                .ok_or_else(|| anyhow!("no events in room to mark read"))?;
+            eid
+        } else {
+            matrix_sdk::ruma::OwnedEventId::try_from(event_id_str.as_str())
+                .map_err(|_| anyhow!("invalid event id"))?
+        };
         // Try sending a single read receipt for the given event.
         if let Err(err) = room
             .send_single_receipt(
                 matrix_sdk::ruma::api::client::receipt::create_receipt::v3::ReceiptType::Read,
                 matrix_sdk::ruma::events::receipt::ReceiptThread::Unthreaded,
-                event_id,
+                target_eid.clone(),
             )
             .await
         {
             return Err(anyhow!(format!("failed to send read receipt: {err:?}")));
+        }
+        // Test stabilizer: force a one-shot sync so Sliding Sync summaries
+        // reflect the updated read state immediately in headless runs.
+        let _ = room
+            .client()
+            .sync_once(SyncSettings::default())
+            .await;
+        // Also set read markers (m.read and m.fully_read) via the canonical endpoint.
+        // Synapse bases notification_count on the read receipt (above), but this keeps
+        // account-data aligned and avoids edge cases.
+        let client = room.client();
+        let mut req = read_marker::Request::new(room_id.clone());
+        req.fully_read = Some(target_eid.clone());
+        req.read_receipt = Some(target_eid); // m.read
+        req.private_read_receipt = None;
+        if let Err(err) = client.send(req).await {
+            return Err(anyhow!(format!("failed to set read markers: {err:?}")));
         }
         Ok(Ack { ok: true })
     })

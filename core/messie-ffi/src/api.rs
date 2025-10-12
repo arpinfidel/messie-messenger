@@ -123,6 +123,17 @@ pub fn room_list_stream(handle: String, port: i64) -> String {
     to_response_json(matrix::register_room_list_listener(&handle, port))
 }
 
+/// Update Sliding Sync room subscriptions for a handle. Room IDs are passed as
+/// a JSON array string (e.g., ["!a:hs","!b:hs"]).
+pub fn sliding_subscribe_rooms_json(handle: String, room_ids_json: String, reset: bool) -> String {
+    let parsed: anyhow::Result<Vec<String>> = serde_json::from_str(&room_ids_json)
+        .map_err(|e| anyhow::anyhow!(format!("invalid room_ids json: {e}")));
+    match parsed {
+        Ok(ids) => to_response_json(matrix::sliding_subscribe_rooms(&handle, ids, reset)),
+        Err(err) => json!({ "ok": false, "error": format!("{:#}", err) }).to_string(),
+    }
+}
+
 /// Return the list of joined or invited room IDs.
 pub fn list_joined_rooms() -> String {
     to_response_json(matrix::list_joined_rooms())

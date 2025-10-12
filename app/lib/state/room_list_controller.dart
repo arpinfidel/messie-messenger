@@ -154,6 +154,18 @@ class RoomListController extends StateNotifier<RoomListState> {
           error: null,
         );
       }
+
+      // Update Sliding Sync room subscriptions from Flutter: subscribe to the
+      // current high-priority window only. Keep this minimal; more nuanced
+      // policies (e.g., include active room) can be layered on the Flutter side.
+      final hpIds = hp.map((r) => r.roomId).toList(growable: false);
+      if (hpIds.isNotEmpty) {
+        await rustSlidingSyncSubscribeRooms(
+          handle: _slidingSyncHandle,
+          roomIds: hpIds,
+          reset: true,
+        );
+      }
     } catch (err) {
       _setError('Failed to refresh rooms: $err');
     } finally {
@@ -168,6 +180,8 @@ class RoomListController extends StateNotifier<RoomListState> {
     }
     state = state.copyWith(error: message, isLoading: false);
   }
+
+  
 }
 
 class RoomListState {

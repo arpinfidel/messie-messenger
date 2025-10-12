@@ -39,6 +39,10 @@ if (( RUN_INIT )); then
     matrix generate
 
   printf '==> Syncing registration_shared_secret…\n'
+  # In this repo, /data/homeserver.yaml may be bind-mounted read-only from
+  # infra/matrix/homeserver.dev.yaml. In that case, this write will fail; treat
+  # it as best-effort and continue.
+  set +e
   docker compose -f "$COMPOSE_FILE" "${PROFILE[@]}" run --rm -T \
     --entrypoint python \
     -e MATRIX_REGISTRATION_SHARED_SECRET="$MATRIX_REGISTRATION_SHARED_SECRET" \
@@ -61,6 +65,11 @@ if not found:
     lines.append(f"registration_shared_secret: {secret}\n")
 path.write_text("".join(lines), encoding="utf-8")
 PY
+  status=$?
+  set -e
+  if [[ $status -ne 0 ]]; then
+    printf '   (info) homeserver.yaml appears read-only; skipping secret sync. Ensure it matches infra/matrix/homeserver.dev.yaml\n'
+  fi
 fi
 
 if (( RUN_START )); then

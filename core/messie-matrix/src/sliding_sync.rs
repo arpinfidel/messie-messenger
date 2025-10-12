@@ -11,6 +11,8 @@ use matrix_sdk::{
     sliding_sync::{SlidingSync, SlidingSyncList, SlidingSyncMode, UpdateSummary, Version},
     Client,
 };
+use matrix_sdk::ruma::assign;
+use matrix_sdk::ruma::api::client::sync::sync_events::v5 as http;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
@@ -277,7 +279,14 @@ impl SlidingSyncController {
         let builder = client
             .sliding_sync(handle)
             .context("failed to initialise sliding sync builder")?
-            .version(Version::Native);
+            .version(Version::Native)
+            // Recommended extensions so unread counts, account data and crypto
+            // updates propagate correctly.
+            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: Some(true) }))
+            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true) }))
+            .with_account_data_extension(assign!(http::request::AccountData::default(), { enabled: Some(true) }))
+            // Receipts are optional but recommended (read-state UX/diagnostics)
+            .with_receipt_extension(assign!(http::request::Receipts::default(), { enabled: Some(true) }));
 
         let list = SlidingSyncList::builder("all")
             .sync_mode(SlidingSyncMode::new_growing(config.lp_batch.max(1)))
@@ -296,4 +305,25 @@ impl SlidingSyncController {
             .await
             .context("failed to build sliding sync instance")
     }
+}
+
+pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, reset: bool) -> Result<AckResponse> {
+    use matrix_sdk::ruma::OwnedRoomId;
+
+    let controllers = CONTROLLERS.read().await;
+    let controller = controllers
+        .get(handle)
+        .cloned()
+        .ok_or_else(|| anyhow!("Sliding sync '{handle}' has not been started"))?;
+
+    // Parse and convert to the shape expected by the SDK method.
+    let parsed: Result<Vec<OwnedRoomId>> = room_ids
+        .into_iter()
+        .map(|rid| rid.parse::<OwnedRoomId>().map_err(|e| anyhow!("invalid room id '{rid}': {e}")))
+        .collect();
+    let owned = parsed?;
+    let refs: Vec<_> = owned.iter().map(|rid| rid.as_ref()).collect();
+
+    controller.sliding_sync.subscribe_to_rooms(&refs, None, reset);
+    Ok(AckResponse { ok: true })
 }

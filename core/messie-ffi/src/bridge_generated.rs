@@ -295,6 +295,19 @@ pub extern "C" fn messie_ffi_room_list_stream(handle: *const c_char, port: i64) 
 }
 
 #[no_mangle]
+pub extern "C" fn messie_ffi_sliding_subscribe_rooms(
+    handle: *const c_char,
+    room_ids_json: *const c_char,
+    reset: bool,
+) -> *mut c_char {
+    ffi_safe(|| {
+        let handle = read_c_string(handle, "handle")?;
+        let room_ids_json = read_c_string(room_ids_json, "roomIdsJson")?;
+        Ok(api::sliding_subscribe_rooms_json(handle, room_ids_json, reset))
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn messie_ffi_list_joined_rooms() -> *mut c_char {
     ffi_safe(|| Ok(api::list_joined_rooms()))
 }
