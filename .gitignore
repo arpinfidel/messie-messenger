@@ -14,6 +14,7 @@ scripts/matrix/.snapshots/
 
 # Flutter tooling / IDE artifacts
 app/.dart_tool/
+**/.dart_tool/
 app/.flutter-plugins
 app/.flutter-plugins-dependencies
 app/.idea/
@@ -34,6 +35,7 @@ frontend/android/local.properties
 
 .venv-matrix-seed/
 __pycache__/
+\.pycache/
 *.pyc
 *.pyo
 
