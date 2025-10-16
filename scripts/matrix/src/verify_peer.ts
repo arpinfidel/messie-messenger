@@ -1,4 +1,4 @@
-import { createClient, ClientEvent, SyncState, MatrixClient } from 'matrix-js-sdk';
+import { createClient, ClientEvent, SyncState, MatrixClient, RoomEvent, MatrixEvent } from 'matrix-js-sdk';
 import {
   VerificationRequest,
   VerificationRequestEvent,
@@ -27,6 +27,8 @@ type CliArgs = {
   'device-name': string;
   'target-device'?: string;
   'device-id'?: string; // alias for target-device for compatibility
+  'echo-user'?: string; // user to login as for message echoing
+  'echo-password'?: string; // password for echo user
 };
 
 // __dirname is not defined in ESM; derive it from import.meta.url
@@ -146,7 +148,132 @@ async function handleRequest(req: VerificationRequest): Promise<void> {
   await onChange();
 }
 
+async function setupMessageEchoOnClient(client: MatrixClient): Promise<void> {
+  console.log('[echo] setting up message echo on existing client');
+
+  client.on(RoomEvent.Timeline, async (event: MatrixEvent) => {
+    try {
+      if (event.getType() !== 'm.room.message') return;
+      if (event.getSender() === client.getUserId()) return; // Don't echo our own messages
+
+      const roomId = event.getRoomId();
+      if (!roomId) return;
+
+      const content = event.getContent();
+      if (!content || content.msgtype !== 'm.text') return;
+
+      const originalBody = content.body;
+      if (!originalBody || typeof originalBody !== 'string') return;
+
+      const echoBody = `Echo: ${originalBody}`;
+      console.log(`[echo] echoing message in room ${roomId}: "${originalBody}" -> "${echoBody}"`);
+
+      await client.sendMessage(roomId, {
+        msgtype: 'm.text' as any,
+        body: echoBody,
+      });
+    } catch (e) {
+      console.warn('[echo] failed to echo message:', e instanceof Error ? e.message : String(e));
+    }
+  });
+}
+
+async function setupMessageEcho(serverUrl: string, username: string, password: string, deviceName: string): Promise<void> {
+  console.log(`[echo] Creating separate client for ${username} at ${serverUrl}`);
+
+  const echoClient = createClient({ baseUrl: serverUrl });
+
+  try {
+    console.log(`[echo] Attempting login for ${username}`);
+    const loginRes = await echoClient.loginRequest({
+      type: 'm.login.password',
+      identifier: { type: 'm.id.user', user: username },
+      password: password,
+      initial_device_display_name: `${deviceName} (Echo)`,
+    });
+
+    console.log(`[echo] Login successful: ${loginRes.user_id} device ${loginRes.device_id}`);
+
+    console.log('[echo] Initializing Rust crypto for echo client');
+    await echoClient.initRustCrypto({ useIndexedDB: false });
+    console.log('[echo] Echo client Rust crypto initialized');
+
+    console.log('[echo] Setting up timeline event listener for echo client');
+    echoClient.on(RoomEvent.Timeline, async (event: MatrixEvent) => {
+      try {
+        console.log(`[echo] Received timeline event: ${event.getType()} from ${event.getSender()}`);
+
+        if (event.getType() !== 'm.room.message') {
+          console.log(`[echo] Ignoring non-message event: ${event.getType()}`);
+          return;
+        }
+
+        if (event.getSender() === echoClient.getUserId()) {
+          console.log('[echo] Ignoring own message');
+          return; // Don't echo our own messages
+        }
+
+        const roomId = event.getRoomId();
+        if (!roomId) {
+          console.log('[echo] No room ID in event');
+          return;
+        }
+
+        const content = event.getContent();
+        if (!content || content.msgtype !== 'm.text') {
+          console.log(`[echo] Ignoring non-text message: ${content?.msgtype}`);
+          return;
+        }
+
+        const originalBody = content.body;
+        if (!originalBody || typeof originalBody !== 'string') {
+          console.log('[echo] No valid body in message');
+          return;
+        }
+
+        const echoBody = `Echo: ${originalBody}`;
+        console.log(`[echo] Echoing message in room ${roomId}: "${originalBody}" -> "${echoBody}"`);
+
+        await echoClient.sendMessage(roomId, {
+          msgtype: 'm.text' as any,
+          body: echoBody,
+        });
+
+        console.log(`[echo] Successfully sent echo message`);
+      } catch (e) {
+        console.error('[echo] Failed to echo message:', e instanceof Error ? e.message : String(e));
+      }
+    });
+
+    console.log('[echo] Starting echo client sync');
+    await echoClient.startClient({ initialSyncLimit: 10 });
+
+    console.log('[echo] Waiting for echo client sync to be ready');
+    await new Promise<void>((resolve) => {
+      const onSync = (state: SyncState): void => {
+        console.log('[echo] Echo client sync state:', state);
+        if (state === SyncState.Prepared || state === SyncState.Syncing) {
+          console.log('[echo] Echo client sync is ready');
+          echoClient.removeListener(ClientEvent.Sync, onSync);
+          resolve();
+        }
+      };
+      echoClient.on(ClientEvent.Sync, onSync);
+    });
+
+    console.log('[echo] Echo client ready and listening for messages');
+
+  } catch (e) {
+    console.error('[echo] Failed to setup echo client:', e instanceof Error ? e.message : String(e));
+    console.error('[echo] Full error:', e);
+    throw e;
+  }
+}
+
 async function runPeer(): Promise<void> {
+  console.log('[peer] Starting runPeer function');
+  console.log('[peer] Process argv:', process.argv);
+
   const parser = yargs(hideBin(process.argv)) as YargsArgv<CliArgs>;
   const argv = await parser
     .option('server-url', { type: 'string', demandOption: true })
@@ -155,13 +282,18 @@ async function runPeer(): Promise<void> {
     .option('device-name', { type: 'string', default: 'Messie SAS Peer' })
     .option('target-device', { type: 'string' })
     .option('device-id', { type: 'string' })
+    .option('echo-user', { type: 'string', description: 'Username for message echoing (defaults to username)' })
+    .option('echo-password', { type: 'string', description: 'Password for echo user (defaults to password)' })
     .strict()
     .help()
     .parseAsync();
 
+  console.log('[peer] Parsed arguments:', JSON.stringify(argv, null, 2));
+
 
   let client: MatrixClient;
 
+  console.log('[peer] Starting authentication process');
   // Prefer persisted access token to avoid login 429s. Fallback to password login.
   let login: { user_id: string; access_token: string; device_id?: string };
   const tokenCandidates: string[] = [];
@@ -191,16 +323,26 @@ async function runPeer(): Promise<void> {
   }
 
   if (session) {
+    console.log('[peer] Using persisted session for user:', session.user_id);
     login = session;
   } else {
+    console.log('[peer] No persisted session found, performing fresh login');
     const tmpClient = createClient({ baseUrl: argv['server-url'] });
-    const res = await tmpClient.loginRequest({
-      type: 'm.login.password',
-      identifier: { type: 'm.id.user', user: argv.username },
-      password: argv.password,
-      initial_device_display_name: argv['device-name'],
-    });
-    login = res as any;
+    console.log('[peer] Created temporary client for login');
+
+    try {
+      const res = await tmpClient.loginRequest({
+        type: 'm.login.password',
+        identifier: { type: 'm.id.user', user: argv.username },
+        password: argv.password,
+        initial_device_display_name: argv['device-name'],
+      });
+      login = res as any;
+      console.log('[peer] Login successful for user:', login.user_id);
+    } catch (e) {
+      console.error('[peer] Login failed:', e instanceof Error ? e.message : String(e));
+      throw e;
+    }
     // Persist token for future runs to avoid 429s
     try {
       const outPath = process.env.ACCESS_TOKEN_PATH || '/state/access_token.json';
@@ -282,6 +424,7 @@ async function runPeer(): Promise<void> {
     return [keyId, privateKey];
   };
 
+  console.log('[peer] Building main client');
   // Build the client with cryptoCallbacks provided up-front so the SDK has it during init
   client = createClient({
     baseUrl: argv['server-url'],
@@ -291,10 +434,17 @@ async function runPeer(): Promise<void> {
     cryptoCallbacks: { getSecretStorageKey },
   });
 
-  await client.initRustCrypto({ useIndexedDB: false });
+  console.log('[peer] Initializing Rust crypto');
+  try {
+    await client.initRustCrypto({ useIndexedDB: false });
+    console.log('[peer] Rust crypto initialized successfully');
+  } catch (e) {
+    console.error('[peer] Failed to initialize Rust crypto:', e instanceof Error ? e.message : String(e));
+    throw e;
+  }
 
   // Low-level visibility into verification to-device messages (debug aid)
-  client.on(ClientEvent.ToDeviceEvent as any, (ev: any) => {
+  client.on('toDeviceEvent' as any, (ev: any) => {
     const t = ev?.getType?.();
     if (!t || !String(t).startsWith('m.key.verification.')) return;
     try {
@@ -314,11 +464,21 @@ async function runPeer(): Promise<void> {
     await handleRequest(req);
   });
 
-  await client.startClient({ initialSyncLimit: 1 });
+  console.log('[peer] Starting client sync');
+  try {
+    await client.startClient({ initialSyncLimit: 1 });
+    console.log('[peer] Client sync started');
+  } catch (e) {
+    console.error('[peer] Failed to start client:', e instanceof Error ? e.message : String(e));
+    throw e;
+  }
 
+  console.log('[peer] Waiting for sync to be ready');
   await new Promise<void>((resolve) => {
     const onSync = (state: SyncState): void => {
+      console.log('[peer] Sync state changed to:', state);
       if (state === SyncState.Prepared || state === SyncState.Syncing) {
+        console.log('[peer] Sync is ready');
         client.removeListener(ClientEvent.Sync, onSync);
         resolve();
       }
@@ -505,6 +665,33 @@ async function runPeer(): Promise<void> {
     }
   }
 
+  console.log('[peer] Setting up message echoing');
+  // Set up message echoing if echo user is specified
+  const echoUser = argv['echo-user'] || argv.username;
+  const echoPassword = argv['echo-password'] || argv.password;
+
+  console.log(`[peer] Echo user: ${echoUser}, Main user: ${argv.username}`);
+
+  if (echoUser && echoPassword && (echoUser !== argv.username || echoPassword !== argv.password)) {
+    console.log(`[peer] Setting up separate message echo client for user ${echoUser}`);
+    try {
+      await setupMessageEcho(argv['server-url'], echoUser, echoPassword, argv['device-name']);
+      console.log('[peer] Separate echo client setup complete');
+    } catch (e) {
+      console.error('[peer] Failed to setup separate echo client:', e instanceof Error ? e.message : String(e));
+    }
+  } else if (echoUser === argv.username && echoPassword === argv.password) {
+    console.log(`[peer] Setting up message echo on main client for user ${echoUser}`);
+    try {
+      await setupMessageEchoOnClient(client);
+      console.log('[peer] Main client echo setup complete');
+    } catch (e) {
+      console.error('[peer] Failed to setup main client echo:', e instanceof Error ? e.message : String(e));
+    }
+  } else {
+    console.log('[peer] No message echoing configured');
+  }
+
   process.on('unhandledRejection', (reason) => {
     console.error('[peer] UnhandledRejection:', reason);
   });
@@ -524,12 +711,19 @@ async function runPeer(): Promise<void> {
     console.error('[peer] exit code=', code);
   });
 
+  console.log('[peer] Setup complete, entering keep-alive mode');
   process.stdin.resume();
   // Ensure the process does not exit due to lack of handles in detached Docker mode.
-  await new Promise<void>(() => { /* keep alive */ });
+  await new Promise<void>(() => {
+    console.log('[peer] Keep-alive promise started - process will run indefinitely');
+    /* keep alive */
+  });
 }
 
+console.log('[peer] Starting peer process');
+
 runPeer().catch((err) => {
-  console.error(err);
+  console.error('[peer] Fatal error in runPeer:', err);
+  console.error('[peer] Stack trace:', err?.stack);
   process.exit(1);
 });

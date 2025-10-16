@@ -11,8 +11,6 @@ use matrix_sdk::{
     sliding_sync::{SlidingSync, SlidingSyncList, SlidingSyncMode, UpdateSummary, Version},
     Client,
 };
-use matrix_sdk::ruma::assign;
-use matrix_sdk::ruma::api::client::sync::sync_events::v5 as http;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
@@ -217,10 +215,35 @@ impl SlidingSyncController {
         let UpdateSummary { lists, rooms } = summary;
         let rooms: Vec<String> = rooms.into_iter().map(|room| room.to_string()).collect();
 
+        // DEBUG: Log detailed info about this sliding sync update
+        println!("RUST DEBUG: Sliding sync '{}' received update with {} rooms: {:?}",
+            self.handle, rooms.len(), rooms);
+
         if !rooms.is_empty() {
             let mut known = self.room_ids.write().await;
             for room in &rooms {
                 known.insert(room.clone());
+            }
+
+            // DEBUG: Check what notification data is available for updated rooms
+            if let Some(client) = crate::client() {
+                for room_id_str in &rooms {
+                    if let Ok(room_id) = room_id_str.parse::<matrix_sdk::ruma::OwnedRoomId>() {
+                        if let Some(room) = client.get_room(&room_id) {
+                            let counts = room.unread_notification_counts();
+                            println!("RUST DEBUG: SS update - Room {} notification_count={}, highlight_count={}",
+                                room_id_str, counts.notification_count, counts.highlight_count);
+
+                            // Also check if this room has any recent activity
+                            let recency = room.recency_stamp();
+                            println!("RUST DEBUG: SS update - Room {} recency_stamp: {:?}", room_id_str, recency);
+                        } else {
+                            println!("RUST DEBUG: SS update - Room {} not found in client cache", room_id_str);
+                        }
+                    }
+                }
+            } else {
+                println!("RUST DEBUG: SS update - No client available");
             }
         }
 
@@ -280,16 +303,16 @@ impl SlidingSyncController {
             .sliding_sync(handle)
             .context("failed to initialise sliding sync builder")?
             .version(Version::Native)
-            // Recommended extensions so unread counts, account data and crypto
-            // updates propagate correctly.
-            .with_to_device_extension(assign!(http::request::ToDevice::default(), { enabled: Some(true) }))
-            .with_e2ee_extension(assign!(http::request::E2EE::default(), { enabled: Some(true) }))
-            .with_account_data_extension(assign!(http::request::AccountData::default(), { enabled: Some(true) }))
-            // Receipts are optional but recommended (read-state UX/diagnostics)
-            .with_receipt_extension(assign!(http::request::Receipts::default(), { enabled: Some(true) }));
+            // Enable standard extensions but disable to-device here to avoid
+            // token-type conflicts when classic /sync is also used.
+            .with_all_extensions()
+            .without_to_device_extension();
 
         let list = SlidingSyncList::builder("all")
-            .sync_mode(SlidingSyncMode::new_growing(config.lp_batch.max(1)))
+            .sync_mode(
+                SlidingSyncMode::new_growing(config.lp_batch.max(1))
+                    .maximum_number_of_rooms_to_fetch(10_000),
+            )
             .timeline_limit(config.lp_timeline.max(1))
             .required_state(vec![
                 ("m.room.name".into(), "".to_string()),
@@ -307,23 +330,59 @@ impl SlidingSyncController {
     }
 }
 
-pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, reset: bool) -> Result<AckResponse> {
-    use matrix_sdk::ruma::OwnedRoomId;
-
+pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) -> Result<AckResponse> {
     let controllers = CONTROLLERS.read().await;
     let controller = controllers
         .get(handle)
         .cloned()
         .ok_or_else(|| anyhow!("Sliding sync '{handle}' has not been started"))?;
+    drop(controllers);
 
-    // Parse and convert to the shape expected by the SDK method.
-    let parsed: Result<Vec<OwnedRoomId>> = room_ids
-        .into_iter()
-        .map(|rid| rid.parse::<OwnedRoomId>().map_err(|e| anyhow!("invalid room id '{rid}': {e}")))
-        .collect();
-    let owned = parsed?;
-    let refs: Vec<_> = owned.iter().map(|rid| rid.as_ref()).collect();
+    println!("RUST DEBUG: Subscribing to {} rooms for sliding sync '{}'", room_ids.len(), handle);
+    for room_id in &room_ids {
+        println!("RUST DEBUG: - Subscribing to room: {}", room_id);
+    }
 
-    controller.sliding_sync.subscribe_to_rooms(&refs, None, reset);
+    // Subscribe to specific rooms with notifications enabled
+    // This is required for the SDK to properly track notification counters
+    if !room_ids.is_empty() {
+        // Parse room IDs and keep the owned versions alive
+        let owned_room_ids: Vec<matrix_sdk::ruma::OwnedRoomId> = room_ids.iter()
+            .filter_map(|id| {
+                match id.parse() {
+                    Ok(parsed) => {
+                        println!("RUST DEBUG: Successfully parsed room ID: {}", id);
+                        Some(parsed)
+                    }
+                    Err(e) => {
+                        println!("RUST DEBUG: Failed to parse room ID '{}': {:?}", id, e);
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        if !owned_room_ids.is_empty() {
+            let room_id_refs: Vec<&matrix_sdk::ruma::RoomId> = owned_room_ids
+                .iter()
+                .map(|id| id.as_ref())
+                .collect();
+
+            println!("RUST DEBUG: Calling subscribe_to_rooms with {} valid room IDs", room_id_refs.len());
+
+            // Use the subscribe_to_rooms method (plural) which is available
+            controller.sliding_sync.subscribe_to_rooms(
+                &room_id_refs,
+                None, // Use default room subscription settings
+                true, // Cancel in-flight requests
+            );
+            println!("RUST DEBUG: Successfully called subscribe_to_rooms for {} rooms", room_id_refs.len());
+        } else {
+            println!("RUST DEBUG: No valid room IDs to subscribe to");
+        }
+    } else {
+        println!("RUST DEBUG: No room IDs provided for subscription");
+    }
+
     Ok(AckResponse { ok: true })
 }

@@ -23,6 +23,18 @@ MATRIX_SEED_STATE_DIR ?= scripts/matrix/.state
 # Absolute path used by the local seeder to avoid nested prefixes
 SEED_STATE_DIR_ABS := $(CURDIR)/$(MATRIX_SEED_STATE_DIR)
 
+# -------- v2 test env (defaults) --------
+# These feed the Rust v2 + Dart tests. Override as needed when running against
+# a different homeserver/user.
+export MESSIE_MATRIX_HOMESERVER ?= $(MATRIX_SERVER_URL)
+export MESSIE_MATRIX_USERNAME  ?= $(MATRIX_SEED_USER)
+export MESSIE_MATRIX_PASSWORD  ?= $(MATRIX_SEED_PASSWORD)
+export MESSIE_MATRIX_STORE_BASE ?= $(CURDIR)/.messie_store_v2
+export MESSIE_GROUP_ROOM ?= !WHJjpbPRQHMZAjbIAM:messie.localhost
+export MESSIE_DM_ROOM ?= !lOCTzMDIPbNkteJDKI:messie.localhost
+export MESSIE_SENDER_USERNAME ?= bridge-tester-2
+export MESSIE_SENDER_PASSWORD ?= bridgeTesterPass!
+
 # Backend API base URL for Flutter (used via --dart-define)
 # For Android emulator, 10.0.2.2 points to host loopback. Override for iOS/desktop if needed.
 APP_API_BASE_URL ?= http://10.0.2.2:8080/api/v1
@@ -71,6 +83,10 @@ jira-push:
 	cd backend && go run ./cmd/jira-sync push
 
 .PHONY: test-e2e-codegen matrix-init matrix-up matrix-down matrix-register matrix-seed matrix-setup matrix-cleanup flutter-bridge-build-lib flutter-bridge-test bridge-generate bridge-build-android bridge-build-ios flutter-run-android flutter-run-ios
+.PHONY: v2-help \
+        v2-build-ffi-host \
+        v2-flutter-login-sync v2-flutter-notifications v2-flutter-backup v2-flutter-all \
+        v2-rust-test v2-rust-test-ignored
 
 flutter-run-android:
 	# Ensure Rust Android FFI is built and copied into app/android
@@ -227,20 +243,150 @@ matrix-seed:
 	@echo "Seeding Synapse with encrypted sliding-sync dataset..."
 	@mkdir -p $(SEED_STATE_DIR_ABS)
 	npm --prefix scripts/matrix install --no-audit --no-fund >/dev/null
-	npm --prefix scripts/matrix run --silent seed -- \
-		--server-url "$(MATRIX_SEED_SERVER_URL)" \
-		--server-name "$(MATRIX_SERVER_NAME)" \
-		--shared-secret "$(MATRIX_REGISTRATION_SHARED_SECRET)" \
-		--admin-username "$(MATRIX_SEED_ADMIN_USER)" \
-		--admin-password "$(MATRIX_SEED_ADMIN_PASSWORD)" \
-		--user-username "$(MATRIX_SEED_USER)" \
-		--user-password "$(MATRIX_SEED_PASSWORD)" \
-		--user-count "$(MATRIX_SEED_USER_COUNT)" \
-		--user-prefix "$(MATRIX_SEED_USER_PREFIX)" \
-		--room-count "$(MATRIX_SEED_ROOM_COUNT)" \
-		--device-id "$(MATRIX_SEED_DEVICE_ID)" \
-		--device-name "$(MATRIX_SEED_DEVICE_NAME)" \
-		--state-dir "$(SEED_STATE_DIR_ABS)" $(if $(strip $(ARGS)),$(strip $(ARGS)))
+		npm --prefix scripts/matrix run --silent seed -- \
+			--server-url "$(MATRIX_SEED_SERVER_URL)" \
+			--server-name "$(MATRIX_SERVER_NAME)" \
+			--shared-secret "$(MATRIX_REGISTRATION_SHARED_SECRET)" \
+			--admin-username "$(MATRIX_SEED_ADMIN_USER)" \
+			--admin-password "$(MATRIX_SEED_ADMIN_PASSWORD)" \
+			--user-username "$(MATRIX_SEED_USER)" \
+			--user-password "$(MATRIX_SEED_PASSWORD)" \
+			--user-count "$(MATRIX_SEED_USER_COUNT)" \
+			--user-prefix "$(MATRIX_SEED_USER_PREFIX)" \
+			--room-count "$(MATRIX_SEED_ROOM_COUNT)" \
+
+# -------- v2 Rust FFI + Flutter tests --------
+
+# Build profile: set RUST_PROFILE=release to build optimized lib
+RUST_PROFILE ?= release
+CARGO_FLAGS := $(if $(filter $(RUST_PROFILE),release),--release,)
+
+# Compute platform-specific shared library extension
+ifeq ($(OS),Windows_NT)
+  LIB_EXT := dll
+else
+  UNAME_S := $(shell uname -s)
+  ifeq ($(UNAME_S),Darwin)
+    LIB_EXT := dylib
+  else
+    LIB_EXT := so
+  endif
+endif
+
+V2_LIB_NAME := libmessie_ffi_v2
+V2_FFI_LIB := $(CURDIR)/core/target/$(RUST_PROFILE)/$(V2_LIB_NAME).$(LIB_EXT)
+
+v2-build-ffi-host:
+	@echo "Building messie-ffi-v2 ($(RUST_PROFILE))..."
+	cargo build --manifest-path core/Cargo.toml -p messie-ffi-v2 --features messie-matrix-v2/test-helpers $(CARGO_FLAGS)
+	@test -f "$(V2_FFI_LIB)" || (echo "Built library not found at $(V2_FFI_LIB)" && exit 2)
+	@echo "FFI lib: $(V2_FFI_LIB)"
+
+v2-help:
+	@echo "V2 test targets:"; \
+	 echo "  make v2-flutter-login-sync     # only login + sliding sync tests"; \
+	 echo "  make v2-flutter-notifications  # only notifications/highlights tests"; \
+	 echo "  make v2-flutter-backup         # only backup/ssss smoke test"; \
+	 echo "  make v2-flutter-sas            # only SAS verification smoke test"; \
+	 echo "  make v2-flutter-all            # run all Flutter v2 tests"; \
+	 echo "  make v2-rust-test              # Rust unit/offline + ignored if env set"; \
+	 echo "Env: MESSIE_MATRIX_HOMESERVER, USERNAME, PASSWORD, and for notifications also MESSIE_SENDER_USERNAME/PASSWORD, MESSIE_GROUP_ROOM/DM_ROOM";
+
+v2-flutter-login-sync: v2-build-ffi-host
+	@if [ -z "$(MESSIE_MATRIX_HOMESERVER)" ] || [ -z "$(MESSIE_MATRIX_USERNAME)" ] || [ -z "$(MESSIE_MATRIX_PASSWORD)" ]; then \
+		echo "Set MESSIE_MATRIX_HOMESERVER, MESSIE_MATRIX_USERNAME, MESSIE_MATRIX_PASSWORD to run tests."; \
+		exit 2; \
+	fi
+	@mkdir -p "$(MESSIE_MATRIX_STORE_BASE)"
+	cd app && flutter pub get
+	cd app && \
+	  MESSIE_FFI_LIB_V2_PATH="$(V2_FFI_LIB)" \
+	  MESSIE_MATRIX_HOMESERVER="$(MESSIE_MATRIX_HOMESERVER)" \
+	  MESSIE_MATRIX_USERNAME="$(MESSIE_MATRIX_USERNAME)" \
+	  MESSIE_MATRIX_PASSWORD="$(MESSIE_MATRIX_PASSWORD)" \
+	  MESSIE_MATRIX_STORE_BASE="$(MESSIE_MATRIX_STORE_BASE)" \
+	  flutter test test/v2_login_and_sync_test.dart
+
+v2-flutter-notifications: v2-build-ffi-host
+	@if [ -z "$(MESSIE_MATRIX_HOMESERVER)" ] || [ -z "$(MESSIE_MATRIX_USERNAME)" ] || [ -z "$(MESSIE_MATRIX_PASSWORD)" ] || [ -z "$(MESSIE_SENDER_USERNAME)" ] || [ -z "$(MESSIE_SENDER_PASSWORD)" ]; then \
+		echo "Set MESSIE_MATRIX_HOMESERVER, MESSIE_MATRIX_USERNAME, MESSIE_MATRIX_PASSWORD, MESSIE_SENDER_USERNAME, MESSIE_SENDER_PASSWORD"; \
+		echo "Optionally set MESSIE_GROUP_ROOM and/or MESSIE_DM_ROOM to target specific rooms."; \
+		exit 2; \
+	fi
+	@mkdir -p "$(MESSIE_MATRIX_STORE_BASE)"
+	@mkdir -p "$(MESSIE_MATRIX_STORE_BASE)_sender"
+	cd app && flutter pub get
+	cd app && \
+	  MESSIE_FFI_LIB_V2_PATH="$(V2_FFI_LIB)" \
+	  MESSIE_MATRIX_HOMESERVER="$(MESSIE_MATRIX_HOMESERVER)" \
+	  MESSIE_MATRIX_USERNAME="$(MESSIE_MATRIX_USERNAME)" \
+	  MESSIE_MATRIX_PASSWORD="$(MESSIE_MATRIX_PASSWORD)" \
+	  MESSIE_SENDER_USERNAME="$(MESSIE_SENDER_USERNAME)" \
+	  MESSIE_SENDER_PASSWORD="$(MESSIE_SENDER_PASSWORD)" \
+	  MESSIE_GROUP_ROOM="$(MESSIE_GROUP_ROOM)" \
+	  MESSIE_DM_ROOM="$(MESSIE_DM_ROOM)" \
+	  MESSIE_MATRIX_STORE_BASE="$(MESSIE_MATRIX_STORE_BASE)" \
+	  MESSIE_MATRIX_STORE_BASE_SENDER="$(MESSIE_MATRIX_STORE_BASE)_sender" \
+	  flutter test test/v2_notifications_test.dart
+
+v2-flutter-backup: v2-build-ffi-host
+	@if [ -z "$(MESSIE_MATRIX_HOMESERVER)" ] || [ -z "$(MESSIE_MATRIX_USERNAME)" ] || [ -z "$(MESSIE_MATRIX_PASSWORD)" ]; then \
+		echo "Set MESSIE_MATRIX_HOMESERVER, MESSIE_MATRIX_USERNAME, MESSIE_MATRIX_PASSWORD to run tests."; \
+		exit 2; \
+	fi
+	@mkdir -p "$(MESSIE_MATRIX_STORE_BASE)"
+	cd app && flutter pub get
+	cd app && \
+	  MESSIE_FFI_LIB_V2_PATH="$(V2_FFI_LIB)" \
+	  MESSIE_MATRIX_HOMESERVER="$(MESSIE_MATRIX_HOMESERVER)" \
+	  MESSIE_MATRIX_USERNAME="$(MESSIE_MATRIX_USERNAME)" \
+	  MESSIE_MATRIX_PASSWORD="$(MESSIE_MATRIX_PASSWORD)" \
+	  MESSIE_MATRIX_STORE_BASE="$(MESSIE_MATRIX_STORE_BASE)" \
+	  flutter test test/v2_backup_test.dart test/v2_recovery_test.dart
+
+v2-flutter-sas: v2-build-ffi-host
+	@if [ -z "$(MESSIE_MATRIX_HOMESERVER)" ] || [ -z "$(MESSIE_MATRIX_USERNAME)" ] || [ -z "$(MESSIE_MATRIX_PASSWORD)" ]; then \
+		echo "Set MESSIE_MATRIX_HOMESERVER, MESSIE_MATRIX_USERNAME, MESSIE_MATRIX_PASSWORD to run tests."; \
+		exit 2; \
+	fi
+	@mkdir -p "$(MESSIE_MATRIX_STORE_BASE)"
+	cd app && flutter pub get
+	cd app && \
+	  MESSIE_FFI_LIB_V2_PATH="$(V2_FFI_LIB)" \
+	  MESSIE_MATRIX_HOMESERVER="$(MESSIE_MATRIX_HOMESERVER)" \
+	  MESSIE_MATRIX_USERNAME="$(MESSIE_MATRIX_USERNAME)" \
+	  MESSIE_MATRIX_PASSWORD="$(MESSIE_MATRIX_PASSWORD)" \
+	  MESSIE_MATRIX_STORE_BASE="$(MESSIE_MATRIX_STORE_BASE)" \
+	  flutter test test/v2_sas_test.dart
+
+v2-flutter-all: v2-flutter-login-sync v2-flutter-notifications v2-flutter-backup v2-flutter-sas
+
+# -------- v2 Rust tests --------
+
+v2-rust-test:
+	@echo "Running v2 Rust tests (non-ignored: offline/unit) ..."
+	cargo test --manifest-path core/Cargo.toml -p messie-matrix-v2 --features test-helpers
+	@echo "Running v2 Rust tests (ignored: integration with homeserver) ..."
+	@if [ -z "$(MESSIE_MATRIX_HOMESERVER)" ] || [ -z "$(MESSIE_MATRIX_USERNAME)" ] || [ -z "$(MESSIE_MATRIX_PASSWORD)" ]; then \
+		echo "Skipping ignored tests: set MESSIE_MATRIX_HOMESERVER/USERNAME/PASSWORD to run"; \
+		true; \
+	else \
+		MESSIE_MATRIX_HOMESERVER="$(MESSIE_MATRIX_HOMESERVER)" \
+		MESSIE_MATRIX_USERNAME="$(MESSIE_MATRIX_USERNAME)" \
+		MESSIE_MATRIX_PASSWORD="$(MESSIE_MATRIX_PASSWORD)" \
+		cargo test --manifest-path core/Cargo.toml -p messie-matrix-v2 --features test-helpers -- --ignored --nocapture; \
+	fi
+
+v2-rust-test-ignored:
+	@if [ -z "$(MESSIE_MATRIX_HOMESERVER)" ] || [ -z "$(MESSIE_MATRIX_USERNAME)" ] || [ -z "$(MESSIE_MATRIX_PASSWORD)" ]; then \
+		echo "Set MESSIE_MATRIX_HOMESERVER/USERNAME/PASSWORD to run ignored integration tests"; \
+		exit 2; \
+	fi
+	MESSIE_MATRIX_HOMESERVER="$(MESSIE_MATRIX_HOMESERVER)" \
+	MESSIE_MATRIX_USERNAME="$(MESSIE_MATRIX_USERNAME)" \
+	MESSIE_MATRIX_PASSWORD="$(MESSIE_MATRIX_PASSWORD)" \
+	cargo test --manifest-path core/Cargo.toml -p messie-matrix-v2 --features test-helpers -- --ignored --nocapture
+
 
 matrix-healthcheck:
 	@echo "Healthchecking Simplified Sliding Sync endpoint..."

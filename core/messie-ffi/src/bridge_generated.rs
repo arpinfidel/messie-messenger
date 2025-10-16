@@ -237,6 +237,11 @@ pub extern "C" fn messie_ffi_observe_sas(flow_id: *const c_char, port: i64) -> *
 }
 
 #[no_mangle]
+pub extern "C" fn messie_ffi_classic_sync_once() -> *mut c_char {
+    ffi_safe(|| Ok(api::classic_sync_once()))
+}
+
+#[no_mangle]
 pub extern "C" fn messie_ffi_confirm_sas(flow_id: *const c_char) -> *mut c_char {
     ffi_safe(|| {
         let flow_id = read_c_string(flow_id, "flowId")?;

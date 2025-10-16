@@ -198,6 +198,11 @@ pub fn observe_sas(flow_id: String, port: i64) -> String {
     to_response_json(matrix::observe_sas(&flow_id, port))
 }
 
+/// Trigger a one-shot classic /sync to refresh unread counters and device lists.
+pub fn classic_sync_once() -> String {
+    to_response_json(matrix::classic_sync_once())
+}
+
 /// Confirm a SAS verification flow.
 pub fn confirm_sas(flow_id: String) -> String {
     to_response_json(matrix::confirm_sas(&flow_id))

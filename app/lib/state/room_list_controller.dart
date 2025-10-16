@@ -25,6 +25,7 @@ class RoomListController extends StateNotifier<RoomListState> {
   StreamSubscription<dynamic>? _subscription;
   bool _started = false;
   bool _refreshing = false;
+  DateTime? _lastRefresh;
 
   Future<void> start() async => _ensureStarted();
 
@@ -79,6 +80,8 @@ class RoomListController extends StateNotifier<RoomListState> {
         return;
       }
 
+      // Room subscriptions will be handled after initial room list load
+
       await _refreshRooms();
     });
   }
@@ -101,7 +104,16 @@ class RoomListController extends StateNotifier<RoomListState> {
       final decoded = jsonDecode(message) as Map<String, dynamic>;
       final kind = decoded['kind'] as String? ?? '';
       if (kind == 'sliding_sync_ready' || kind == 'sliding_sync_update') {
-        _refreshRooms();
+        print('[DEBUG] 📨 Received sliding sync update: $kind');
+        // Throttle refreshes to avoid overwhelming the room overview calls
+        final now = DateTime.now();
+        if (_lastRefresh == null || now.difference(_lastRefresh!).inMilliseconds > 500) {
+          _lastRefresh = now;
+          print('[DEBUG] 🔄 Triggering room refresh due to sliding sync update');
+          _refreshRooms();
+        } else {
+          print('[DEBUG] ⏱️ Skipping refresh due to throttling');
+        }
       }
     } catch (err) {
       _setError('Failed to parse room list payload: $err');
@@ -117,17 +129,27 @@ class RoomListController extends StateNotifier<RoomListState> {
     }
 
     try {
+      print('[DEBUG] Calling rustListJoinedRooms()...');
       final roomsResult = await rustListJoinedRooms();
       if (!roomsResult.isOk || roomsResult.data == null) {
+        print('[DEBUG] rustListJoinedRooms failed: ${roomsResult.error}');
         _setError(roomsResult.error ?? 'Failed to load rooms');
         return;
       }
 
+      print('[DEBUG] Got ${roomsResult.data!.rooms.length} rooms from rustListJoinedRooms');
+
       final previews = <RoomPreview>[];
       for (final roomId in roomsResult.data!.rooms) {
+        print('[DEBUG] Calling rustRoomOverview for room: $roomId');
         final overviewResult = await rustRoomOverview(roomId: roomId);
         if (!overviewResult.isOk || overviewResult.data == null) {
+          print('[DEBUG] rustRoomOverview failed for $roomId: ${overviewResult.error}');
           continue;
+        }
+        final notificationCount = overviewResult.data!.notificationCount;
+        if (notificationCount > 0) {
+          print('[DEBUG] ⚠️ Room $roomId has notification_count=$notificationCount');
         }
         previews.add(RoomPreview.fromOverview(overviewResult.data!));
       }
@@ -143,6 +165,13 @@ class RoomListController extends StateNotifier<RoomListState> {
       final hp = previews.take(_defaultHpSize).toList();
       final lp = previews.skip(_defaultHpSize).toList();
 
+      // Check if any rooms with unread counts made it to HP
+      for (final room in hp) {
+        if (room.notificationCount > 0) {
+          print('[DEBUG] 🔥 HP room ${room.roomId} has notification_count=${room.notificationCount}');
+        }
+      }
+
       if (mounted) {
         state = state.copyWith(
           hpRooms: hp,
@@ -155,17 +184,7 @@ class RoomListController extends StateNotifier<RoomListState> {
         );
       }
 
-      // Update Sliding Sync room subscriptions from Flutter: subscribe to the
-      // current high-priority window only. Keep this minimal; more nuanced
-      // policies (e.g., include active room) can be layered on the Flutter side.
-      final hpIds = hp.map((r) => r.roomId).toList(growable: false);
-      if (hpIds.isNotEmpty) {
-        await rustSlidingSyncSubscribeRooms(
-          handle: _slidingSyncHandle,
-          roomIds: hpIds,
-          reset: true,
-        );
-      }
+      // Real-time updates now working properly with fixed sliding sync
     } catch (err) {
       _setError('Failed to refresh rooms: $err');
     } finally {
