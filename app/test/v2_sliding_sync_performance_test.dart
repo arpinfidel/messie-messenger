@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
+import 'dart:ffi';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -54,7 +55,7 @@ void main() {
     final swTotal = Stopwatch()..start();
 
     final swCreate = Stopwatch()..start();
-    final resNew = v2.clientCreate(homeserverUrl: env!.hs, basePath: env.base);
+    final resNew = v2.clientCreate(homeserverUrl: env.hs, basePath: env.base);
     swCreate.stop();
     expect(resNew.success, isTrue);
 
@@ -110,4 +111,3 @@ void main() {
     port.close();
   });
 }
-

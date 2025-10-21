@@ -26,11 +26,9 @@ fn sas_request_observe_cancel_ack() -> Result<()> {
     let password = must_env("MESSIE_MATRIX_PASSWORD")?;
     let base = store_path("sas_client");
 
-    // Client + login
-    let new_env: EnvelopeOk<HandleData> = serde_json::from_str(&v2::client_new(&hs, &base)).context("parse client_new")?;
-    let client = new_env.data.handle;
-    let login_env: EnvelopeOk<LoginData> = serde_json::from_str(&v2::client_restore_or_login(client, Some(&username), Some(&password))).context("parse login")?;
-    let user_id = login_env.data.user_id;
+    // Client + login (typed)
+    let client = v2::client_create(&hs, &base).ok_or_else(|| anyhow!("client_create failed"))?;
+    let user_id = v2::client_login(client, Some(&username), Some(&password)).ok_or_else(|| anyhow!("client_login failed"))?;
 
     // Request SAS with our user identity (no device id). This won't complete without a peer,
     // but should return a flow id and allow observe/cancel ACKs.

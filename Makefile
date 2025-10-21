@@ -275,12 +275,21 @@ endif
 
 V2_LIB_NAME := libmessie_ffi_v2
 V2_FFI_LIB := $(CURDIR)/core/target/$(RUST_PROFILE)/$(V2_LIB_NAME).$(LIB_EXT)
+# Debug build path used for faster local Flutter tests
+V2_FFI_LIB_DEBUG := $(CURDIR)/core/target/debug/$(V2_LIB_NAME).$(LIB_EXT)
 
 v2-build-ffi-host:
 	@echo "Building messie-ffi-v2 ($(RUST_PROFILE))..."
 	cargo build --manifest-path core/Cargo.toml -p messie-ffi-v2 --features messie-matrix-v2/test-helpers $(CARGO_FLAGS)
 	@test -f "$(V2_FFI_LIB)" || (echo "Built library not found at $(V2_FFI_LIB)" && exit 2)
 	@echo "FFI lib: $(V2_FFI_LIB)"
+
+# Fast debug build for local Flutter tests
+v2-build-ffi-host-debug:
+	@echo "Building messie-ffi-v2 (debug)..."
+	cargo build --manifest-path core/Cargo.toml -p messie-ffi-v2 --features messie-matrix-v2/test-helpers
+	@test -f "$(V2_FFI_LIB_DEBUG)" || (echo "Built library not found at $(V2_FFI_LIB_DEBUG)" && exit 2)
+	@echo "FFI lib (debug): $(V2_FFI_LIB_DEBUG)"
 
 v2-help:
 	@echo "V2 test targets:"; \
@@ -291,7 +300,7 @@ v2-help:
 	 echo "  make v2-rust-test              # Rust unit/offline + ignored if env set"; \
 	 echo "Env: MESSIE_MATRIX_HOMESERVER, USERNAME, PASSWORD";
 
-v2-flutter-login-sync: v2-build-ffi-host
+v2-flutter-login-sync: v2-build-ffi-host-debug
 	@if [ -z "$(MESSIE_MATRIX_HOMESERVER)" ] || [ -z "$(MESSIE_MATRIX_USERNAME)" ] || [ -z "$(MESSIE_MATRIX_PASSWORD)" ]; then \
 		echo "Set MESSIE_MATRIX_HOMESERVER, MESSIE_MATRIX_USERNAME, MESSIE_MATRIX_PASSWORD to run tests."; \
 		exit 2; \
@@ -299,14 +308,14 @@ v2-flutter-login-sync: v2-build-ffi-host
 	@mkdir -p "$(MESSIE_MATRIX_STORE_BASE)"
 	cd app && flutter pub get
 	cd app && \
-	  MESSIE_FFI_LIB_V2_PATH="$(V2_FFI_LIB)" \
+	  MESSIE_FFI_LIB_V2_PATH="$(V2_FFI_LIB_DEBUG)" \
 	  MESSIE_MATRIX_HOMESERVER="$(MESSIE_MATRIX_HOMESERVER)" \
 	  MESSIE_MATRIX_USERNAME="$(MESSIE_MATRIX_USERNAME)" \
 	  MESSIE_MATRIX_PASSWORD="$(MESSIE_MATRIX_PASSWORD)" \
 	  MESSIE_MATRIX_STORE_BASE="$(MESSIE_MATRIX_STORE_BASE)" \
 	  flutter test test/v2_login_and_sync_test.dart
 
-v2-flutter-backup: v2-build-ffi-host
+v2-flutter-backup: v2-build-ffi-host-debug
 	@if [ -z "$(MESSIE_MATRIX_HOMESERVER)" ] || [ -z "$(MESSIE_MATRIX_USERNAME)" ] || [ -z "$(MESSIE_MATRIX_PASSWORD)" ]; then \
 		echo "Set MESSIE_MATRIX_HOMESERVER, MESSIE_MATRIX_USERNAME, MESSIE_MATRIX_PASSWORD to run tests."; \
 		exit 2; \
@@ -314,14 +323,14 @@ v2-flutter-backup: v2-build-ffi-host
 	@mkdir -p "$(MESSIE_MATRIX_STORE_BASE)"
 	cd app && flutter pub get
 	cd app && \
-	  MESSIE_FFI_LIB_V2_PATH="$(V2_FFI_LIB)" \
+	  MESSIE_FFI_LIB_V2_PATH="$(V2_FFI_LIB_DEBUG)" \
 	  MESSIE_MATRIX_HOMESERVER="$(MESSIE_MATRIX_HOMESERVER)" \
 	  MESSIE_MATRIX_USERNAME="$(MESSIE_MATRIX_USERNAME)" \
 	  MESSIE_MATRIX_PASSWORD="$(MESSIE_MATRIX_PASSWORD)" \
 	  MESSIE_MATRIX_STORE_BASE="$(MESSIE_MATRIX_STORE_BASE)" \
 	  flutter test test/v2_backup_test.dart test/v2_recovery_test.dart
 
-v2-flutter-sas: v2-build-ffi-host
+v2-flutter-sas: v2-build-ffi-host-debug
 	@if [ -z "$(MESSIE_MATRIX_HOMESERVER)" ] || [ -z "$(MESSIE_MATRIX_USERNAME)" ] || [ -z "$(MESSIE_MATRIX_PASSWORD)" ]; then \
 		echo "Set MESSIE_MATRIX_HOMESERVER, MESSIE_MATRIX_USERNAME, MESSIE_MATRIX_PASSWORD to run tests."; \
 		exit 2; \

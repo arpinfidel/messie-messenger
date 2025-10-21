@@ -1,4 +1,5 @@
 import 'dart:isolate';
+import 'dart:ffi';
 
 import 'messie_bridge_v2.dart' as v2;
 

@@ -27,14 +27,9 @@ fn sliding_sync_start_stops() -> Result<()> {
     let password = must_env("MESSIE_MATRIX_PASSWORD")?;
     let base = store_path("ss_client");
 
-    // Create client and login/restore
-    let new_json = v2::client_new(&hs, &base);
-    let handle_env: EnvelopeOk<HandleData> = serde_json::from_str(&new_json).context("parse client_new envelope")?;
-    assert!(handle_env.ok);
-    let client = handle_env.data.handle;
-
-    let login_json = v2::client_restore_or_login(client, Some(&username), Some(&password));
-    let _: EnvelopeOk<serde_json::Value> = serde_json::from_str(&login_json).context("parse login envelope")?;
+    // Create client and login/restore (typed API)
+    let client = v2::client_create(&hs, &base).ok_or_else(|| anyhow!("client_create failed"))?;
+    let _ = v2::client_login(client, Some(&username), Some(&password));
 
     // Thin: create and start/stop
     let ss = v2::sliding_sync_create(client, v2::SlidingSyncConfig { poll_timeout_ms: 0, network_timeout_ms: 0, enable_e2ee: true, enable_to_device: false })
@@ -54,12 +49,9 @@ fn unknown_pos_recovery_via_expire_session() -> Result<()> {
     let password = must_env("MESSIE_MATRIX_PASSWORD")?;
     let base = store_path("ss_unknownpos_recover");
 
-    // Create client and login/restore
-    let new_json = v2::client_new(&hs, &base);
-    let handle_env: EnvelopeOk<HandleData> = serde_json::from_str(&new_json).context("parse client_new envelope")?;
-    let client = handle_env.data.handle;
-
-    let _ = v2::client_restore_or_login(client, Some(&username), Some(&password));
+    // Create client and login/restore (typed API)
+    let client = v2::client_create(&hs, &base).ok_or_else(|| anyhow!("client_create failed"))?;
+    let _ = v2::client_login(client, Some(&username), Some(&password));
 
     // Thin minimal sliding sync and start
     let ss = v2::sliding_sync_create(client, v2::SlidingSyncConfig { poll_timeout_ms: 0, network_timeout_ms: 0, enable_e2ee: true, enable_to_device: false })
@@ -118,13 +110,9 @@ fn sliding_sync_produces_room_ids() -> Result<()> {
     let password = must_env("MESSIE_MATRIX_PASSWORD")?;
     let base = store_path("ss_rooms");
 
-    // Create client and login/restore
-    let new_json = v2::client_new(&hs, &base);
-    let handle_env: EnvelopeOk<HandleData> = serde_json::from_str(&new_json).context("parse client_new envelope")?;
-    let client = handle_env.data.handle;
-
-    let login_json = v2::client_restore_or_login(client, Some(&username), Some(&password));
-    let _: EnvelopeOk<serde_json::Value> = serde_json::from_str(&login_json).context("parse login envelope")?;
+    // Create client and login/restore (typed API)
+    let client = v2::client_create(&hs, &base).ok_or_else(|| anyhow!("client_create failed"))?;
+    let _ = v2::client_login(client, Some(&username), Some(&password));
 
     // Thin sliding sync (same goal)
     let ss = v2::sliding_sync_create(client, v2::SlidingSyncConfig { poll_timeout_ms: 0, network_timeout_ms: 0, enable_e2ee: true, enable_to_device: false })

@@ -49,9 +49,8 @@ fn ssss_import_key_and_enable_backup() -> Result<()> {
     let Some(key) = load_recovery_key() else { return Ok(()); }; // skip silently if no key
 
     let base = store_path("recovery_client");
-    let new_env: EnvelopeOk<HandleData> = serde_json::from_str(&v2::client_new(&hs, &base)).context("parse client_new")?;
-    let client = new_env.data.handle;
-    let _ = v2::client_restore_or_login(client, Some(&username), Some(&password));
+    let client = v2::client_create(&hs, &base).ok_or_else(|| anyhow!("client_create failed"))?;
+    let _ = v2::client_login(client, Some(&username), Some(&password));
 
     // Import recovery key and enable/attach to backup
     let import_env: serde_json::Value = serde_json::from_str(&v2::ssss_import_recovery_key(client, &key)).context("parse import ack")?;

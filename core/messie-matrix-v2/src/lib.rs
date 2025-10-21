@@ -643,6 +643,8 @@ struct SasPayloadV2 {
     state: SasStateV2,
     emoji: Option<Vec<String>>,
     decimals: Option<(u16, u16, u16)>,
+    // Optional cancellation debug info to aid diagnostics on the host side
+    cancel: Option<String>,
 }
 
 struct SasControllerV2 {
@@ -655,6 +657,7 @@ struct SasControllerV2 {
     request: AsyncMutex<Option<VerificationRequest>>,
     sas: AsyncMutex<Option<SasVerification>>,
     to_device_cancel: AsyncMutex<Option<tokio_util::sync::CancellationToken>>,
+    cancel_msg: AsyncMutex<Option<String>>,
 }
 
 static SAS_CONTROLLERS: Lazy<AsyncRwLock<std::collections::HashMap<String, Arc<SasControllerV2>>>> = Lazy::new(|| AsyncRwLock::new(std::collections::HashMap::new()));
@@ -670,6 +673,7 @@ impl SasControllerV2 {
             request: AsyncMutex::new(None),
             sas: AsyncMutex::new(None),
             to_device_cancel: AsyncMutex::new(None),
+            cancel_msg: AsyncMutex::new(None),
         })
     }
 
@@ -693,6 +697,7 @@ impl SasControllerV2 {
             state: self.state.lock().await.clone(),
             emoji: self.emoji.lock().await.clone(),
             decimals: self.decimals.lock().await.clone(),
+            cancel: self.cancel_msg.lock().await.clone(),
         }
     }
 
@@ -725,7 +730,9 @@ impl SasControllerV2 {
                         ctrl_for_changes.set_state(SasStateV2::Done).await;
                         break;
                     }
-                    matrix_sdk::encryption::verification::VerificationRequestState::Cancelled(_) => {
+                    matrix_sdk::encryption::verification::VerificationRequestState::Cancelled(info) => {
+                        // Store debug info for host-side diagnostics
+                        *ctrl_for_changes.cancel_msg.lock().await = Some(format!("{info:?}"));
                         ctrl_for_changes.set_state(SasStateV2::Cancelled).await;
                         break;
                     }
@@ -776,7 +783,10 @@ impl SasControllerV2 {
                     }
                     SdkSasState::Confirmed => { ctrl.set_state(SasStateV2::Confirmed).await; }
                     SdkSasState::Done { .. } => { ctrl.set_state(SasStateV2::Done).await; break; }
-                    SdkSasState::Cancelled(_) => { ctrl.set_state(SasStateV2::Cancelled).await; break; }
+                    SdkSasState::Cancelled(info) => {
+                        *ctrl.cancel_msg.lock().await = Some(format!("{info:?}"));
+                        ctrl.set_state(SasStateV2::Cancelled).await; break;
+                    }
                     SdkSasState::Created { .. } | SdkSasState::Started { .. } | SdkSasState::Accepted { .. } => {}
                 }
             }

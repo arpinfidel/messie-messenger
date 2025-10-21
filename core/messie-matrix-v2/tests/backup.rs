@@ -27,11 +27,9 @@ fn backup_status_and_stream_ack() -> Result<()> {
     let password = must_env("MESSIE_MATRIX_PASSWORD")?;
     let base = store_path("backup_client");
 
-    // Client + login
-    let new_json = v2::client_new(&hs, &base);
-    let new_env: EnvelopeOk<HandleData> = serde_json::from_str(&new_json).context("parse client_new")?;
-    let client = new_env.data.handle;
-    let _ = v2::client_restore_or_login(client, Some(&username), Some(&password));
+    // Client + login (typed API)
+    let client = v2::client_create(&hs, &base).ok_or_else(|| anyhow!("client_create failed"))?;
+    let _ = v2::client_login(client, Some(&username), Some(&password));
 
     // One-shot status
     let status_env: EnvelopeOk<BackupStatus> = serde_json::from_str(&v2::backup_status_json(client)).context("parse backup_status")?;

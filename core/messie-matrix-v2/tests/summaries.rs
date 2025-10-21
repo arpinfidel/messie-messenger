@@ -21,12 +21,8 @@ fn list_joined_rooms_and_summaries() -> Result<()> {
     let password = must_env("MESSIE_MATRIX_PASSWORD")?;
     let base = store_path("summaries_client");
 
-    let new_json = v2::client_new(&hs, &base);
-    let handle_env: EnvelopeOk<HandleData> = serde_json::from_str(&new_json).context("parse client_new envelope")?;
-    let client = handle_env.data.handle;
-
-    let login_json = v2::client_restore_or_login(client, Some(&username), Some(&password));
-    let _: EnvelopeOk<serde_json::Value> = serde_json::from_str(&login_json).context("parse login envelope")?;
+    let client = v2::client_create(&hs, &base).ok_or_else(|| anyhow!("client_create failed"))?;
+    let _ = v2::client_login(client, Some(&username), Some(&password));
 
     let rooms: Vec<String> = v2::client_list_joined_rooms(client).unwrap_or_default();
     if rooms.is_empty() { return Ok(()); }
