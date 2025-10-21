@@ -89,15 +89,15 @@ class VerificationController extends StateNotifier<VerificationState> {
       final stateStr = (map['state'] as String?) ?? '';
       final emojis = (map['emoji'] as List?)?.map((e) => e.toString()).toList(growable: false) ?? const <String>[];
       final flowId = map['flow_id'] as String?;
-      this.state = this.state.copyWith(
+      state = state.copyWith(
         status: stateStr,
         emoji: emojis,
-        flowId: flowId ?? this.state.flowId,
+        flowId: flowId ?? state.flowId,
       );
       if (stateStr == 'done' || stateStr == 'cancelled') {
         // Keep the final status visible but mark inactive and cleanup port.
         unawaited(_cleanupPort());
-        this.state = this.state.copyWith(active: false);
+        state = state.copyWith(active: false);
       }
     } catch (_) {
       // ignore parse errors
@@ -139,4 +139,3 @@ class VerificationState {
     );
   }
 }
-

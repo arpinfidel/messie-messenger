@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -38,7 +37,7 @@ class SettingsScreen extends ConsumerWidget {
     final colors = MessieColors.of(context);
     final gutter = MessieSpacing.gutter(context);
 
-    Future<void> _enableBackupFlow(BuildContext context) async {
+    Future<void> enableBackupFlow(BuildContext context) async {
       final messenger = ScaffoldMessenger.of(context);
 
       // 1) Bootstrap SSSS to obtain a recovery key
@@ -162,7 +161,7 @@ class SettingsScreen extends ConsumerWidget {
                     label: Text(trustState.value!.userVerified ? 'User verified' : 'User unverified'),
                     backgroundColor: trustState.value!.userVerified
                         ? colorScheme.primaryContainer
-                        : colorScheme.surfaceVariant,
+                        : colorScheme.surfaceContainerHighest,
                     labelStyle: textTheme.labelSmall?.copyWith(
                       color: trustState.value!.userVerified
                           ? colorScheme.onPrimaryContainer
@@ -174,7 +173,7 @@ class SettingsScreen extends ConsumerWidget {
                       label: Text(trustState.value!.deviceVerified == true ? 'Device trusted' : 'Device unverified'),
                       backgroundColor: trustState.value!.deviceVerified == true
                           ? colorScheme.tertiaryContainer
-                          : colorScheme.surfaceVariant,
+                          : colorScheme.surfaceContainerHighest,
                       labelStyle: textTheme.labelSmall?.copyWith(
                         color: trustState.value!.deviceVerified == true
                             ? colorScheme.onTertiaryContainer
@@ -320,7 +319,7 @@ class SettingsScreen extends ConsumerWidget {
                 children: [
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: () => _enableBackupFlow(context),
+                    onPressed: () => enableBackupFlow(context),
                       icon: const Icon(Icons.cloud_upload_rounded),
                       label: const Text('Turn on Key Backup'),
                     ),
@@ -544,7 +543,7 @@ class _RecoveryKeyDialog extends StatelessWidget {
           SizedBox(height: spacing.gap.md),
           DecoratedBox(
             decoration: BoxDecoration(
-              color: colors.surfaceVariant,
+              color: colors.surfaceContainerHighest,
               borderRadius: BorderRadius.circular(MessieRadii.of(context).md),
             ),
             child: Padding(

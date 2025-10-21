@@ -2,14 +2,14 @@ import 'dart:ffi' as ffi;
 import 'dart:io';
 import 'package:ffi/ffi.dart';
 
-typedef _PointerUtf8 = ffi.Pointer<Utf8>;
+typedef PointerUtf8 = ffi.Pointer<Utf8>;
 
 typedef _NativePostCObjectFn = ffi.NativeFunction<ffi.Int8 Function(ffi.Int64, ffi.Pointer<ffi.Void>)>;
 typedef _NativeStoreDartPostCObject = ffi.Void Function(ffi.Pointer<_NativePostCObjectFn>);
 typedef _DartStoreDartPostCObject = void Function(ffi.Pointer<_NativePostCObjectFn>);
 
-typedef _NativeFreeString = ffi.Void Function(_PointerUtf8);
-typedef _DartFreeString = void Function(_PointerUtf8);
+typedef _NativeFreeString = ffi.Void Function(PointerUtf8);
+typedef _DartFreeString = void Function(PointerUtf8);
 
 typedef _NativeClientSyncOnce = ffi.Uint8 Function(ffi.Uint64);
 typedef _DartClientSyncOnce = int Function(int);
@@ -290,7 +290,7 @@ List<String> clientListJoinedRooms({required int clientHandle}) {
     final out = <String>[];
     final ptrs = list.ptr;
     for (var i = 0; i < list.len; i++) {
-      final sPtr = ptrs.elementAt(i).value;
+      final sPtr = (ptrs + i).value;
       out.add(sPtr.toDartString());
     }
     return out;
@@ -311,14 +311,14 @@ final class MessieV2ClientCreateResult extends ffi.Struct {
 final class MessieV2LoginResult extends ffi.Struct {
   @ffi.Int32()
   external int error;
-  external ffi.Pointer<Utf8> user_id; // nullable when error!=0
+  external ffi.Pointer<Utf8> userId; // nullable when error!=0
 }
 
-typedef _NativeClientCreate = MessieV2ClientCreateResult Function(_PointerUtf8, _PointerUtf8);
-typedef _DartClientCreate = MessieV2ClientCreateResult Function(_PointerUtf8, _PointerUtf8);
+typedef _NativeClientCreate = MessieV2ClientCreateResult Function(PointerUtf8, PointerUtf8);
+typedef _DartClientCreate = MessieV2ClientCreateResult Function(PointerUtf8, PointerUtf8);
 
-typedef _NativeClientLogin = MessieV2LoginResult Function(ffi.Uint64, _PointerUtf8, _PointerUtf8);
-typedef _DartClientLogin = MessieV2LoginResult Function(int, _PointerUtf8, _PointerUtf8);
+typedef _NativeClientLogin = MessieV2LoginResult Function(ffi.Uint64, PointerUtf8, PointerUtf8);
+typedef _DartClientLogin = MessieV2LoginResult Function(int, PointerUtf8, PointerUtf8);
 
 ({bool success, int handle}) clientCreate({required String homeserverUrl, required String basePath}) {
   _ensurePostCObjectRegistered();
@@ -344,11 +344,11 @@ typedef _DartClientLogin = MessieV2LoginResult Function(int, _PointerUtf8, _Poin
   try {
     final res = fn(handle, username == null ? ffi.nullptr : un, password == null ? ffi.nullptr : pw);
     String? uid;
-    if (res.error == 0 && res.user_id != ffi.nullptr) {
-      uid = res.user_id.toDartString();
+    if (res.error == 0 && res.userId != ffi.nullptr) {
+      uid = res.userId.toDartString();
       // Free the string we consumed
       final free = _open().lookupFunction<_NativeFreeString, _DartFreeString>('messie_v2_free_string');
-      free(res.user_id);
+      free(res.userId);
     }
     return (success: res.error == 0, userId: uid);
   } finally {
@@ -362,19 +362,19 @@ typedef _DartClientLogin = MessieV2LoginResult Function(int, _PointerUtf8, _Poin
 final class MessieV2RoomSummary extends ffi.Struct {
   @ffi.Bool()
   external bool success;
-  external ffi.Pointer<Utf8> room_id;
+  external ffi.Pointer<Utf8> roomId;
   external ffi.Pointer<Utf8> name;
-  external ffi.Pointer<Utf8> avatar_url; // nullable
+  external ffi.Pointer<Utf8> avatarUrl; // nullable
   @ffi.Uint64()
-  external int notification_count;
+  external int notificationCount;
   @ffi.Uint64()
-  external int highlight_count;
+  external int highlightCount;
   @ffi.Bool()
-  external bool is_marked_unread;
+  external bool isMarkedUnread;
 }
 
-typedef _NativeRoomGetSummary = MessieV2RoomSummary Function(ffi.Uint64, _PointerUtf8);
-typedef _DartRoomGetSummary = MessieV2RoomSummary Function(int, _PointerUtf8);
+typedef _NativeRoomGetSummary = MessieV2RoomSummary Function(ffi.Uint64, PointerUtf8);
+typedef _DartRoomGetSummary = MessieV2RoomSummary Function(int, PointerUtf8);
 
 ({bool success, String? roomId, String? name, String? avatarUrl, int notificationCount, int highlightCount, bool isMarkedUnread}) roomGetSummary({required int clientHandle, required String roomId}) {
   _ensurePostCObjectRegistered();
@@ -390,17 +390,17 @@ typedef _DartRoomGetSummary = MessieV2RoomSummary Function(int, _PointerUtf8);
     String? gotRoomId;
     String? gotName;
     String? gotAvatar;
-    if (res.room_id != ffi.nullptr) { gotRoomId = res.room_id.toDartString(); free(res.room_id); }
+    if (res.roomId != ffi.nullptr) { gotRoomId = res.roomId.toDartString(); free(res.roomId); }
     if (res.name != ffi.nullptr) { gotName = res.name.toDartString(); free(res.name); }
-    if (res.avatar_url != ffi.nullptr) { gotAvatar = res.avatar_url.toDartString(); free(res.avatar_url); }
+    if (res.avatarUrl != ffi.nullptr) { gotAvatar = res.avatarUrl.toDartString(); free(res.avatarUrl); }
     return (
       success: true,
       roomId: gotRoomId,
       name: gotName,
       avatarUrl: gotAvatar,
-      notificationCount: res.notification_count,
-      highlightCount: res.highlight_count,
-      isMarkedUnread: res.is_marked_unread,
+      notificationCount: res.notificationCount,
+      highlightCount: res.highlightCount,
+      isMarkedUnread: res.isMarkedUnread,
     );
   } finally {
     calloc.free(rid);
@@ -427,8 +427,8 @@ final class MessieV2TimelineResult extends ffi.Struct {
   external MessieV2TimelineHandle handle;
 }
 
-typedef _NativeTimelineOpen = MessieV2TimelineResult Function(ffi.Uint64, _PointerUtf8);
-typedef _DartTimelineOpen = MessieV2TimelineResult Function(int, _PointerUtf8);
+typedef _NativeTimelineOpen = MessieV2TimelineResult Function(ffi.Uint64, PointerUtf8);
+typedef _DartTimelineOpen = MessieV2TimelineResult Function(int, PointerUtf8);
 
 typedef _NativeTimelineStartStreaming = ffi.Uint8 Function(MessieV2TimelineHandle, ffi.Int64);
 typedef _DartTimelineStartStreaming = int Function(MessieV2TimelineHandle, int);
@@ -438,11 +438,11 @@ typedef _DartTimelineLoadBackward = int Function(MessieV2TimelineHandle, int);
 // no *_ex timeline variants
 
 // Thin Room Ops FFI
-typedef _NativeRoomSendText = ffi.Uint8 Function(ffi.Uint64, _PointerUtf8, _PointerUtf8, _PointerUtf8);
-typedef _DartRoomSendText = int Function(int, _PointerUtf8, _PointerUtf8, _PointerUtf8);
+typedef _NativeRoomSendText = ffi.Uint8 Function(ffi.Uint64, PointerUtf8, PointerUtf8, PointerUtf8);
+typedef _DartRoomSendText = int Function(int, PointerUtf8, PointerUtf8, PointerUtf8);
 
-typedef _NativeRoomMarkReadUpTo = ffi.Uint8 Function(ffi.Uint64, _PointerUtf8, _PointerUtf8);
-typedef _DartRoomMarkReadUpTo = int Function(int, _PointerUtf8, _PointerUtf8);
+typedef _NativeRoomMarkReadUpTo = ffi.Uint8 Function(ffi.Uint64, PointerUtf8, PointerUtf8);
+typedef _DartRoomMarkReadUpTo = int Function(int, PointerUtf8, PointerUtf8);
 // no *_ex room ops
 
 // Unread count FFI removed: Synapse sliding sync does not provide counts reliably.
@@ -534,8 +534,8 @@ bool roomMarkReadUpTo({required int clientHandle, required String roomId, requir
 // Count getters/subscriptions intentionally removed.
 
 // Test helpers
-typedef _NativeRoomJoin = _PointerUtf8 Function(ffi.Uint64, _PointerUtf8);
-typedef _DartRoomJoin = _PointerUtf8 Function(int, _PointerUtf8);
+typedef _NativeRoomJoin = PointerUtf8 Function(ffi.Uint64, PointerUtf8);
+typedef _DartRoomJoin = PointerUtf8 Function(int, PointerUtf8);
 
 String roomJoin({required int handle, required String roomId}) {
   _ensurePostCObjectRegistered();
@@ -562,10 +562,10 @@ final class MessieV2BackupStatus extends ffi.Struct {
   @ffi.Bool()
   external bool enabled;
   @ffi.Bool()
-  external bool exists_on_server;
+  external bool existsOnServer;
   @ffi.Bool()
-  external bool needs_recovery;
-  external ffi.Pointer<Utf8> recovery_state; // nullable when !success
+  external bool needsRecovery;
+  external ffi.Pointer<Utf8> recoveryState; // nullable when !success
 }
 
 typedef _NativeBackupStatus = MessieV2BackupStatus Function(ffi.Uint64);
@@ -574,17 +574,17 @@ typedef _DartBackupStatus = MessieV2BackupStatus Function(int);
 typedef _NativeBackupStatusStream = ffi.Uint8 Function(ffi.Uint64, ffi.Int64);
 typedef _DartBackupStatusStream = int Function(int, int);
 
-typedef _NativeEnableOnlineBackup = _PointerUtf8 Function(ffi.Uint64, ffi.Uint8);
-typedef _DartEnableOnlineBackup = _PointerUtf8 Function(int, int);
+typedef _NativeEnableOnlineBackup = PointerUtf8 Function(ffi.Uint64, ffi.Uint8);
+typedef _DartEnableOnlineBackup = PointerUtf8 Function(int, int);
 
-typedef _NativeSsssImportRecoveryKey = _PointerUtf8 Function(ffi.Uint64, _PointerUtf8);
-typedef _DartSsssImportRecoveryKey = _PointerUtf8 Function(int, _PointerUtf8);
+typedef _NativeSsssImportRecoveryKey = PointerUtf8 Function(ffi.Uint64, PointerUtf8);
+typedef _DartSsssImportRecoveryKey = PointerUtf8 Function(int, PointerUtf8);
 
-typedef _NativeSsssBootstrap = _PointerUtf8 Function(ffi.Uint64, ffi.Uint8, _PointerUtf8);
-typedef _DartSsssBootstrap = _PointerUtf8 Function(int, int, _PointerUtf8);
+typedef _NativeSsssBootstrap = PointerUtf8 Function(ffi.Uint64, ffi.Uint8, PointerUtf8);
+typedef _DartSsssBootstrap = PointerUtf8 Function(int, int, PointerUtf8);
 
-typedef _NativeSsssExportRecoveryKey = _PointerUtf8 Function(ffi.Uint64);
-typedef _DartSsssExportRecoveryKey = _PointerUtf8 Function(int);
+typedef _NativeSsssExportRecoveryKey = PointerUtf8 Function(ffi.Uint64);
+typedef _DartSsssExportRecoveryKey = PointerUtf8 Function(int);
 
 ({bool success, bool enabled, bool existsOnServer, bool needsRecovery, String? recoveryState}) backupStatus({required int handle}) {
   _ensurePostCObjectRegistered();
@@ -592,12 +592,12 @@ typedef _DartSsssExportRecoveryKey = _PointerUtf8 Function(int);
   final fn = lib.lookupFunction<_NativeBackupStatus, _DartBackupStatus>('messie_v2_backup_status');
   final res = fn(handle);
   String? rs;
-  if (res.success && res.recovery_state != ffi.nullptr) {
-    rs = res.recovery_state.toDartString();
+  if (res.success && res.recoveryState != ffi.nullptr) {
+    rs = res.recoveryState.toDartString();
     final free = _open().lookupFunction<_NativeFreeString, _DartFreeString>('messie_v2_free_string');
-    free(res.recovery_state);
+    free(res.recoveryState);
   }
-  return (success: res.success, enabled: res.enabled, existsOnServer: res.exists_on_server, needsRecovery: res.needs_recovery, recoveryState: rs);
+  return (success: res.success, enabled: res.enabled, existsOnServer: res.existsOnServer, needsRecovery: res.needsRecovery, recoveryState: rs);
 }
 
 bool backupStatusStream({required int handle, required int port}) {
@@ -652,17 +652,17 @@ String ssssExportRecoveryKey({required int handle}) {
 
 // ---- SAS Verification (v2) ----
 
-typedef _NativeRequestSasVerification = _PointerUtf8 Function(ffi.Uint64, _PointerUtf8, _PointerUtf8);
-typedef _DartRequestSasVerification = _PointerUtf8 Function(int, _PointerUtf8, _PointerUtf8);
+typedef _NativeRequestSasVerification = PointerUtf8 Function(ffi.Uint64, PointerUtf8, PointerUtf8);
+typedef _DartRequestSasVerification = PointerUtf8 Function(int, PointerUtf8, PointerUtf8);
 
-typedef _NativeObserveSas = _PointerUtf8 Function(_PointerUtf8, ffi.Int64);
-typedef _DartObserveSas = _PointerUtf8 Function(_PointerUtf8, int);
+typedef _NativeObserveSas = PointerUtf8 Function(PointerUtf8, ffi.Int64);
+typedef _DartObserveSas = PointerUtf8 Function(PointerUtf8, int);
 
-typedef _NativeConfirmSas = _PointerUtf8 Function(_PointerUtf8);
-typedef _DartConfirmSas = _PointerUtf8 Function(_PointerUtf8);
+typedef _NativeConfirmSas = PointerUtf8 Function(PointerUtf8);
+typedef _DartConfirmSas = PointerUtf8 Function(PointerUtf8);
 
-typedef _NativeCancelSas = _PointerUtf8 Function(_PointerUtf8);
-typedef _DartCancelSas = _PointerUtf8 Function(_PointerUtf8);
+typedef _NativeCancelSas = PointerUtf8 Function(PointerUtf8);
+typedef _DartCancelSas = PointerUtf8 Function(PointerUtf8);
 // Thin SAS
 final class MessieV2SasHandle extends ffi.Struct {
   @ffi.Uint64()
@@ -673,8 +673,8 @@ final class MessieV2SasResult extends ffi.Struct {
   external int success;
   external MessieV2SasHandle handle;
 }
-typedef _NativeSasRequest = MessieV2SasResult Function(ffi.Uint64, _PointerUtf8, _PointerUtf8);
-typedef _DartSasRequest = MessieV2SasResult Function(int, _PointerUtf8, _PointerUtf8);
+typedef _NativeSasRequest = MessieV2SasResult Function(ffi.Uint64, PointerUtf8, PointerUtf8);
+typedef _DartSasRequest = MessieV2SasResult Function(int, PointerUtf8, PointerUtf8);
 typedef _NativeSasStartStreaming = ffi.Uint8 Function(MessieV2SasHandle, ffi.Int64);
 typedef _DartSasStartStreaming = int Function(MessieV2SasHandle, int);
 typedef _NativeSasConfirm = ffi.Uint8 Function(MessieV2SasHandle);
@@ -687,13 +687,13 @@ typedef _DartSasCancel = int Function(MessieV2SasHandle);
 final class MessieV2SasEmoji extends ffi.Struct {
   @ffi.Uint8()
   external int count;
-  external _PointerUtf8 item0;
-  external _PointerUtf8 item1;
-  external _PointerUtf8 item2;
-  external _PointerUtf8 item3;
-  external _PointerUtf8 item4;
-  external _PointerUtf8 item5;
-  external _PointerUtf8 item6;
+  external PointerUtf8 item0;
+  external PointerUtf8 item1;
+  external PointerUtf8 item2;
+  external PointerUtf8 item3;
+  external PointerUtf8 item4;
+  external PointerUtf8 item5;
+  external PointerUtf8 item6;
 }
 final class MessieV2SasDecimals extends ffi.Struct {
   @ffi.Uint8()

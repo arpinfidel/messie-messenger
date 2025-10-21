@@ -12,7 +12,7 @@ class BridgesService {
 
   factory BridgesService({String? bearerToken}) {
     // Ensure baseUrl ends with trailing slash so relative paths join as expected
-    final base = apiBaseUrl.endsWith('/') ? apiBaseUrl : (apiBaseUrl + '/');
+    final base = apiBaseUrl.endsWith('/') ? apiBaseUrl : '$apiBaseUrl/';
     final dio = Dio(BaseOptions(baseUrl: base));
     if (bearerToken != null && bearerToken.isNotEmpty) {
       dio.options.headers['Authorization'] = 'Bearer $bearerToken';

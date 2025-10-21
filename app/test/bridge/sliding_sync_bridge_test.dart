@@ -1,11 +1,13 @@
+// ignore_for_file: unnecessary_library_name
 @Timeout(Duration(minutes: 2))
+library sliding_sync_bridge_test;
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:test_api/test_api.dart' show Timeout; // for @Timeout
+import 'package:flutter/foundation.dart';
 import 'package:messie_app/bridge/messie_bridge.dart';
 
 String _env(String name, {String? fallback}) {
@@ -26,16 +28,16 @@ Future<Map<String, dynamic>> _waitForPayload(
   final recentSamples = <Map<String, dynamic>>[];
   await for (final message in stream) {
     if (DateTime.now().isAfter(end)) {
-      print('[$label] recent kinds before timeout: $recentKinds');
+      debugPrint('[$label] recent kinds before timeout: $recentKinds');
       if (recentSamples.isNotEmpty) {
         final sample = jsonEncode(recentSamples.last);
-        print('[$label] last sample payload: $sample');
+        debugPrint('[$label] last sample payload: $sample');
       }
       throw TimeoutException('Timed out waiting for payload on $label', timeout);
     }
 
     if (message is! String) {
-      print('[$label] non-string message: ${message.runtimeType}');
+      debugPrint('[$label] non-string message: ${message.runtimeType}');
       continue;
     }
     try {
@@ -49,14 +51,14 @@ Future<Map<String, dynamic>> _waitForPayload(
           final rooms = decoded['rooms'];
           final listsLen = (lists is List) ? lists.length : 0;
           final roomsLen = (rooms is List) ? rooms.length : 0;
-          print('[$label][$ts] kind=$kind lists=$listsLen rooms=$roomsLen');
+          debugPrint('[$label][$ts] kind=$kind lists=$listsLen rooms=$roomsLen');
         } else {
-          print('[$label][$ts] kind=$kind');
+          debugPrint('[$label][$ts] kind=$kind');
         }
         recentKinds.add(kind);
         if (recentKinds.length > 20) recentKinds.removeAt(0);
       } else {
-        print('[$label] decoded payload missing kind: ${jsonEncode(decoded)}');
+        debugPrint('[$label] decoded payload missing kind: ${jsonEncode(decoded)}');
       }
       recentSamples.add(decoded);
       if (recentSamples.length > 3) recentSamples.removeAt(0);
@@ -65,7 +67,7 @@ Future<Map<String, dynamic>> _waitForPayload(
         return decoded;
       }
     } catch (err) {
-      print('[$label] failed to decode message: $err');
+      debugPrint('[$label] failed to decode message: $err');
     }
   }
   throw StateError('Stream closed before payload was received on $label');
@@ -86,7 +88,7 @@ Future<List<String>> _waitForJoinedRooms({
     rooms = result.data!.rooms;
     if (rooms.length != lastCount &&
         DateTime.now().difference(lastLog) > const Duration(seconds: 1)) {
-      print('joined rooms: ${rooms.length}/${minCount}');
+      debugPrint('joined rooms: ${rooms.length}/$minCount');
       lastCount = rooms.length;
       lastLog = DateTime.now();
     }
@@ -96,7 +98,7 @@ Future<List<String>> _waitForJoinedRooms({
     await Future<void>.delayed(const Duration(milliseconds: 250));
   }
 
-  print('joined rooms before timeout: ${rooms.length}/${minCount}');
+  debugPrint('joined rooms before timeout: ${rooms.length}/$minCount');
   expect(
     rooms,
     hasLength(greaterThanOrEqualTo(minCount)),
@@ -195,21 +197,21 @@ void main() {
   ReceivePort? backupPort;
   Stream<dynamic>? backupStream;
 
-  String _roomAt(int index) {
+  String roomAt(int index) {
     expect(roomIds.length > index, isTrue,
         reason: 'Need at least ${index + 1} seeded rooms');
     return roomIds[index];
   }
 
   // Prefer deterministic selection by seeder alias when state is available.
-  String _seedRoomAt(int index) {
+  String seedRoomAt(int index) {
     final seed = _loadSeedState();
     final alias = 'messie-seed-${(index + 1).toString().padLeft(4, '0')}';
     final byAlias = seed != null ? seed[alias] : null;
     if (byAlias != null && byAlias.isNotEmpty) {
       return byAlias;
     }
-    return _roomAt(index);
+    return roomAt(index);
   }
 
   setUpAll(() async {
@@ -240,7 +242,7 @@ void main() {
     );
     expect(loginResult.isOk, isTrue, reason: loginResult.error);
     initialSession = loginResult.data!;
-    print('[setup] logged in as ${initialSession.userId} on ${initialSession.homeserverUrl}');
+    debugPrint('[setup] logged in as ${initialSession.userId} on ${initialSession.homeserverUrl}');
 
     final recoveryKey = _loadRecoveryKey();
     expect(recoveryKey, isNotNull,
@@ -259,7 +261,7 @@ void main() {
       lpTimeline: 4,
     );
     expect(syncResult.isOk, isTrue, reason: syncResult.error);
-    print('[setup] started sliding sync handle=$slidingHandle hpSize=24 lpBatch=120 hpTimeline=10 lpTimeline=4');
+    debugPrint('[setup] started sliding sync handle=$slidingHandle hpSize=24 lpBatch=120 hpTimeline=10 lpTimeline=4');
 
     roomListPort = ReceivePort('bridge_room_list_headless');
     roomListStream = roomListPort!.asBroadcastStream();
@@ -268,7 +270,7 @@ void main() {
       port: roomListPort!.sendPort,
     );
     expect(streamResult.isOk, isTrue, reason: streamResult.error);
-    print('[setup] room list stream registered for handle=$slidingHandle');
+    debugPrint('[setup] room list stream registered for handle=$slidingHandle');
 
     // Attach a passive logger to the stream for the lifecycle of the suite.
     roomListStream!.listen((msg) {
@@ -283,26 +285,26 @@ void main() {
               final rooms = decoded['rooms'];
               final listsLen = (lists is List) ? lists.length : 0;
               final roomsLen = (rooms is List) ? rooms.length : 0;
-              print('[room-list][$now] kind=$kind lists=$listsLen rooms=$roomsLen');
+              debugPrint('[room-list][$now] kind=$kind lists=$listsLen rooms=$roomsLen');
             } else if (kind == 'sliding_sync_error') {
               final msg = decoded['message'];
-              print('[room-list][$now] kind=$kind message=$msg');
+              debugPrint('[room-list][$now] kind=$kind message=$msg');
             } else {
-              print('[room-list][$now] kind=$kind');
+              debugPrint('[room-list][$now] kind=$kind');
             }
           } else {
-            print('[room-list][$now] missing kind: ${jsonEncode(decoded)}');
+            debugPrint('[room-list][$now] missing kind: ${jsonEncode(decoded)}');
           }
         } catch (e) {
-          print('[room-list][$now] failed to parse message: $e');
+          debugPrint('[room-list][$now] failed to parse message: $e');
         }
       } else {
-        print('[room-list][$now] non-string message: ${msg.runtimeType}');
+        debugPrint('[room-list][$now] non-string message: ${msg.runtimeType}');
       }
     }, onError: (err, st) {
-      print('[room-list] stream error: $err');
+      debugPrint('[room-list] stream error: $err');
       if (st != null) {
-        print('[room-list] stack: $st');
+        debugPrint('[room-list] stack: $st');
       }
     });
 
@@ -344,7 +346,7 @@ void main() {
     final seed = _loadSeedState();
     if (seed != null && seed.isNotEmpty) {
       final expectedIds = seed.values.toSet();
-      print('seeded rooms to confirm: ${expectedIds.length}');
+      debugPrint('seeded rooms to confirm: ${expectedIds.length}');
       final rooms = await _waitForJoinedRooms(
         timeout: const Duration(seconds: 60),
         minCount: expectedIds.length,
@@ -381,7 +383,7 @@ void main() {
       port: port.sendPort,
     );
     expect(streamResult.isOk, isTrue, reason: streamResult.error);
-    print('[probe] registered fresh room list listener');
+    debugPrint('[probe] registered fresh room list listener');
 
     // Wait for at least one update from the sliding sync stream.
     // This validates that the simplified sliding sync endpoint accepts
@@ -408,7 +410,7 @@ void main() {
 
   test('timeline snapshot contains events', () async {
     // Reserve seed room 0001 for snapshot validations
-    final targetRoom = _seedRoomAt(0);
+    final targetRoom = seedRoomAt(0);
     final openResult =
         await rustOpenRoom(handle: slidingHandle, roomId: targetRoom);
     expect(openResult.isOk, isTrue, reason: openResult.error);
@@ -437,7 +439,7 @@ void main() {
 
   test('decrypts seeded timeline event bodies', () async {
     // Reserve seed room 0002 for decryption to avoid interference
-    final targetRoom = _seedRoomAt(1);
+    final targetRoom = seedRoomAt(1);
     final openResult =
         await rustOpenRoom(handle: slidingHandle, roomId: targetRoom);
     expect(openResult.isOk, isTrue, reason: openResult.error);
@@ -491,20 +493,20 @@ void main() {
       expect(downloadResult.isOk, isTrue, reason: downloadResult.error);
       await fetchMore();
       final types = allEvents.map((event) => event['type']).toList();
-      print('attempt $attempt event types: $types');
+      debugPrint('attempt $attempt event types: $types');
       decoded = decodedEvents();
     }
 
     if (decoded.isEmpty) {
       final types = allEvents.map((event) => event['type']).toList();
-      print('timeline events types: $types');
+      debugPrint('timeline events types: $types');
       if (allEvents.isNotEmpty) {
-        print('timeline sample event: ${jsonEncode(allEvents.first)}');
+        debugPrint('timeline sample event: ${jsonEncode(allEvents.first)}');
         final encrypted = allEvents.firstWhere(
             (e) => e['type'] == 'm.room.encrypted',
             orElse: () => {});
         if (encrypted.isNotEmpty) {
-          print('encrypted payload: ${jsonEncode(encrypted)}');
+          debugPrint('encrypted payload: ${jsonEncode(encrypted)}');
         }
       }
     }
@@ -519,7 +521,7 @@ void main() {
 
   test('send_text appends a new message to timeline', () async {
     // Reserve seed room 0003 for send_text tests
-    final targetRoom = _seedRoomAt(2);
+    final targetRoom = seedRoomAt(2);
     final openResult = await rustOpenRoom(handle: slidingHandle, roomId: targetRoom);
     expect(openResult.isOk, isTrue, reason: openResult.error);
 
@@ -556,7 +558,7 @@ void main() {
 
   test('send_text with reply_to sets m.in_reply_to', () async {
     // Reserve seed room 0004 for reply tests
-    final targetRoom = _seedRoomAt(3);
+    final targetRoom = seedRoomAt(3);
     final openResult = await rustOpenRoom(handle: slidingHandle, roomId: targetRoom);
     expect(openResult.isOk, isTrue, reason: openResult.error);
 
@@ -602,7 +604,7 @@ void main() {
 
   test('set_room_mute toggles and reflects in room_overview', () async {
     // Reserve seed room 0005 for mute/unmute
-    final targetRoom = _seedRoomAt(4);
+    final targetRoom = seedRoomAt(4);
     final before = await rustRoomOverview(roomId: targetRoom);
     expect(before.isOk, isTrue, reason: before.error);
     final initiallyMuted = before.data!.isMuted;
@@ -761,13 +763,13 @@ void main() {
         final running = inspect.exitCode == 0 && (inspect.stdout as String?)?.trim() == 'true';
         if (!running) {
           final details = await Process.run('docker', ['inspect', '--type', 'container', peerName]);
-          final ps = await Process.run('docker', ['ps', '-a', '--filter', 'name='+peerName]);
+          final ps = await Process.run('docker', ['ps', '-a', '--filter', 'name=$peerName']);
           final logs = await Process.run('docker', ['logs', '--tail', '200', peerName]);
           // Print helpful diagnostics
           // ignore: avoid_print
-          print('[peer-container] not running. inspect: ${details.stdout}\n${details.stderr}\nps: ${ps.stdout}\n${ps.stderr}');
+          debugPrint('[peer-container] not running. inspect: ${details.stdout}\n${details.stderr}\nps: ${ps.stdout}\n${ps.stderr}');
           // ignore: avoid_print
-          print('[peer-container] logs (tail):\n${logs.stdout}\n${logs.stderr}');
+          debugPrint('[peer-container] logs (tail):\n${logs.stdout}\n${logs.stderr}');
           break;
         }
         await Future<void>.delayed(const Duration(seconds: 1));

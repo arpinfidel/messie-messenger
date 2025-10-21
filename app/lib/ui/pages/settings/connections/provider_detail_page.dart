@@ -201,7 +201,7 @@ class _ProviderDetailPageState extends ConsumerState<ProviderDetailPage> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text('${widget.provider}')),
+      appBar: AppBar(title: Text(widget.provider)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -215,13 +215,14 @@ class _ProviderDetailPageState extends ConsumerState<ProviderDetailPage> {
                   MessieButton(
                     variant: MessieButtonVariant.secondary,
                     onPressed: () async {
+                      final messenger = ScaffoldMessenger.of(context);
                       try {
                         await _svc?.logoutAll(provider: widget.provider);
                         if (!mounted) return;
                         setState(() => _status = MessieStatus.notConnected);
                       } catch (e) {
                         if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        messenger.showSnackBar(
                           SnackBar(content: Text('Failed to disconnect: $e')),
                         );
                       }

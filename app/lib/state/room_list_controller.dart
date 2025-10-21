@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart';
 
 import '../bridge/messie_bridge.dart';
 
@@ -149,7 +150,7 @@ class RoomListController extends StateNotifier<RoomListState> {
       }
     } catch (err) {
       // Non-fatal: ignore malformed payloads; next update will reconcile.
-      print('[RoomListController] Failed to parse sliding sync payload: $err');
+      debugPrint('[RoomListController] Failed to parse sliding sync payload: $err');
     }
   }
 

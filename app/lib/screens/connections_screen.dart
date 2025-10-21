@@ -51,8 +51,11 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
               const ListTile(title: Text('Choose login method')),
               for (final f in flows)
                 ListTile(
-                  title: Text((f['name'] as String?) ?? (f['id'] as String? ?? 'flow')),
-                  subtitle: (f['description'] != null) ? Text(f['description'] as String) : null,
+                  title: Text(
+                      (f['name'] as String?) ?? (f['id'] as String? ?? 'flow')),
+                  subtitle: (f['description'] != null)
+                      ? Text(f['description'] as String)
+                      : null,
                   onTap: () => Navigator.of(ctx).pop(f['id'] as String?),
                 ),
             ],
@@ -63,7 +66,11 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
   }
 
   void _startWA({String provider = 'whatsapp'}) async {
-    final jwt = ref.read(authControllerProvider).asData?.value?.backendJwt; // backend JWT
+    final jwt = ref
+        .read(authControllerProvider)
+        .asData
+        ?.value
+        ?.backendJwt; // backend JWT
     _svc ??= BridgesService(bearerToken: jwt);
     try {
       _currentProvider = provider;
@@ -84,7 +91,9 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
       final method = step['method'] as String?;
       if (method != null) {
         // WAStartResponse shape
-        if (method == 'qr' && step['qrAscii'] is String && (step['qrAscii'] as String).isNotEmpty) {
+        if (method == 'qr' &&
+            step['qrAscii'] is String &&
+            (step['qrAscii'] as String).isNotEmpty) {
           // Normalize to a display_and_wait shape for rendering only
           setState(() {
             _loginStep = {
@@ -94,12 +103,18 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
             _state = 'pending';
           });
         } else {
-          setState(() { _loginStep = null; _state = 'pending'; });
+          setState(() {
+            _loginStep = null;
+            _state = 'pending';
+          });
         }
         // We may not have step_id here; rely on periodic polling to detect connection.
       } else {
         // Step-shaped response
-        setState(() { _loginStep = step; _state = 'pending'; });
+        setState(() {
+          _loginStep = step;
+          _state = 'pending';
+        });
       }
 
       // If the step is display_and_wait, start the long-poll loop so QR refreshes and progresses login.
@@ -131,10 +146,13 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
           connected = (wa['status'] as String?) == 'connected';
         } catch (_) {}
         if (!mounted) return;
-        if ((_state == 'connected' && connected) || (_state == 'pending' && !connected)) {
+        if ((_state == 'connected' && connected) ||
+            (_state == 'pending' && !connected)) {
           // No change; avoid unnecessary rebuilds that may flicker the QR
         } else {
-          setState(() { _state = connected ? 'connected' : 'pending'; });
+          setState(() {
+            _state = connected ? 'connected' : 'pending';
+          });
         }
         if (connected) {
           _poll?.cancel();
@@ -147,13 +165,12 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
     } catch (e) {
       // Log detailed info for diagnostics
       // If it's a DioException, include URL, status, and body
-      // ignore: avoid_print
-      print('WA connect error: $e');
+      debugPrint('WA connect error: $e');
       // ignore: avoid_print
       if (e is DioException) {
-        print('URL: ' + e.requestOptions.uri.toString());
-        print('Status: ' + (e.response?.statusCode?.toString() ?? 'n/a'));
-        print('Body: ' + (e.response?.data?.toString() ?? 'n/a'));
+        debugPrint('URL: ${e.requestOptions.uri}');
+        debugPrint('Status: ${e.response?.statusCode?.toString() ?? 'n/a'}');
+        debugPrint('Body: ${e.response?.data?.toString() ?? 'n/a'}');
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -176,7 +193,8 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
         _loginStep = nextType == 'complete' ? null : next;
       });
       if (nextType == 'display_and_wait') {
-        final nextProcessId = (next['login_id'] ?? next['process_id']) as String? ?? processId;
+        final nextProcessId =
+            (next['login_id'] ?? next['process_id']) as String? ?? processId;
         final nextStepId = next['step_id'] as String? ?? stepId;
         // ignore: unawaited_futures
         _displayAndWaitLoop(nextProcessId, nextStepId);
@@ -204,7 +222,9 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
           final oldData = (_loginStep?['display_and_wait']?['data']) as String?;
           final newData = (next['display_and_wait']?['data']) as String?;
           if (newData != null && newData != oldData) {
-            setState(() { _loginStep = next; });
+            setState(() {
+              _loginStep = next;
+            });
           }
           if (nextStepId != null) {
             stepId = nextStepId;
@@ -213,7 +233,9 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
           continue;
         }
         // For other step types (user_input/cookies/complete), update view and exit loop.
-        setState(() { _loginStep = nextType == 'complete' ? null : next; });
+        setState(() {
+          _loginStep = nextType == 'complete' ? null : next;
+        });
         break;
       } catch (e) {
         // ignore: avoid_print
@@ -225,7 +247,11 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
   }
 
   Future<void> _disconnectWA({String provider = 'whatsapp'}) async {
-    final jwt = ref.read(authControllerProvider).asData?.value?.backendJwt; // backend JWT
+    final jwt = ref
+        .read(authControllerProvider)
+        .asData
+        ?.value
+        ?.backendJwt; // backend JWT
     _svc ??= BridgesService(bearerToken: jwt);
     try {
       await _svc!.logoutAll(provider: provider);
@@ -259,20 +285,25 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
               const CircularProgressIndicator(),
               const SizedBox(height: 12),
               ElevatedButton(
-                onPressed: () => ref.read(authControllerProvider.notifier).ensureBackendJwt(),
+                onPressed: () => ref
+                    .read(authControllerProvider.notifier)
+                    .ensureBackendJwt(),
                 child: const Text('Link to backend'),
               ),
               const SizedBox(height: 12),
               ElevatedButton(
                 onPressed: () async {
+                  final messenger = ScaffoldMessenger.of(context);
                   try {
                     _svc ??= BridgesService(bearerToken: jwt);
                     final ok = await _svc!.pingHealth();
                     if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Backend health: $ok')));
+                    messenger.showSnackBar(
+                        SnackBar(content: Text('Backend health: $ok')));
                   } catch (e) {
                     if (!mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Health failed: $e')));
+                    messenger.showSnackBar(
+                        SnackBar(content: Text('Health failed: $e')));
                   }
                 },
                 child: const Text('Ping backend /health'),
@@ -335,7 +366,8 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
                           style: TextStyle(fontWeight: FontWeight.bold)),
                       if (_loginStep!['type'] == 'display_and_wait') ...[
                         Builder(builder: (context) {
-                          final dw = (_loginStep!['display_and_wait'] as Map?)?.cast<String, dynamic>();
+                          final dw = (_loginStep!['display_and_wait'] as Map?)
+                              ?.cast<String, dynamic>();
                           final msg = dw?['message'] as String?;
                           final imgUrl = dw?['image_url'] as String?;
                           final data = dw?['data'] as String?;
@@ -351,9 +383,14 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
                                 ),
                               if (imgUrl != null && imgUrl.isNotEmpty)
                                 Center(
-                                  child: Image.network(imgUrl, width: 220, height: 220, fit: BoxFit.contain),
+                                  child: Image.network(imgUrl,
+                                      width: 220,
+                                      height: 220,
+                                      fit: BoxFit.contain),
                                 )
-                              else if (_currentFlowId == 'qr' && data != null && data.isNotEmpty)
+                              else if (_currentFlowId == 'qr' &&
+                                  data != null &&
+                                  data.isNotEmpty)
                                 Center(
                                   child: QrImageView(
                                     data: data,
@@ -366,29 +403,34 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
                                   width: double.infinity,
                                   padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
-                                    color: Theme.of(context).colorScheme.surfaceVariant,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .surfaceContainerHighest,
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: SelectableText(
                                     data,
                                     textAlign: TextAlign.center,
                                     style: const TextStyle(
-                                      fontFeatures: [FontFeature.tabularFigures()],
+                                      fontFeatures: [
+                                        FontFeature.tabularFigures()
+                                      ],
                                       fontFamily: 'monospace',
                                       fontSize: 20,
                                     ),
                                   ),
                                 )
                               else
-                                const Text('Follow instructions in your Matrix app.'),
+                                const Text(
+                                    'Follow instructions in your Matrix app.'),
                             ],
                           );
                         }),
-                      ]
-                      else if ((_loginStep!['type'] == 'user_input') &&
+                      ] else if ((_loginStep!['type'] == 'user_input') &&
                           (_loginStep!['user_input']?['fields'] is List)) ...[
                         const SizedBox(height: 8),
-                        for (final f in (_loginStep!['user_input']['fields'] as List))
+                        for (final f
+                            in (_loginStep!['user_input']['fields'] as List))
                           Builder(builder: (context) {
                             final m = (f as Map).cast<String, dynamic>();
                             final id = (m['id'] as String?) ?? '';
@@ -408,7 +450,8 @@ class _ConnectionsScreenState extends ConsumerState<ConnectionsScreen> {
                           }),
                         const SizedBox(height: 8),
                         Builder(builder: (context) {
-                          final processId = (_loginStep!['login_id'] ?? _loginStep!['process_id']) as String?;
+                          final processId = (_loginStep!['login_id'] ??
+                              _loginStep!['process_id']) as String?;
                           final stepId = _loginStep!['step_id'] as String?;
                           return Align(
                             alignment: Alignment.centerRight,

@@ -86,7 +86,7 @@ void main() {
       expect(okStop, isTrue, reason: 'stop failed');
     });
 
-    Future<Map<String, dynamic>> _waitForKinds(
+    Future<Map<String, dynamic>> waitForKinds(
       Stream<dynamic> stream,
       Set<String> kinds, {
       Duration timeout = const Duration(seconds: 60),
@@ -133,11 +133,11 @@ void main() {
       expect(okStart, isTrue, reason: 'start failed');
 
       // 1) Expect ready
-      final ready = await _waitForKinds(stream, {'sliding_sync_ready'});
+      final ready = await waitForKinds(stream, {'sliding_sync_ready'});
       expect(ready['kind'], equals('sliding_sync_ready'));
 
       // 2) Expect at least one update or surface stream error
-      final next = await _waitForKinds(stream, {'sliding_sync_update', 'sliding_sync_error'});
+      final next = await waitForKinds(stream, {'sliding_sync_update', 'sliding_sync_error'});
       final kind = next['kind'] as String? ?? '';
       if (kind == 'sliding_sync_error') {
         final msg = next['message'] as String? ?? '<no message>';
@@ -170,8 +170,8 @@ void main() {
       expect(okStart, isTrue);
 
       // Wait for ready/update once
-      await _waitForKinds(stream, {'sliding_sync_ready'});
-      await _waitForKinds(stream, {'sliding_sync_update', 'sliding_sync_error'});
+      await waitForKinds(stream, {'sliding_sync_ready'});
+      await waitForKinds(stream, {'sliding_sync_update', 'sliding_sync_error'});
 
       // Subscribe to subset of joined rooms if any
       final rooms = v2.clientListJoinedRooms(clientHandle: client);
@@ -195,7 +195,7 @@ void main() {
 
       // Expire session and ensure we still receive an update or error
       expect(v2.ssExpireSession(ssHandle: ss), isTrue);
-      final next = await _waitForKinds(stream, {'sliding_sync_update', 'sliding_sync_error'}, timeout: const Duration(seconds: 30));
+      final next = await waitForKinds(stream, {'sliding_sync_update', 'sliding_sync_error'}, timeout: const Duration(seconds: 30));
       final kind = next['kind'] as String? ?? '';
       if (kind == 'sliding_sync_error') {
         final msg = next['message'] as String? ?? '<no message>';

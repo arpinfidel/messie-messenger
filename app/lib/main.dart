@@ -48,7 +48,8 @@ final selfTrustProvider = FutureProvider<TrustStateData?>((ref) async {
   final auth = ref.watch(authControllerProvider);
   final session = auth.asData?.value;
   if (session == null) return null;
-  final res = await rustTrustState(userId: session.userId, deviceId: session.deviceId);
+  final res =
+      await rustTrustState(userId: session.userId, deviceId: session.deviceId);
   if (!res.isOk) return null;
   return res.data;
 });
@@ -151,7 +152,7 @@ class AuthController extends AsyncNotifier<MatrixSession?> {
     _basePath = await _resolveBasePath();
     return _loadExistingSession();
   }
-  
+
   // Public helper to ensure backend JWT exists for the current session.
   Future<void> ensureBackendJwt() async {
     final current = state.asData?.value;
@@ -263,7 +264,8 @@ class AuthController extends AsyncNotifier<MatrixSession?> {
       await _secureStorage.delete(key: _kDeviceIdKey);
     }
     if (session.backendJwt != null && session.backendJwt!.isNotEmpty) {
-      await _secureStorage.write(key: _kBackendJwtKey, value: session.backendJwt);
+      await _secureStorage.write(
+          key: _kBackendJwtKey, value: session.backendJwt);
     }
   }
 
@@ -287,7 +289,8 @@ extension on AuthController {
   Future<MatrixSession> _fetchAndAttachBackendJwt(MatrixSession session) async {
     try {
       // Derive server name from MXID (@user:server.name)
-      final serverName = _extractServerName(session.userId) ?? _serverNameFromUrl(session.homeserverUrl);
+      final serverName = _extractServerName(session.userId) ??
+          _serverNameFromUrl(session.homeserverUrl);
       if (serverName == null) return session;
 
       // Request Matrix OpenID token from homeserver
@@ -305,12 +308,14 @@ extension on AuthController {
       final req = api.MatrixOpenIDRequest((b) => b
         ..accessToken = openId
         ..matrixServerName = serverName);
-      final res = await backend.getDefaultApi().postMatrixAuth(matrixOpenIDRequest: req);
+      final res = await backend
+          .getDefaultApi()
+          .postMatrixAuth(matrixOpenIDRequest: req);
       final jwt = res.data?.token;
       if (jwt == null || jwt.isEmpty) return session;
       return session.copyWith(backendJwt: jwt);
     } catch (e) {
-      debugPrint('OpenID->backend JWT exchange failed: ' + e.toString());
+      debugPrint('OpenID->backend JWT exchange failed: $e');
       return session;
     }
   }
@@ -322,7 +327,12 @@ extension on AuthController {
   }
 
   String? _serverNameFromUrl(String url) {
-    try { final u = Uri.parse(url); return u.host.isNotEmpty ? u.host : null; } catch (_) { return null; }
+    try {
+      final u = Uri.parse(url);
+      return u.host.isNotEmpty ? u.host : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<String?> _requestMatrixOpenID({
@@ -335,14 +345,15 @@ extension on AuthController {
       'Authorization': 'Bearer $matrixAccessToken',
       'Content-Type': 'application/json',
     }));
-    final path = '/_matrix/client/v3/user/${Uri.encodeComponent(userId)}/openid/request_token';
+    final path =
+        '/_matrix/client/v3/user/${Uri.encodeComponent(userId)}/openid/request_token';
     try {
-      final resp = await client.post(path, data: { 'audience': audience });
+      final resp = await client.post(path, data: {'audience': audience});
       // The response contains { access_token, token_type, matrix_server_name, expires_in }
       final tok = resp.data['access_token'] as String?;
       return tok;
     } catch (e) {
-      debugPrint('OpenID request_token failed: ' + e.toString());
+      debugPrint('OpenID request_token failed: $e');
       return null;
     }
   }
@@ -421,10 +432,15 @@ class HomeScreen extends ConsumerWidget {
       );
     }
 
-    return WillPopScope(
-      onWillPop: () async {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
         final handled = await BackEscPolicy.of(context).handleBack();
-        return !handled; // if handled, prevent default pop
+        if (!handled) {
+          // allow normal back behavior if not handled
+          // ignore: use_build_context_synchronously
+          Navigator.of(context).maybePop();
+        }
       },
       child: content,
     );
@@ -466,8 +482,7 @@ class _LoginViewState extends ConsumerState<LoginView> {
   void initState() {
     super.initState();
     // Default to local Synapse from Docker for Android emulator.
-    _homeserverController =
-        TextEditingController(text: 'http://10.0.2.2:8008');
+    _homeserverController = TextEditingController(text: 'http://10.0.2.2:8008');
     _usernameController = TextEditingController();
     _passwordController = TextEditingController();
   }
@@ -494,176 +509,177 @@ class _LoginViewState extends ConsumerState<LoginView> {
     return Scaffold(
       body: SafeArea(
         child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 520),
-              child: SingleChildScrollView(
-                padding: EdgeInsets.symmetric(
-                  horizontal: gutter,
-                  vertical: spacing.gap.xxl,
-                ),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: surfaces.surface1,
-                    borderRadius: BorderRadius.circular(radii.lg),
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                    ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.symmetric(
+                horizontal: gutter,
+                vertical: spacing.gap.xxl,
+              ),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: surfaces.surface1,
+                  borderRadius: BorderRadius.circular(radii.lg),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
                   ),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(
-                      horizontal: spacing.gap.xl,
-                      vertical: spacing.gap.xl,
-                    ),
-                    child: Form(
-                      key: _formKey,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          CircleAvatar(
-                            radius: 32,
-                            backgroundColor: colorScheme.primaryContainer,
-                            child: Icon(
-                              Icons.bubble_chart_rounded,
-                              color: colorScheme.onPrimaryContainer,
-                              size: 36,
+                ),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: spacing.gap.xl,
+                    vertical: spacing.gap.xl,
+                  ),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        CircleAvatar(
+                          radius: 32,
+                          backgroundColor: colorScheme.primaryContainer,
+                          child: Icon(
+                            Icons.bubble_chart_rounded,
+                            color: colorScheme.onPrimaryContainer,
+                            size: 36,
+                          ),
+                        ),
+                        SizedBox(height: spacing.gap.xl),
+                        Text(
+                          'Welcome to Messie',
+                          style: textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                        SizedBox(height: spacing.gap.sm),
+                        Text(
+                          'Stay connected with an encrypted Matrix-first messenger.',
+                          style: textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                        SizedBox(height: spacing.gap.xl),
+                        if (widget.errorMessage != null)
+                          Container(
+                            padding: EdgeInsets.all(spacing.gap.lg),
+                            margin: EdgeInsets.only(bottom: spacing.gap.xl),
+                            decoration: BoxDecoration(
+                              color: colorScheme.errorContainer,
+                              borderRadius: BorderRadius.circular(radii.lg),
                             ),
-                          ),
-                          SizedBox(height: spacing.gap.xl),
-                          Text(
-                            'Welcome to Messie',
-                            style: textTheme.headlineSmall
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                          SizedBox(height: spacing.gap.sm),
-                          Text(
-                            'Stay connected with an encrypted Matrix-first messenger.',
-                            style: textTheme.bodyMedium?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          SizedBox(height: spacing.gap.xl),
-                          if (widget.errorMessage != null)
-                            Container(
-                              padding: EdgeInsets.all(spacing.gap.lg),
-                              margin: EdgeInsets.only(bottom: spacing.gap.xl),
-                              decoration: BoxDecoration(
-                                color: colorScheme.errorContainer,
-                                borderRadius: BorderRadius.circular(radii.lg),
-                              ),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Icon(Icons.error_outline,
-                                      color: colorScheme.onErrorContainer),
-                                  SizedBox(width: spacing.gap.sm),
-                                  Expanded(
-                                    child: Text(
-                                      widget.errorMessage!,
-                                      style: textTheme.bodyMedium?.copyWith(
-                                        color: colorScheme.onErrorContainer,
-                                      ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Icon(Icons.error_outline,
+                                    color: colorScheme.onErrorContainer),
+                                SizedBox(width: spacing.gap.sm),
+                                Expanded(
+                                  child: Text(
+                                    widget.errorMessage!,
+                                    style: textTheme.bodyMedium?.copyWith(
+                                      color: colorScheme.onErrorContainer,
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
-                          TextFormField(
-                            controller: _homeserverController,
-                            decoration: const InputDecoration(
-                              labelText: 'Homeserver URL',
-                              hintText: 'https://matrix-client.matrix.org',
-                              prefixIcon: Icon(Icons.public_rounded),
-                            ),
-                            enabled: !widget.isProcessing,
-                            keyboardType: TextInputType.url,
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Homeserver URL is required';
-                              }
-                              final trimmed = value.trim();
-                              if (!trimmed.startsWith('http://') &&
-                                  !trimmed.startsWith('https://')) {
-                                return 'Enter a valid URL starting with http or https';
-                              }
-                              return null;
-                            },
-                          ),
-                          SizedBox(height: spacing.gap.lg),
-                          TextFormField(
-                            controller: _usernameController,
-                            decoration: const InputDecoration(
-                              labelText: 'Username or user ID',
-                              hintText: '@user:matrix.org',
-                              prefixIcon: Icon(Icons.person_outline_rounded),
-                            ),
-                            enabled: !widget.isProcessing,
-                            validator: (value) {
-                              if (value == null || value.trim().isEmpty) {
-                                return 'Username is required';
-                              }
-                              return null;
-                            },
-                          ),
-                          SizedBox(height: spacing.gap.lg),
-                          TextFormField(
-                            controller: _passwordController,
-                            decoration: InputDecoration(
-                              labelText: 'Password',
-                              prefixIcon:
-                                  const Icon(Icons.lock_outline_rounded),
-                              suffixIcon: IconButton(
-                                icon: Icon(_obscurePassword
-                                    ? Icons.visibility
-                                    : Icons.visibility_off),
-                                onPressed: widget.isProcessing
-                                    ? null
-                                    : () {
-                                        setState(() {
-                                          _obscurePassword = !_obscurePassword;
-                                        });
-                                      },
-                              ),
-                            ),
-                            enabled: !widget.isProcessing,
-                            obscureText: _obscurePassword,
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                            return l10n?.login_passwordRequired ?? 'Password is required';
-                              }
-                              return null;
-                            },
-                          ),
-                          SizedBox(height: spacing.gap.xxl),
-                          FilledButton.icon(
-                            onPressed: widget.isProcessing
-                                ? null
-                                : () => _submit(context),
-                            icon: widget.isProcessing
-                                ? SizedBox(
-                                    width: spacing.gap.sm,
-                                    height: spacing.gap.sm,
-                                    child: const CircularProgressIndicator(
-                                        strokeWidth: 2),
-                                  )
-                                : const Icon(Icons.login_rounded),
-                            label: Text(widget.isProcessing
-                                ? (l10n?.login_signingIn ?? 'Signing in…')
-                                : (l10n?.login_signIn ?? 'Sign in securely')),
-                          ),
-                          SizedBox(height: spacing.gap.md),
-                          Text(
-                            l10n?.login_privacyNote ?? 'Matrix credentials never leave your device.',
-                            textAlign: TextAlign.center,
-                            style: textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
+                        TextFormField(
+                          controller: _homeserverController,
+                          decoration: const InputDecoration(
+                            labelText: 'Homeserver URL',
+                            hintText: 'https://matrix-client.matrix.org',
+                            prefixIcon: Icon(Icons.public_rounded),
+                          ),
+                          enabled: !widget.isProcessing,
+                          keyboardType: TextInputType.url,
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Homeserver URL is required';
+                            }
+                            final trimmed = value.trim();
+                            if (!trimmed.startsWith('http://') &&
+                                !trimmed.startsWith('https://')) {
+                              return 'Enter a valid URL starting with http or https';
+                            }
+                            return null;
+                          },
+                        ),
+                        SizedBox(height: spacing.gap.lg),
+                        TextFormField(
+                          controller: _usernameController,
+                          decoration: const InputDecoration(
+                            labelText: 'Username or user ID',
+                            hintText: '@user:matrix.org',
+                            prefixIcon: Icon(Icons.person_outline_rounded),
+                          ),
+                          enabled: !widget.isProcessing,
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Username is required';
+                            }
+                            return null;
+                          },
+                        ),
+                        SizedBox(height: spacing.gap.lg),
+                        TextFormField(
+                          controller: _passwordController,
+                          decoration: InputDecoration(
+                            labelText: 'Password',
+                            prefixIcon: const Icon(Icons.lock_outline_rounded),
+                            suffixIcon: IconButton(
+                              icon: Icon(_obscurePassword
+                                  ? Icons.visibility
+                                  : Icons.visibility_off),
+                              onPressed: widget.isProcessing
+                                  ? null
+                                  : () {
+                                      setState(() {
+                                        _obscurePassword = !_obscurePassword;
+                                      });
+                                    },
+                            ),
+                          ),
+                          enabled: !widget.isProcessing,
+                          obscureText: _obscurePassword,
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return l10n?.login_passwordRequired ??
+                                  'Password is required';
+                            }
+                            return null;
+                          },
+                        ),
+                        SizedBox(height: spacing.gap.xxl),
+                        FilledButton.icon(
+                          onPressed: widget.isProcessing
+                              ? null
+                              : () => _submit(context),
+                          icon: widget.isProcessing
+                              ? SizedBox(
+                                  width: spacing.gap.sm,
+                                  height: spacing.gap.sm,
+                                  child: const CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                )
+                              : const Icon(Icons.login_rounded),
+                          label: Text(widget.isProcessing
+                              ? (l10n?.login_signingIn ?? 'Signing in…')
+                              : (l10n?.login_signIn ?? 'Sign in securely')),
+                        ),
+                        SizedBox(height: spacing.gap.md),
+                        Text(
+                          l10n?.login_privacyNote ??
+                              'Matrix credentials never leave your device.',
+                          textAlign: TextAlign.center,
+                          style: textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
               ),
+            ),
           ),
         ),
       ),
@@ -680,7 +696,8 @@ class _LoginViewState extends ConsumerState<LoginView> {
     // On Android emulator, rewrite localhost/127.0.0.1 to 10.0.2.2 and inform the user.
     try {
       final uri = Uri.parse(homeserverText);
-      if (Platform.isAndroid && (uri.host == 'localhost' || uri.host == '127.0.0.1')) {
+      if (Platform.isAndroid &&
+          (uri.host == 'localhost' || uri.host == '127.0.0.1')) {
         final rewritten = uri.replace(host: '10.0.2.2').toString();
         if (rewritten != homeserverText) {
           homeserverText = rewritten;
@@ -688,8 +705,9 @@ class _LoginViewState extends ConsumerState<LoginView> {
           final messenger = ScaffoldMessenger.maybeOf(context);
           messenger?.showSnackBar(
             SnackBar(
-              content: Text(AppLocalizations.of(context)?.emulator_host_rewrite ??
-                  'Using 10.0.2.2 to reach host from Android emulator'),
+              content: Text(
+                  AppLocalizations.of(context)?.emulator_host_rewrite ??
+                      'Using 10.0.2.2 to reach host from Android emulator'),
               duration: const Duration(seconds: 3),
             ),
           );
@@ -1218,7 +1236,8 @@ class LoggedInView extends ConsumerWidget {
                         child: Row(
                           children: [
                             IconButton(
-                              icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                              icon:
+                                  const Icon(Icons.arrow_back_ios_new_rounded),
                               tooltip: 'Close conversation',
                               onPressed: closeRoom,
                             ),
@@ -1382,10 +1401,12 @@ class _RoomListSection extends StatelessWidget {
           isActive: selectedRoomId == room.roomId,
           onTap: () => onSelectRoom(room.roomId),
           onToggleMute: () async {
-            final res = await rustSetRoomMute(roomId: room.roomId, muted: !room.isMuted);
+            final res = await rustSetRoomMute(
+                roomId: room.roomId, muted: !room.isMuted);
             if (!res.isOk && context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(res.error ?? 'Failed to update mute state')),
+                SnackBar(
+                    content: Text(res.error ?? 'Failed to update mute state')),
               );
             } else {
               onResubscribe();
@@ -1413,10 +1434,12 @@ class _RoomListSection extends StatelessWidget {
           isActive: selectedRoomId == room.roomId,
           onTap: () => onSelectRoom(room.roomId),
           onToggleMute: () async {
-            final res = await rustSetRoomMute(roomId: room.roomId, muted: !room.isMuted);
+            final res = await rustSetRoomMute(
+                roomId: room.roomId, muted: !room.isMuted);
             if (!res.isOk && context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(res.error ?? 'Failed to update mute state')),
+                SnackBar(
+                    content: Text(res.error ?? 'Failed to update mute state')),
               );
             } else {
               onResubscribe();
@@ -1498,7 +1521,7 @@ class _RoomTile extends StatelessWidget {
               color: Theme.of(context)
                   .colorScheme
                   .onSurfaceVariant
-                  .withOpacity(0.45),
+                  .withValues(alpha: 0.45),
             ),
           ],
         ),
@@ -1549,18 +1572,24 @@ class _SenderNameState extends ConsumerState<_SenderName> {
   @override
   void didUpdateWidget(covariant _SenderName oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.roomId != widget.roomId || oldWidget.userId != widget.userId) {
+    if (oldWidget.roomId != widget.roomId ||
+        oldWidget.userId != widget.userId) {
       _load();
     }
   }
 
   Future<void> _load() async {
-    final res = await rustMemberProfile(roomId: widget.roomId, userId: widget.userId);
+    final res =
+        await rustMemberProfile(roomId: widget.roomId, userId: widget.userId);
     if (!mounted) return;
     if (res.isOk && res.data != null) {
-      setState(() { _profile = res.data; });
+      setState(() {
+        _profile = res.data;
+      });
     } else {
-      setState(() { _profile = null; });
+      setState(() {
+        _profile = null;
+      });
     }
   }
 
@@ -1583,7 +1612,8 @@ class _SenderNameState extends ConsumerState<_SenderName> {
 }
 
 class _SenderAvatarState extends ConsumerState<_SenderAvatar> {
-  static final Map<String, MemberProfileData> _cache = <String, MemberProfileData>{};
+  static final Map<String, MemberProfileData> _cache =
+      <String, MemberProfileData>{};
   MemberProfileData? _profile;
 
   @override
@@ -1595,7 +1625,8 @@ class _SenderAvatarState extends ConsumerState<_SenderAvatar> {
   @override
   void didUpdateWidget(covariant _SenderAvatar oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.roomId != widget.roomId || oldWidget.userId != widget.userId) {
+    if (oldWidget.roomId != widget.roomId ||
+        oldWidget.userId != widget.userId) {
       _load();
     }
   }
@@ -1604,17 +1635,24 @@ class _SenderAvatarState extends ConsumerState<_SenderAvatar> {
     final key = '${widget.roomId}::${widget.userId}';
     final cached = _cache[key];
     if (cached != null) {
-      setState(() { _profile = cached; });
+      setState(() {
+        _profile = cached;
+      });
       return;
     }
-    final res = await rustMemberProfile(roomId: widget.roomId, userId: widget.userId);
+    final res =
+        await rustMemberProfile(roomId: widget.roomId, userId: widget.userId);
     if (!mounted) return;
     if (res.isOk && res.data != null) {
       _cache[key] = res.data!;
-      setState(() { _profile = res.data; });
+      setState(() {
+        _profile = res.data;
+      });
     } else {
       // Keep null; fallback to initials from user id
-      setState(() { _profile = null; });
+      setState(() {
+        _profile = null;
+      });
     }
   }
 
@@ -1780,7 +1818,9 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
         _controller.position.maxScrollExtent - _controller.offset;
     final shouldShow = distanceFromBottom > 200;
     if (shouldShow != _showJumpToLatest) {
-      setState(() { _showJumpToLatest = shouldShow; });
+      setState(() {
+        _showJumpToLatest = shouldShow;
+      });
     }
 
     if (_controller.position.pixels <= 80 &&
@@ -1823,7 +1863,8 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
             curve: Curves.easeOut,
           );
           // Mark read up to latest event when we are at the bottom.
-          final last = widget.state.events.isNotEmpty ? widget.state.events.last : null;
+          final last =
+              widget.state.events.isNotEmpty ? widget.state.events.last : null;
           final lastEventId = last?.key.eventId;
           final roomId = widget.selectedRoomId;
           if (lastEventId != null && roomId != null) {
@@ -1859,7 +1900,8 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
 
   @override
   Widget build(BuildContext context) {
-    ref.listen<TimelineState>(timelineControllerProvider, _handleTimelineChange);
+    ref.listen<TimelineState>(
+        timelineControllerProvider, _handleTimelineChange);
 
     final state = widget.state;
     final spacing = MessieSpacing.of(context);
@@ -1880,21 +1922,25 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
     }
 
     final events = state.events;
-    
+
     Future<void> sendMessage() async {
       final roomId = widget.selectedRoomId;
       final text = _composer.text.trim();
       if (roomId == null || text.isEmpty) return;
       final replyTo = _replyTo?.key.eventId;
-      final res = await rustSendText(roomId: roomId, body: text, replyTo: replyTo);
+      final messenger = ScaffoldMessenger.of(context);
+      final res =
+          await rustSendText(roomId: roomId, body: text, replyTo: replyTo);
       if (!res.isOk && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger.showSnackBar(
           SnackBar(content: Text(res.error ?? 'Failed to send')),
         );
       }
       if (mounted) {
         _composer.clear();
-        setState(() { _replyTo = null; });
+        setState(() {
+          _replyTo = null;
+        });
       }
     }
 
@@ -1945,8 +1991,7 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
           return ListView.builder(
             controller: _controller,
             padding: EdgeInsets.only(bottom: spacing.gap.lg),
-            physics:
-                hasBoundedHeight ? null : const ClampingScrollPhysics(),
+            physics: hasBoundedHeight ? null : const ClampingScrollPhysics(),
             shrinkWrap: !hasBoundedHeight,
             itemCount: events.length + 1,
             itemBuilder: (context, index) {
@@ -1966,7 +2011,8 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
                 if (state.isLoadingMore) {
                   return const Padding(
                     padding: EdgeInsets.symmetric(vertical: 12),
-                    child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    child: Center(
+                        child: CircularProgressIndicator(strokeWidth: 2)),
                   );
                 }
                 return const SizedBox(height: 12);
@@ -1981,7 +2027,9 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
                         item: item,
                         onLongPress: () {
                           if (item.key.eventId != null) {
-                            setState(() { _replyTo = item; });
+                            setState(() {
+                              _replyTo = item;
+                            });
                             _composerFocus.requestFocus();
                           }
                         },
@@ -1996,14 +2044,19 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Padding(
-                                  padding: EdgeInsets.only(left: spacing.gap.xs, bottom: spacing.gap.xs),
-                                  child: _SenderName(roomId: roomId, userId: item.sender),
+                                  padding: EdgeInsets.only(
+                                      left: spacing.gap.xs,
+                                      bottom: spacing.gap.xs),
+                                  child: _SenderName(
+                                      roomId: roomId, userId: item.sender),
                                 ),
                                 _TimelineBubble(
                                   item: item,
                                   onLongPress: () {
                                     if (item.key.eventId != null) {
-                                      setState(() { _replyTo = item; });
+                                      setState(() {
+                                        _replyTo = item;
+                                      });
                                       _composerFocus.requestFocus();
                                     }
                                   },
@@ -2054,14 +2107,19 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
                       );
                     }
                     // Mark read up to latest event as we jump.
-                    final last = widget.state.events.isNotEmpty ? widget.state.events.last : null;
+                    final last = widget.state.events.isNotEmpty
+                        ? widget.state.events.last
+                        : null;
                     final lastEventId = last?.key.eventId;
                     final roomId = widget.selectedRoomId;
                     if (lastEventId != null && roomId != null) {
-                      unawaited(rustMarkReadUpTo(roomId: roomId, eventId: lastEventId));
+                      unawaited(rustMarkReadUpTo(
+                          roomId: roomId, eventId: lastEventId));
                     }
                     if (mounted) {
-                      setState(() { _showJumpToLatest = false; });
+                      setState(() {
+                        _showJumpToLatest = false;
+                      });
                     }
                   },
                   icon: const Icon(Icons.arrow_downward_rounded),
@@ -2085,8 +2143,9 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
                 padding: EdgeInsets.only(top: spacing.gap.md),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: colors.surfaceVariant,
-                    borderRadius: BorderRadius.circular(MessieRadii.of(context).md),
+                    color: colors.surfaceContainerHighest,
+                    borderRadius:
+                        BorderRadius.circular(MessieRadii.of(context).md),
                   ),
                   padding: EdgeInsets.symmetric(
                     horizontal: spacing.gap.md,
@@ -2105,7 +2164,11 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
                       IconButton(
                         tooltip: 'Cancel reply',
                         icon: const Icon(Icons.close_rounded),
-                        onPressed: () { setState(() { _replyTo = null; }); },
+                        onPressed: () {
+                          setState(() {
+                            _replyTo = null;
+                          });
+                        },
                       ),
                     ],
                   ),
@@ -2121,12 +2184,16 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
                   Expanded(
                     child: Shortcuts(
                       shortcuts: <ShortcutActivator, Intent>{
-                        SingleActivator(LogicalKeyboardKey.enter): const ActivateIntent(),
+                        SingleActivator(LogicalKeyboardKey.enter):
+                            const ActivateIntent(),
                       },
                       child: Actions(
                         actions: <Type, Action<Intent>>{
                           ActivateIntent: CallbackAction<ActivateIntent>(
-                            onInvoke: (intent) { sendMessage(); return null; },
+                            onInvoke: (intent) {
+                              sendMessage();
+                              return null;
+                            },
                           ),
                         },
                         child: TextField(
@@ -2153,8 +2220,7 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
         }
 
         return Column(
-          mainAxisSize:
-              hasBoundedHeight ? MainAxisSize.max : MainAxisSize.min,
+          mainAxisSize: hasBoundedHeight ? MainAxisSize.max : MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: children,
         );
@@ -2177,7 +2243,8 @@ class _TimelineBubble extends StatelessWidget {
 
     // Improve contrast: own = primaryContainer, others = surfaceContainer with outline.
     final bool isOwn = item.isOwn;
-    final background = isOwn ? scheme.primaryContainer : scheme.surfaceContainer;
+    final background =
+        isOwn ? scheme.primaryContainer : scheme.surfaceContainer;
     final foreground = isOwn ? scheme.onPrimaryContainer : scheme.onSurface;
 
     final timestamp = item.timestamp != null
@@ -2185,8 +2252,7 @@ class _TimelineBubble extends StatelessWidget {
         : null;
 
     return Align(
-      alignment:
-          item.isOwn ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: item.isOwn ? Alignment.centerRight : Alignment.centerLeft,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
         child: GestureDetector(
@@ -2197,12 +2263,12 @@ class _TimelineBubble extends StatelessWidget {
               borderRadius: BorderRadius.only(
                 topLeft: Radius.circular(spacing.gap.md),
                 topRight: Radius.circular(spacing.gap.md),
-                bottomLeft: Radius.circular(isOwn ? spacing.gap.md : spacing.gap.sm),
-                bottomRight: Radius.circular(isOwn ? spacing.gap.sm : spacing.gap.md),
+                bottomLeft:
+                    Radius.circular(isOwn ? spacing.gap.md : spacing.gap.sm),
+                bottomRight:
+                    Radius.circular(isOwn ? spacing.gap.sm : spacing.gap.md),
               ),
-              border: isOwn
-                  ? null
-                  : Border.all(color: scheme.outlineVariant),
+              border: isOwn ? null : Border.all(color: scheme.outlineVariant),
             ),
             child: Padding(
               padding: EdgeInsets.all(spacing.gap.md),
@@ -2218,14 +2284,15 @@ class _TimelineBubble extends StatelessWidget {
                       alignment: Alignment.bottomRight,
                       child: Text(
                         timestamp.format(context),
-                        style: textTheme.labelSmall?.copyWith(color: foreground.withOpacity(0.7)),
+                        style: textTheme.labelSmall
+                            ?.copyWith(color: foreground.withValues(alpha: 0.7)),
                       ),
                     ),
                 ],
               ),
             ),
+          ),
         ),
-      ),
       ),
     );
   }
