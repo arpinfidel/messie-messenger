@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 // Presence streaming is not wired yet. Keep controller as a no-op wrapper
 // so UI code can depend on the provider without compilation errors.
 
-const _presenceHandle = 'primary';
 
 final presenceControllerProvider =
     StateNotifierProvider<PresenceController, PresenceState>(

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../theme/messie_tokens.dart' as legacy;
 import 'colors.dart';
-import 'oklch_color.dart';
 import 'text.dart';
 
 /// Build a ThemeData from OKLCH seed + brightness, injecting legacy tokens.
@@ -104,4 +103,3 @@ class MessieThemeBuilder {
     );
   }
 }
-

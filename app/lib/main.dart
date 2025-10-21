@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:characters/characters.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
@@ -19,7 +18,6 @@ import 'state/room_list_controller.dart';
 import 'state/timeline_controller.dart';
 import 'state/backup_controller.dart';
 import 'state/verification_controller.dart';
-import 'state/secure_secrets.dart';
 // Legacy theme remains for reference, but global theme now uses OKLCH builder.
 // import 'theme/app_theme.dart';
 import 'theme/messie_tokens.dart';
@@ -721,16 +719,10 @@ class LoggedInView extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // Ensure backup status stream is running post-login (still needed for timeline decryption etc.)
     ref.read(backupControllerProvider.notifier).start();
-    final trustState = ref.watch(selfTrustProvider);
     final roomListState = ref.watch(roomListControllerProvider);
     final timelineState = ref.watch(timelineControllerProvider);
     final selectedRoomId = ref.watch(selectedRoomIdProvider);
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final textTheme = theme.textTheme;
     final spacing = MessieSpacing.of(context);
-    final surfaces = MessieSurfaces.of(context);
-    final colors = MessieColors.of(context);
     final gutter = MessieSpacing.gutter(context);
 
     void selectRoom(String roomId) {
@@ -2239,71 +2231,4 @@ class _TimelineBubble extends StatelessWidget {
   }
 }
 
-class _RecoveryKeyDialog extends StatelessWidget {
-  const _RecoveryKeyDialog({
-    required this.recoveryKey,
-    required this.onCopy,
-    required this.onSave,
-  });
-
-  final String recoveryKey;
-  final Future<void> Function() onCopy;
-  final Future<void> Function() onSave;
-
-  @override
-  Widget build(BuildContext context) {
-    final spacing = MessieSpacing.of(context);
-    final textTheme = Theme.of(context).textTheme;
-    final colors = Theme.of(context).colorScheme;
-    return AlertDialog(
-      title: const Text('Your Recovery Key'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Save this key somewhere safe. It can decrypt your message history on new devices. Do not share it with anyone.',
-            style: textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
-          ),
-          SizedBox(height: spacing.gap.md),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              color: colors.surfaceVariant,
-              borderRadius: BorderRadius.circular(MessieRadii.of(context).md),
-            ),
-            child: Padding(
-              padding: EdgeInsets.all(spacing.gap.md),
-              child: SelectableText(
-                recoveryKey,
-                style: textTheme.bodyMedium?.copyWith(
-                  fontFamily: 'monospace',
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
-        ),
-        TextButton.icon(
-          onPressed: () async {
-            await onCopy();
-          },
-          icon: const Icon(Icons.copy_rounded),
-          label: const Text('Copy'),
-        ),
-        FilledButton.icon(
-          onPressed: () async {
-            await onSave();
-          },
-          icon: const Icon(Icons.save_rounded),
-          label: const Text('Save securely'),
-        ),
-      ],
-    );
-  }
-}
+// Moved RecoveryKeyDialog to settings screen; removed here to avoid unused warnings.

@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'colors.dart';
@@ -38,4 +37,3 @@ class AccentController extends AsyncNotifier<MessieAccent> {
     await prefs.setString(_kAccentKey, value);
   }
 }
-

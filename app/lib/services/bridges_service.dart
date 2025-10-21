@@ -4,14 +4,11 @@ import 'package:messie_app/api/env.dart';
 // NOTE: The OpenAPI generator (dart-dio) writes under
 // app/lib/api/generated/lib. Import accordingly.
 import 'package:dio/dio.dart';
-import 'package:messie_api/messie_api.dart' as api;
 
 class BridgesService {
   final Dio _dio;
-  final api.MessieApi _sdk;
-  final api.DefaultApi _api;
 
-  BridgesService._(this._dio, this._sdk, this._api);
+  BridgesService._(this._dio);
 
   factory BridgesService({String? bearerToken}) {
     // Ensure baseUrl ends with trailing slash so relative paths join as expected
@@ -20,12 +17,7 @@ class BridgesService {
     if (bearerToken != null && bearerToken.isNotEmpty) {
       dio.options.headers['Authorization'] = 'Bearer $bearerToken';
     }
-    final sdk = api.MessieApi(basePathOverride: base);
-    if (bearerToken != null && bearerToken.isNotEmpty) {
-      sdk.setBearerAuth('bearerAuth', bearerToken);
-    }
-    final def = sdk.getDefaultApi();
-    return BridgesService._(dio, sdk, def);
+    return BridgesService._(dio);
   }
 
   Future<String> pingHealth() async {

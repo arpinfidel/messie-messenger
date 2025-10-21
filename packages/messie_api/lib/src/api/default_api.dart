@@ -4,12 +4,11 @@
 
 import 'dart:async';
 
-import 'package:built_value/json_object.dart';
 import 'package:built_value/serializer.dart';
+import 'package:built_value/json_object.dart';
 import 'package:dio/dio.dart';
 
 import 'package:built_collection/built_collection.dart';
-import 'package:built_value/json_object.dart';
 import 'package:messie_api/src/api_util.dart';
 import 'package:messie_api/src/model/auth_response.dart';
 import 'package:messie_api/src/model/bridge_connection.dart';
@@ -21,7 +20,6 @@ import 'package:messie_api/src/model/email_list_request.dart';
 import 'package:messie_api/src/model/email_login_request.dart';
 import 'package:messie_api/src/model/email_messages_response.dart';
 import 'package:messie_api/src/model/email_rich_headers_response.dart';
-import 'package:messie_api/src/model/error.dart';
 import 'package:messie_api/src/model/login_request.dart';
 import 'package:messie_api/src/model/matrix_auth_response.dart';
 import 'package:messie_api/src/model/matrix_open_id_request.dart';

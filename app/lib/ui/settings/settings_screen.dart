@@ -8,7 +8,6 @@ import '../../../bridge/messie_bridge.dart';
 import '../../../state/backup_controller.dart';
 import '../../../state/verification_controller.dart';
 import '../../../state/secure_secrets.dart';
-import '../theme/theme_controller.dart';
 import '../../../theme/messie_tokens.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -26,7 +25,8 @@ class SettingsScreen extends ConsumerWidget {
     // Keep trust state fresh after successful verification
     ref.listen<VerificationState>(verificationControllerProvider, (previous, next) {
       if (next.status == 'done' && !next.active) {
-        ref.refresh(selfTrustProvider);
+        // Invalidate to trigger a refresh without requiring the result value.
+        ref.invalidate(selfTrustProvider);
       }
     });
 

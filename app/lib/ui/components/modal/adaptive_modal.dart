@@ -8,7 +8,6 @@ Future<T?> showAdaptiveModal<T>({
   bool barrierDismissible = true,
 }) {
   final spacing = MessieSpacing.of(context);
-  final radii = MessieRadii.of(context);
   return showDialog<T>(
     context: context,
     barrierDismissible: barrierDismissible,

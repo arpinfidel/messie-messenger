@@ -1,5 +1,4 @@
 import 'dart:ffi' as ffi;
-import 'dart:isolate';
 import 'dart:io';
 import 'package:ffi/ffi.dart';
 
@@ -291,8 +290,8 @@ List<String> clientListJoinedRooms({required int clientHandle}) {
     final out = <String>[];
     final ptrs = list.ptr;
     for (var i = 0; i < list.len; i++) {
-      final s = ptrs.elementAt(i).value;
-      out.add(s.toDartString());
+      final sPtr = ptrs.elementAt(i).value;
+      out.add(sPtr.toDartString());
     }
     return out;
   } finally {
@@ -680,6 +679,8 @@ typedef _NativeSasStartStreaming = ffi.Uint8 Function(MessieV2SasHandle, ffi.Int
 typedef _DartSasStartStreaming = int Function(MessieV2SasHandle, int);
 typedef _NativeSasConfirm = ffi.Uint8 Function(MessieV2SasHandle);
 typedef _DartSasConfirm = int Function(MessieV2SasHandle);
+typedef _NativeSasAccept = ffi.Uint8 Function(MessieV2SasHandle);
+typedef _DartSasAccept = int Function(MessieV2SasHandle);
 typedef _NativeSasCancel = ffi.Uint8 Function(MessieV2SasHandle);
 typedef _DartSasCancel = int Function(MessieV2SasHandle);
 // Thin emoji/decimals
@@ -803,6 +804,20 @@ bool sasConfirm({required int sasHandle}) {
   try {
     h.ref.value = sasHandle;
     final ok = confirm(h.ref);
+    return ok != 0;
+  } finally {
+    calloc.free(h);
+  }
+}
+
+bool sasAccept({required int sasHandle}) {
+  _ensurePostCObjectRegistered();
+  final lib = _open();
+  final accept = lib.lookupFunction<_NativeSasAccept, _DartSasAccept>('messie_v2_sas_accept');
+  final h = calloc<MessieV2SasHandle>();
+  try {
+    h.ref.value = sasHandle;
+    final ok = accept(h.ref);
     return ok != 0;
   } finally {
     calloc.free(h);

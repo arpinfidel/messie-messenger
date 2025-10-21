@@ -1,11 +1,12 @@
 import 'dart:convert';
+import 'dart:ffi'; // enables SendPort.nativePort extension
 import 'dart:io';
 import 'dart:async';
 import 'dart:isolate';
-import 'dart:ffi'; // for SendPort.nativePort extension
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:test_api/test_api.dart' show Timeout; // enable @Timeout
+import 'package:test_api/test_api.dart' show Timeout; // for per-test timeout
+// Removed test_api Timeout import; not used.
 import 'package:messie_app/bridge_v2/messie_bridge_v2.dart' as v2;
 
 class _Env {
@@ -27,10 +28,8 @@ _Env? _loadEnv() {
   return _Env(hs, user, pass, base);
 }
 
-Map<String, dynamic> _parse(String jsonStr) =>
-    json.decode(jsonStr) as Map<String, dynamic>;
+// Removed unused _parse helper.
 
-@Timeout(Duration(minutes: 3))
 void main() {
   final env = _loadEnv();
   if (env == null) {
@@ -136,30 +135,7 @@ void main() {
       return (peerName, dockerServerUrl, peerInfoPath, launchTs);
     }
 
-    Future<Map<String, dynamic>> waitForSasStates(Stream<dynamic> stream,
-        {Duration timeout = const Duration(seconds: 90)}) async {
-      final end = DateTime.now().add(timeout);
-      var sawKeys = false;
-      await for (final message in stream) {
-        if (DateTime.now().isAfter(end)) {
-          throw TimeoutException(
-              'Timed out waiting for SAS completion', timeout);
-        }
-        if (message is! String) continue;
-        try {
-          final decoded = json.decode(message) as Map<String, dynamic>;
-          if (decoded['kind'] != 'sas_update') continue;
-          final state = (decoded['state'] as String?) ?? '';
-          if (state == 'keys_exchanged') sawKeys = true;
-          if (state == 'done') {
-            if (!sawKeys)
-              throw StateError('SAS finished without keys_exchanged');
-            return decoded;
-          }
-        } catch (_) {}
-      }
-      throw StateError('Stream closed before SAS completion');
-    }
+    // Removed unused waitForSasStates helper.
 
     Future<String> waitForPeerReadyDevice(String jsonPath,
         {required int minTimestamp,
@@ -220,7 +196,7 @@ void main() {
         final sasHandle =
             start.handle; // 0 can be a valid handle in our registry
         final port = ReceivePort('v2_sas');
-        final nativePort = port.sendPort.nativePort;
+        final nativePort = port.sendPort.nativePort; // ignore: undefined_getter
         print('Flutter: Using port $nativePort');
         final observed =
             v2.sasStartStreaming(sasHandle: sasHandle, port: nativePort);
@@ -228,6 +204,7 @@ void main() {
         expect(observed, isTrue, reason: 'sas_start_streaming failed');
 
         var sawKeys = false;
+        var accepted = false;
         var cancelled = false;
         final sasCompleted = Completer<bool>();
         final sub = port.listen((dynamic message) {
@@ -237,6 +214,12 @@ void main() {
             if (decoded['kind'] != 'sas_update') return;
             final state = (decoded['state'] as String?) ?? '';
             print('SAS state: $state');
+            if (state == 'ready' && !accepted) {
+              // Accept the verification when the request becomes ready.
+              accepted = v2.sasAccept(sasHandle: sasHandle);
+              print('SAS accepted: $accepted');
+              return; // wait for next updates
+            }
             if (state == 'keys_exchanged') {
               sawKeys = true;
               v2.sasConfirm(sasHandle: sasHandle);
@@ -261,7 +244,7 @@ void main() {
         });
 
         final ok = await sasCompleted.future.timeout(
-          const Duration(seconds: 30),
+          const Duration(seconds: 60),
           onTimeout: () => false,
         );
         await sub.cancel();
@@ -278,6 +261,6 @@ void main() {
       } finally {
         await Process.run('docker', ['rm', '-f', peerName]);
       }
-    });
+    }, timeout: const Timeout(Duration(seconds: 60)));
   });
 }

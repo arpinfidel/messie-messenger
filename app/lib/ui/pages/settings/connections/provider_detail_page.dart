@@ -83,30 +83,28 @@ class _ProviderDetailPageState extends ConsumerState<ProviderDetailPage> {
         _loginStep = null; // ensure UI hides placeholders until data arrives
       });
 
-      final step = await _svc!.startLogin(flow, provider: widget.provider);
+      final Map<String, dynamic> step = await _svc!.startLogin(flow, provider: widget.provider);
 
       // Some bridges respond with a custom WAStartResponse (e.g., { method, qrAscii, code }).
       // Normalize it to a display_and_wait step so the UI can render uniformly.
       Map<String, dynamic>? normalized;
-      if (step is Map<String, dynamic>) {
-        final method = step['method'] as String?;
-        final qrAscii = step['qrAscii'] as String?;
-        final code = step['code'] as String?;
-        if (method == 'qr' && qrAscii != null && qrAscii.isNotEmpty) {
-          normalized = {
-            'type': 'display_and_wait',
-            'display_and_wait': {'data': qrAscii},
-          };
-        } else if ((method == 'pairing' || method == 'code') && code != null && code.isNotEmpty) {
-          normalized = {
-            'type': 'display_and_wait',
-            'display_and_wait': {'data': code},
-          };
-        }
+      final method = step['method'] as String?;
+      final qrAscii = step['qrAscii'] as String?;
+      final code = step['code'] as String?;
+      if (method == 'qr' && qrAscii != null && qrAscii.isNotEmpty) {
+        normalized = {
+          'type': 'display_and_wait',
+          'display_and_wait': {'data': qrAscii},
+        };
+      } else if ((method == 'pairing' || method == 'code') && code != null && code.isNotEmpty) {
+        normalized = {
+          'type': 'display_and_wait',
+          'display_and_wait': {'data': code},
+        };
       }
 
       setState(() {
-        _loginStep = normalized ?? (step is Map<String, dynamic> ? step : null);
+        _loginStep = normalized ?? step;
       });
 
       // If the step is complete, flip status immediately

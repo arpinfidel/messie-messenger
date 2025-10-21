@@ -3,14 +3,10 @@
 //
 
 // ignore_for_file: unused_element
-import 'package:messie_api/src/model/login_step_complete_complete.dart';
 import 'package:messie_api/src/model/login_step_complete.dart';
-import 'package:messie_api/src/model/login_step_user_input_user_input.dart';
 import 'package:built_collection/built_collection.dart';
-import 'package:messie_api/src/model/login_step_display_and_wait_display_and_wait.dart';
 import 'package:messie_api/src/model/login_step_display_and_wait.dart';
 import 'package:messie_api/src/model/login_step_cookies.dart';
-import 'package:messie_api/src/model/login_step_cookies_cookies.dart';
 import 'package:messie_api/src/model/login_step_user_input.dart';
 import 'package:built_value/built_value.dart';
 import 'package:built_value/serializer.dart';
@@ -95,9 +91,8 @@ class _$BridgeLoginStepSerializer implements PrimitiveSerializer<BridgeLoginStep
 
   Iterable<Object?> _serializeProperties(
     Serializers serializers,
-    BridgeLoginStep object, {
-    FullType specifiedType = FullType.unspecified,
-  }) sync* {
+    BridgeLoginStep object,
+  ) sync* {
   }
 
   @override
@@ -180,4 +175,3 @@ class BridgeLoginStepTypeEnum extends EnumClass {
   static BuiltSet<BridgeLoginStepTypeEnum> get values => _$bridgeLoginStepTypeEnumValues;
   static BridgeLoginStepTypeEnum valueOf(String name) => _$bridgeLoginStepTypeEnumValueOf(name);
 }
-

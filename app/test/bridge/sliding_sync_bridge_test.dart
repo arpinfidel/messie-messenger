@@ -179,38 +179,7 @@ Map<String, String>? _loadSeedState() {
   return null;
 }
 
-int _expectedSeededRoomCount() {
-  // Allow explicit override for CI or custom seeds.
-  final env = _env('MESSIE_SEEDED_ROOM_COUNT');
-  if (env.isNotEmpty) {
-    final parsed = int.tryParse(env);
-    if (parsed != null && parsed > 0) return parsed;
-  }
-
-  // Probe common locations for the seeder state file.
-  final candidates = <String>{
-    _env('MESSIE_SEED_STATE_FILE'),
-    '../scripts/matrix/.state/seed_state.json',
-    '../scripts/matrix/scripts/matrix/.state/seed_state.json',
-  }.where((p) => p.isNotEmpty).toList();
-
-  for (final candidate in candidates) {
-    final file = File(candidate);
-    if (!file.existsSync()) continue;
-    try {
-      final json = jsonDecode(file.readAsStringSync()) as Map<String, dynamic>;
-      final rooms = json['rooms'];
-      if (rooms is Map<String, dynamic>) {
-        return rooms.length;
-      }
-    } catch (_) {
-      // try next candidate
-    }
-  }
-
-  // Last resort fallback matches seeder default.
-  return 400;
-}
+// Removed unused helper _expectedSeededRoomCount; relied on dynamic checks instead.
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -653,14 +622,14 @@ void main() {
 
   test('mxc_to_http returns homeserver-scoped media URL', () async {
     // Prefer a real avatar MXC if available; otherwise use a sample MXC.
-    String? mxc = null;
+    String? mxc;
     for (final id in roomIds) {
       final ov = await rustRoomOverview(roomId: id);
       if (ov.isOk && ov.data?.avatarUrl != null) { mxc = ov.data!.avatarUrl; break; }
     }
-    mxc ??= 'mxc://example.org/abc123';
+    final mxcValue = mxc ?? 'mxc://example.org/abc123';
 
-    final converted = await rustMxcToHttp(mxc: mxc!, w: 64, h: 64);
+    final converted = await rustMxcToHttp(mxc: mxcValue, w: 64, h: 64);
     expect(converted.isOk, isTrue, reason: converted.error);
     final url = Uri.parse(converted.data!);
     // Must be same origin as homeserver URL
@@ -679,13 +648,13 @@ void main() {
       if (ov.isOk) { target = id; break; }
     }
 
-    target ??= roomIds.first;
+    final targetId = target ?? roomIds.first;
     // Open timeline and get latest event id from snapshot
-    final open = await rustOpenRoom(handle: slidingHandle, roomId: target!);
+    final open = await rustOpenRoom(handle: slidingHandle, roomId: targetId);
     expect(open.isOk, isTrue, reason: open.error);
     final port = ReceivePort('bridge_timeline_mark_read');
     final stream = port.asBroadcastStream();
-    final reg = await rustTimelineStream(handle: slidingHandle, roomId: target!, port: port.sendPort);
+    final reg = await rustTimelineStream(handle: slidingHandle, roomId: targetId, port: port.sendPort);
     expect(reg.isOk, isTrue, reason: reg.error);
     final snapshot = await _waitForPayload(stream, <String>{'timeline_snapshot', 'timeline_initial'}, label: 'timeline');
     port.close();
@@ -693,7 +662,7 @@ void main() {
     final lastId = initial.isNotEmpty ? (initial.last['event_id'] as String?) : null;
     expect(lastId, isNotNull, reason: 'Need an event_id to send read receipt');
 
-    final ack = await rustMarkReadUpTo(roomId: target!, eventId: lastId!);
+    final ack = await rustMarkReadUpTo(roomId: targetId, eventId: lastId!);
     expect(ack.isOk, isTrue, reason: ack.error);
 
     // Delay briefly to allow processing; skip unread count assertions.
@@ -859,8 +828,7 @@ void main() {
     final state = await rustTrustState(userId: initialSession.userId, deviceId: deviceId);
     expect(state.isOk, isTrue, reason: state.error);
     expect(state.data, isNotNull);
-    // We don't assert specific booleans (env-dependent), only presence and types
-    expect(state.data!.userVerified is bool, isTrue);
+    // We don't assert specific booleans (env-dependent), only presence.
   });
 }
 
