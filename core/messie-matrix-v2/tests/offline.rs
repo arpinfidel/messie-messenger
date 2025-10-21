@@ -21,10 +21,7 @@ fn list_builder_invalid_mode_replaced_by_thin_defaults() {
 fn summaries_invalid_json_and_joined_rooms_offline() {
     // Create a client with a valid URL and local base path; no network calls are made.
     let base = std::path::PathBuf::from("target/it_store_v2/offline_client");
-    let new_json = v2::client_new("http://localhost", &base);
-    let v = parse(&new_json);
-    assert_eq!(v["ok"], true);
-    let handle = v["data"]["handle"].as_u64().unwrap();
+    let handle = v2::client_create("http://localhost", &base).expect("client_create ok");
 
     // Invalid JSON for room ids -> invalid_arg
     let res = v2::client_list_room_summaries(handle, "{not json");

@@ -6,20 +6,6 @@ use anyhow::{anyhow, Context, Result};
 use messie_matrix_v2 as v2;
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-struct EnvelopeOk<T> { #[allow(dead_code)] ok: bool, data: T }
-
-#[derive(Debug, Deserialize)]
-struct HandleData { handle: u64 }
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct JoinedRooms { rooms: Vec<String> }
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct LoadBackward { reached_start: bool, events: Vec<String> }
-
 fn must_env(key: &str) -> Result<String> { std::env::var(key).map_err(|_| anyhow!("missing env {key}")) }
 fn store_path(suffix: &str) -> PathBuf { let mut p = PathBuf::from("target/it_store_v2"); p.push(suffix); p }
 
@@ -32,10 +18,8 @@ fn timeline_open_send_read_and_backward() -> Result<()> {
     let base = store_path("timeline_client");
 
     // Client + login
-    let new_json = v2::client_new(&hs, &base);
-    let new_env: EnvelopeOk<HandleData> = serde_json::from_str(&new_json).context("parse client_new")?;
-    let client = new_env.data.handle;
-    let _ = v2::client_restore_or_login(client, Some(&username), Some(&password));
+    let client = v2::client_create(&hs, &base).ok_or_else(|| anyhow!("client_create failed"))?;
+    let _ = v2::client_login(client, Some(&username), Some(&password));
 
     // Pick a room if present
     let rooms_opt = v2::client_list_joined_rooms(client).unwrap_or_default();

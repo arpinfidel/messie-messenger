@@ -4,12 +4,6 @@ use anyhow::{anyhow, Context, Result};
 use messie_matrix_v2 as v2;
 use serde::Deserialize;
 
-#[derive(Debug, Deserialize)]
-struct EnvelopeOk<T> { #[allow(dead_code)] ok: bool, data: T }
-
-#[derive(Debug, Deserialize)]
-struct HandleData { handle: u64 }
-
 fn must_env(key: &str) -> Result<String> { std::env::var(key).map_err(|_| anyhow!("missing env {key}")) }
 fn store_path(suffix: &str) -> PathBuf { let mut p = PathBuf::from("target/it_store_v2"); p.push(suffix); p }
 
@@ -21,11 +15,8 @@ fn subscribe_and_expire_session() -> Result<()> {
     let password = must_env("MESSIE_MATRIX_PASSWORD")?;
     let base = store_path("subscribe_client");
 
-    let new_json = v2::client_new(&hs, &base);
-    let handle_env: EnvelopeOk<HandleData> = serde_json::from_str(&new_json).context("parse client_new envelope")?;
-    let client = handle_env.data.handle;
-
-    let _ = v2::client_restore_or_login(client, Some(&username), Some(&password));
+    let client = v2::client_create(&hs, &base).ok_or_else(|| anyhow!("client_create failed"))?;
+    let _ = v2::client_login(client, Some(&username), Some(&password));
 
     // Thin: create minimal sliding sync and start headless
     let ss = v2::sliding_sync_create(client, v2::SlidingSyncConfig { poll_timeout_ms: 0, network_timeout_ms: 0, enable_e2ee: true, enable_to_device: false })

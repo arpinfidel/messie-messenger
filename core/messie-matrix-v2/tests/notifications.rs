@@ -1,4 +1,7 @@
 //! v2 notifications & highlights tests (ignored by default).
+// Compile these tests only when the `test-helpers` feature is enabled.
+// Run with: `cargo test -p messie-matrix-v2 --features test-helpers -- --ignored`
+#![cfg(feature = "test-helpers")]
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -12,24 +15,10 @@ use messie_matrix_v2 as v2;
 #[derive(Debug, Deserialize)]
 struct EnvelopeOk<T> { #[allow(dead_code)] ok: bool, data: T }
 
-#[derive(Debug, Deserialize)]
-struct HandleData { handle: u64 }
-
-#[derive(Debug, Deserialize)]
-struct LoginData { user_id: String }
-
 fn must_env(key: &str) -> Result<String> { std::env::var(key).map_err(|_| anyhow!("missing env {key}")) }
 fn store_path(suffix: &str) -> PathBuf { let mut p = PathBuf::from("target/it_store_v2"); p.push(suffix); p }
 
-fn parse_ok_handle(json: &str) -> Result<u64> {
-    let env: EnvelopeOk<HandleData> = serde_json::from_str(json).context("parse handle envelope")?;
-    Ok(env.data.handle)
-}
-
-fn parse_login_user(json: &str) -> Result<String> {
-    let env: EnvelopeOk<LoginData> = serde_json::from_str(json).context("parse login envelope")?;
-    Ok(env.data.user_id)
-}
+// These helpers are no longer needed with typed APIs.
 
 fn wait_counts_min(client: u64, room_id: &str, notif_min: u64, highlight_min: u64, timeout: Duration) -> Result<(u64, u64)> {
     let res = v2::__test_wait_counts_min(client, room_id, notif_min, highlight_min, timeout.as_millis() as u64);
@@ -53,8 +42,8 @@ fn v2_group_mention_increments_and_read_decreases() -> Result<()> {
     let send_pass = must_env("MESSIE_SENDER_PASSWORD")?;
 
     // Receiver client + login
-    let recv = parse_ok_handle(&v2::client_new(&hs, &store_path("v2_notif_recv")))?;
-    let user_id = parse_login_user(&v2::client_restore_or_login(recv, Some(&recv_user), Some(&recv_pass)))?;
+    let recv = v2::client_create(&hs, &store_path("v2_notif_recv")).ok_or_else(|| anyhow!("client_create failed"))?;
+    let user_id = v2::client_login(recv, Some(&recv_user), Some(&recv_pass)).ok_or_else(|| anyhow!("client_login failed"))?;
 
     // Receiver Sliding Sync thin + subscribe to target room
     let ss = v2::sliding_sync_create(recv, v2::SlidingSyncConfig { poll_timeout_ms: 0, network_timeout_ms: 0, enable_e2ee: true, enable_to_device: false })
@@ -62,8 +51,8 @@ fn v2_group_mention_increments_and_read_decreases() -> Result<()> {
     let _ = v2::sliding_sync_subscribe_to_rooms(ss, &vec![group_room.clone()], Some(20u32), None, true);
 
     // Sender client + login
-    let sender = parse_ok_handle(&v2::client_new(&hs, &store_path("v2_notif_sender")))?;
-    let _ = v2::client_restore_or_login(sender, Some(&send_user), Some(&send_pass));
+    let sender = v2::client_create(&hs, &store_path("v2_notif_sender")).ok_or_else(|| anyhow!("client_create failed"))?;
+    let _ = v2::client_login(sender, Some(&send_user), Some(&send_pass));
     // Ensure sender is joined and hydrate its store
     let _ = v2::room_join(sender, &group_room);
     let _ = v2::client_sync_once(sender);
@@ -92,8 +81,8 @@ fn v2_dm_notifies_no_highlight_then_read_clears() -> Result<()> {
     let send_user = must_env("MESSIE_SENDER_USERNAME")?;
     let send_pass = must_env("MESSIE_SENDER_PASSWORD")?;
 
-    let recv = parse_ok_handle(&v2::client_new(&hs, &store_path("v2_notif_recv_dm")))?;
-    let _ = v2::client_restore_or_login(recv, Some(&recv_user), Some(&recv_pass));
+    let recv = v2::client_create(&hs, &store_path("v2_notif_recv_dm")).ok_or_else(|| anyhow!("client_create failed"))?;
+    let _ = v2::client_login(recv, Some(&recv_user), Some(&recv_pass));
 
     // Receiver SS thin + subscribe
     let ss = v2::sliding_sync_create(recv, v2::SlidingSyncConfig { poll_timeout_ms: 0, network_timeout_ms: 0, enable_e2ee: true, enable_to_device: false })
@@ -101,8 +90,8 @@ fn v2_dm_notifies_no_highlight_then_read_clears() -> Result<()> {
     let _ = v2::sliding_sync_subscribe_to_rooms(ss, &vec![dm_room.clone()], Some(20u32), None, true);
 
     // Sender
-    let sender = parse_ok_handle(&v2::client_new(&hs, &store_path("v2_notif_sender_dm")))?;
-    let _ = v2::client_restore_or_login(sender, Some(&send_user), Some(&send_pass));
+    let sender = v2::client_create(&hs, &store_path("v2_notif_sender_dm")).ok_or_else(|| anyhow!("client_create failed"))?;
+    let _ = v2::client_login(sender, Some(&send_user), Some(&send_pass));
     let _ = v2::room_join(sender, &dm_room);
     let _ = v2::client_sync_once(sender);
 

@@ -6,7 +6,7 @@ use matrix_sdk::{authentication::matrix::MatrixSession, config::SyncSettings, Cl
 use serde::Serialize;
 use url::Url;
 
-use crate::common::envelope::{ack_json, err_json, ok_json};
+use crate::common::envelope::{ack_json, err_json};
 use crate::common::handle_registry::Handle;
 use crate::common::runtime::runtime;
 
@@ -27,13 +27,6 @@ pub struct LoginData {
     pub did_restore: bool,
 }
 
-pub fn client_new(hs_url: &str, base_path: &Path) -> String {
-    match client_new_inner(hs_url, base_path) {
-        Ok(d) => ok_json(d),
-        Err(e) => err_json("sdk_error", format!("{:#}", e)),
-    }
-}
-
 fn client_new_inner(hs_url: &str, base_path: &Path) -> Result<ClientHandleData> {
     let homeserver = Url::parse(hs_url).context("invalid homeserver URL")?;
     let base = base_path.to_path_buf();
@@ -41,13 +34,6 @@ fn client_new_inner(hs_url: &str, base_path: &Path) -> Result<ClientHandleData> 
     let entry = ClientEntry { client: Arc::new(client), base_path: base, homeserver: homeserver.clone() };
     let handle = CLIENTS.write().expect("clients lock").insert(entry);
     Ok(ClientHandleData { handle })
-}
-
-pub fn client_restore_or_login(handle: Handle, username: Option<&str>, password: Option<&str>) -> String {
-    match client_restore_or_login_inner(handle, username, password) {
-        Ok(d) => ok_json(d),
-        Err(e) => err_json("sdk_error", format!("{:#}", e)),
-    }
 }
 
 fn client_restore_or_login_inner(handle: Handle, username: Option<&str>, password: Option<&str>) -> Result<LoginData> {
