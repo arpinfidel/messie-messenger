@@ -446,19 +446,7 @@ typedef _NativeRoomMarkReadUpTo = ffi.Uint8 Function(ffi.Uint64, _PointerUtf8, _
 typedef _DartRoomMarkReadUpTo = int Function(int, _PointerUtf8, _PointerUtf8);
 // no *_ex room ops
 
-// Thin unread counts
-final class MessieV2UnreadCounts extends ffi.Struct {
-  @ffi.Uint64()
-  external int notification_count;
-  @ffi.Uint64()
-  external int highlight_count;
-}
-
-typedef _NativeRoomGetUnreadCounts = MessieV2UnreadCounts Function(ffi.Uint64, _PointerUtf8);
-typedef _DartRoomGetUnreadCounts = MessieV2UnreadCounts Function(int, _PointerUtf8);
-
-typedef _NativeRoomSubscribeToCounts = ffi.Uint8 Function(ffi.Uint64, _PointerUtf8, ffi.Int64);
-typedef _DartRoomSubscribeToCounts = int Function(int, _PointerUtf8, int);
+// Unread count FFI removed: Synapse sliding sync does not provide counts reliably.
 
 // (removed JSON timeline helpers)
 
@@ -544,33 +532,7 @@ bool roomMarkReadUpTo({required int clientHandle, required String roomId, requir
 
 //
 
-({int notificationCount, int highlightCount}) roomGetUnreadCounts({required int clientHandle, required String roomId}) {
-  _ensurePostCObjectRegistered();
-  final lib = _open();
-  final fn = lib.lookupFunction<_NativeRoomGetUnreadCounts, _DartRoomGetUnreadCounts>('messie_v2_room_get_unread_counts');
-  final rid = roomId.toNativeUtf8();
-  try {
-    final res = fn(clientHandle, rid);
-    return (notificationCount: res.notification_count, highlightCount: res.highlight_count);
-  } finally {
-    calloc.free(rid);
-  }
-}
-
-//
-
-bool roomSubscribeToCountChanges({required int clientHandle, required String roomId, required int port}) {
-  _ensurePostCObjectRegistered();
-  final lib = _open();
-  final fn = lib.lookupFunction<_NativeRoomSubscribeToCounts, _DartRoomSubscribeToCounts>('messie_v2_room_subscribe_to_count_changes');
-  final rid = roomId.toNativeUtf8();
-  try {
-    final ok = fn(clientHandle, rid, port);
-    return ok != 0;
-  } finally {
-    calloc.free(rid);
-  }
-}
+// Count getters/subscriptions intentionally removed.
 
 // Test helpers
 typedef _NativeRoomJoin = _PointerUtf8 Function(ffi.Uint64, _PointerUtf8);
@@ -589,21 +551,7 @@ String roomJoin({required int handle, required String roomId}) {
   }
 }
 
-typedef _NativeTestWaitCountsMin = _PointerUtf8 Function(ffi.Uint64, _PointerUtf8, ffi.Uint64, ffi.Uint64, ffi.Uint64);
-typedef _DartTestWaitCountsMin = _PointerUtf8 Function(int, _PointerUtf8, int, int, int);
-
-String __testWaitCountsMin({required int client, required String roomId, required int notifMin, required int highlightMin, required int timeoutMs}) {
-  _ensurePostCObjectRegistered();
-  final lib = _open();
-  final fn = lib.lookupFunction<_NativeTestWaitCountsMin, _DartTestWaitCountsMin>('messie_v2_test_wait_counts_min');
-  final rid = roomId.toNativeUtf8();
-  try {
-    final res = fn(client, rid, notifMin, highlightMin, timeoutMs);
-    return _fromPtr(res);
-  } finally {
-    calloc.free(rid);
-  }
-}
+// Removed test-only helpers for unread count waiting
 
 // (removed JSON room updates/counts helpers)
 

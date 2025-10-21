@@ -24,8 +24,8 @@ class RoomListController extends StateNotifier<RoomListState> {
   ReceivePort? _receivePort;
   StreamSubscription<dynamic>? _subscription;
   bool _started = false;
-  bool _refreshing = false;
-  DateTime? _lastRefresh;
+  // Legacy throttling flags removed; sliding sync drives updates.
+  final Map<String, RoomPreview> _roomCache = <String, RoomPreview>{};
 
   Future<void> start() async => _ensureStarted();
 
@@ -80,9 +80,7 @@ class RoomListController extends StateNotifier<RoomListState> {
         return;
       }
 
-      // Room subscriptions will be handled after initial room list load
-
-      await _refreshRooms();
+      // Room data will arrive via sliding sync snapshots/updates.
     });
   }
 
@@ -92,7 +90,6 @@ class RoomListController extends StateNotifier<RoomListState> {
     _subscription = null;
     _receivePort?.close();
     _receivePort = null;
-    _refreshing = false;
   }
 
   void _handleMessage(dynamic message) {
@@ -104,99 +101,89 @@ class RoomListController extends StateNotifier<RoomListState> {
       final decoded = jsonDecode(message) as Map<String, dynamic>;
       final kind = decoded['kind'] as String? ?? '';
       if (kind == 'sliding_sync_ready' || kind == 'sliding_sync_update') {
-        print('[DEBUG] 📨 Received sliding sync update: $kind');
-        // Throttle refreshes to avoid overwhelming the room overview calls
-        final now = DateTime.now();
-        if (_lastRefresh == null || now.difference(_lastRefresh!).inMilliseconds > 500) {
-          _lastRefresh = now;
-          print('[DEBUG] 🔄 Triggering room refresh due to sliding sync update');
-          _refreshRooms();
-        } else {
-          print('[DEBUG] ⏱️ Skipping refresh due to throttling');
+        // Build room previews directly from sliding sync summaries to avoid N calls.
+        final raw = decoded['summaries'];
+        List<RoomPreview> previews = <RoomPreview>[];
+        if (raw is List) {
+          try {
+            previews = raw
+                .whereType<Map>()
+                .map((e) => RoomOverviewData.fromJson(e.cast<String, dynamic>()))
+                .map(RoomPreview.fromOverview)
+                .toList();
+          } catch (_) {
+            // If server payload shape differs, fall back below.
+          }
         }
+
+        // Fallback: if summaries are missing/empty, derive minimal previews from room IDs.
+        if (previews.isEmpty) {
+          final roomIds = (decoded['rooms'] as List<dynamic>? ?? const <dynamic>[])
+              .map((e) => e.toString())
+              .toList();
+          previews = roomIds
+              .map((id) => RoomPreview(
+                    roomId: id,
+                    name: id,
+                    avatarUrl: null,
+                    bumpTs: null,
+                    notificationCount: 0,
+                    highlightCount: 0,
+                    isMarkedUnread: false,
+                    isMuted: false,
+                  ))
+              .toList();
+        }
+
+        // Merge behavior: ready replaces, update upserts.
+        if (kind == 'sliding_sync_ready') {
+          _roomCache
+            ..clear()
+            ..addEntries(previews.map((p) => MapEntry(p.roomId, p)));
+        } else {
+          for (final p in previews) {
+            _roomCache[p.roomId] = p;
+          }
+        }
+        _rebuildFromCache();
       }
     } catch (err) {
-      _setError('Failed to parse room list payload: $err');
+      // Non-fatal: ignore malformed payloads; next update will reconcile.
+      print('[RoomListController] Failed to parse sliding sync payload: $err');
     }
   }
 
-  Future<void> _refreshRooms() async {
-    if (!_started || _refreshing) return;
-    _refreshing = true;
+  Future<void> _refreshRooms() async {}
 
-    if (mounted && state.hpRooms.isEmpty && state.lpRooms.isEmpty) {
-      state = state.copyWith(isLoading: true, error: null);
-    }
+  void _rebuildFromCache() {
+    final previews = _roomCache.values.toList();
+    // Sort by bumpTs desc, fallback to name.
+    previews.sort((a, b) {
+      final aTs = a.bumpTs ?? 0;
+      final bTs = b.bumpTs ?? 0;
+      final cmp = bTs.compareTo(aTs);
+      if (cmp != 0) return cmp;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
 
-    try {
-      print('[DEBUG] Calling rustListJoinedRooms()...');
-      final roomsResult = await rustListJoinedRooms();
-      if (!roomsResult.isOk || roomsResult.data == null) {
-        print('[DEBUG] rustListJoinedRooms failed: ${roomsResult.error}');
-        _setError(roomsResult.error ?? 'Failed to load rooms');
-        return;
-      }
+    final hp = previews.take(_defaultHpSize).toList();
+    final lp = previews.skip(_defaultHpSize).toList();
 
-      print('[DEBUG] Got ${roomsResult.data!.rooms.length} rooms from rustListJoinedRooms');
-
-      final previews = <RoomPreview>[];
-      for (final roomId in roomsResult.data!.rooms) {
-        print('[DEBUG] Calling rustRoomOverview for room: $roomId');
-        final overviewResult = await rustRoomOverview(roomId: roomId);
-        if (!overviewResult.isOk || overviewResult.data == null) {
-          print('[DEBUG] rustRoomOverview failed for $roomId: ${overviewResult.error}');
-          continue;
-        }
-        final notificationCount = overviewResult.data!.notificationCount;
-        if (notificationCount > 0) {
-          print('[DEBUG] ⚠️ Room $roomId has notification_count=$notificationCount');
-        }
-        previews.add(RoomPreview.fromOverview(overviewResult.data!));
-      }
-
-      previews.sort((a, b) {
-        final aTs = a.bumpTs ?? 0;
-        final bTs = b.bumpTs ?? 0;
-        final cmp = bTs.compareTo(aTs);
-        if (cmp != 0) return cmp;
-        return a.roomId.compareTo(b.roomId);
-      });
-
-      final hp = previews.take(_defaultHpSize).toList();
-      final lp = previews.skip(_defaultHpSize).toList();
-
-      // Check if any rooms with unread counts made it to HP
-      for (final room in hp) {
-        if (room.notificationCount > 0) {
-          print('[DEBUG] 🔥 HP room ${room.roomId} has notification_count=${room.notificationCount}');
-        }
-      }
-
-      if (mounted) {
-        state = state.copyWith(
-          hpRooms: hp,
-          lpRooms: lp,
-          hpSize: hp.length,
-          lpWindow: lp.length,
-          lpTotal: previews.length,
-          isLoading: false,
-          error: null,
-        );
-      }
-
-      // Real-time updates now working properly with fixed sliding sync
-    } catch (err) {
-      _setError('Failed to refresh rooms: $err');
-    } finally {
-      _refreshing = false;
+    if (mounted) {
+      state = state.copyWith(
+        hpRooms: hp,
+        lpRooms: lp,
+        hpSize: hp.length,
+        lpWindow: lp.length,
+        lpTotal: previews.length,
+        isLoading: false,
+        error: null,
+      );
     }
   }
 
   void _setError(String message) {
-    _refreshing = false;
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
     state = state.copyWith(error: message, isLoading: false);
   }
 

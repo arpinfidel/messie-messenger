@@ -43,6 +43,7 @@ __pycache__/
 core/**/target/
 bindings/ios/rust/
 app/android/app/src/main/jniLibs/*/libmessie_ffi.so
+app/android/app/src/main/jniLibs/*/libmessie_ffi_v2.so
 
 # Native build caches and pods
 app/android/.gradle/

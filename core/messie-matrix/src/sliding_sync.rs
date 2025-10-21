@@ -9,7 +9,7 @@ use futures::StreamExt;
 use log::{debug, warn};
 use matrix_sdk::{
     sliding_sync::{SlidingSync, SlidingSyncList, SlidingSyncMode, UpdateSummary, Version},
-    Client,
+    Client, RoomDisplayName,
 };
 use once_cell::sync::Lazy;
 use serde::Serialize;
@@ -59,6 +59,7 @@ struct SlidingSyncUpdate {
     kind: &'static str,
     lists: Vec<String>,
     rooms: Vec<String>,
+    summaries: Vec<crate::RoomOverview>,
 }
 
 #[derive(Debug, Serialize)]
@@ -190,11 +191,38 @@ impl SlidingSyncController {
         // Also emit a lightweight snapshot so late subscribers don't block
         // waiting for the next server-side diff.
         let rooms: Vec<String> = self.room_ids().await;
-        let snapshot = SlidingSyncUpdate {
-            kind: "sliding_sync_update",
-            lists: vec!["all".to_string()],
-            rooms,
-        };
+        let mut summaries: Vec<crate::RoomOverview> = Vec::new();
+        if let Some(client) = crate::client() {
+            for room_id_str in &rooms {
+                if let Ok(room_id) = room_id_str.parse::<matrix_sdk::ruma::OwnedRoomId>() {
+                    if let Some(room) = client.get_room(&room_id) {
+                        let display_name = match room.display_name().await {
+                            Ok(RoomDisplayName::Named(n))
+                            | Ok(RoomDisplayName::Calculated(n))
+                            | Ok(RoomDisplayName::Aliased(n))
+                            | Ok(RoomDisplayName::EmptyWas(n)) => n,
+                            Ok(RoomDisplayName::Empty) => room_id.as_str().to_owned(),
+                            Err(_) => room_id.as_str().to_owned(),
+                        };
+                        let avatar_url = room.avatar_url().map(|u| u.to_string());
+                        let bump_ts = room.recency_stamp();
+                        let is_marked_unread = room.is_marked_unread();
+                        let is_muted = crate::is_room_muted(room_id.as_str());
+                        summaries.push(crate::RoomOverview {
+                            room_id: room_id.as_str().to_owned(),
+                            name: display_name,
+                            avatar_url,
+                            bump_ts,
+                            notification_count: 0,
+                            highlight_count: 0,
+                            is_marked_unread,
+                            is_muted,
+                        });
+                    }
+                }
+            }
+        }
+        let snapshot = SlidingSyncUpdate { kind: "sliding_sync_update", lists: vec!["all".to_string()], rooms, summaries };
         let json = serde_json::to_string(&snapshot)?;
         if !Self::post_to_port(port, json) {
             self.listeners.lock().await.remove(&port);
@@ -216,8 +244,7 @@ impl SlidingSyncController {
         let rooms: Vec<String> = rooms.into_iter().map(|room| room.to_string()).collect();
 
         // DEBUG: Log detailed info about this sliding sync update
-        println!("RUST DEBUG: Sliding sync '{}' received update with {} rooms: {:?}",
-            self.handle, rooms.len(), rooms);
+        debug!("sliding sync '{}' update: {} rooms: {:?}", self.handle, rooms.len(), rooms);
 
         if !rooms.is_empty() {
             let mut known = self.room_ids.write().await;
@@ -231,27 +258,54 @@ impl SlidingSyncController {
                     if let Ok(room_id) = room_id_str.parse::<matrix_sdk::ruma::OwnedRoomId>() {
                         if let Some(room) = client.get_room(&room_id) {
                             let counts = room.unread_notification_counts();
-                            println!("RUST DEBUG: SS update - Room {} notification_count={}, highlight_count={}",
-                                room_id_str, counts.notification_count, counts.highlight_count);
+                            debug!("ss update - room {} counts n={}, h={}", room_id_str, counts.notification_count, counts.highlight_count);
 
                             // Also check if this room has any recent activity
                             let recency = room.recency_stamp();
-                            println!("RUST DEBUG: SS update - Room {} recency_stamp: {:?}", room_id_str, recency);
+                            debug!("ss update - room {} recency_stamp: {:?}", room_id_str, recency);
                         } else {
-                            println!("RUST DEBUG: SS update - Room {} not found in client cache", room_id_str);
+                            debug!("ss update - room {} not in cache", room_id_str);
                         }
                     }
                 }
             } else {
-                println!("RUST DEBUG: SS update - No client available");
+                debug!("ss update - no client available");
             }
         }
 
-        let update = SlidingSyncUpdate {
-            kind: "sliding_sync_update",
-            lists,
-            rooms: rooms.clone(),
-        };
+        // Build lightweight summaries for updated rooms only.
+        let mut summaries: Vec<crate::RoomOverview> = Vec::new();
+        if let Some(client) = crate::client() {
+            for room_id_str in &rooms {
+                if let Ok(room_id) = room_id_str.parse::<matrix_sdk::ruma::OwnedRoomId>() {
+                    if let Some(room) = client.get_room(&room_id) {
+                        let display_name = match room.display_name().await {
+                            Ok(RoomDisplayName::Named(n))
+                            | Ok(RoomDisplayName::Calculated(n))
+                            | Ok(RoomDisplayName::Aliased(n))
+                            | Ok(RoomDisplayName::EmptyWas(n)) => n,
+                            Ok(RoomDisplayName::Empty) => room_id.as_str().to_owned(),
+                            Err(_) => room_id.as_str().to_owned(),
+                        };
+                        let avatar_url = room.avatar_url().map(|u| u.to_string());
+                        let bump_ts = room.recency_stamp();
+                        let is_marked_unread = room.is_marked_unread();
+                        let is_muted = crate::is_room_muted(room_id.as_str());
+                        summaries.push(crate::RoomOverview {
+                            room_id: room_id.as_str().to_owned(),
+                            name: display_name,
+                            avatar_url,
+                            bump_ts,
+                            notification_count: 0,
+                            highlight_count: 0,
+                            is_marked_unread,
+                            is_muted,
+                        });
+                    }
+                }
+            }
+        }
+        let update = SlidingSyncUpdate { kind: "sliding_sync_update", lists, rooms: rooms.clone(), summaries };
         self.broadcast(update).await
     }
 
@@ -338,9 +392,9 @@ pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) 
         .ok_or_else(|| anyhow!("Sliding sync '{handle}' has not been started"))?;
     drop(controllers);
 
-    println!("RUST DEBUG: Subscribing to {} rooms for sliding sync '{}'", room_ids.len(), handle);
+    debug!("subscribing to {} rooms for sliding sync '{}'", room_ids.len(), handle);
     for room_id in &room_ids {
-        println!("RUST DEBUG: - Subscribing to room: {}", room_id);
+        debug!("- subscribing to room: {}", room_id);
     }
 
     // Subscribe to specific rooms with notifications enabled
@@ -351,11 +405,11 @@ pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) 
             .filter_map(|id| {
                 match id.parse() {
                     Ok(parsed) => {
-                        println!("RUST DEBUG: Successfully parsed room ID: {}", id);
+                        debug!("parsed room id: {}", id);
                         Some(parsed)
                     }
                     Err(e) => {
-                        println!("RUST DEBUG: Failed to parse room ID '{}': {:?}", id, e);
+                        debug!("failed to parse room id '{}': {:?}", id, e);
                         None
                     }
                 }
@@ -368,7 +422,7 @@ pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) 
                 .map(|id| id.as_ref())
                 .collect();
 
-            println!("RUST DEBUG: Calling subscribe_to_rooms with {} valid room IDs", room_id_refs.len());
+            debug!("calling subscribe_to_rooms with {} valid room ids", room_id_refs.len());
 
             // Use the subscribe_to_rooms method (plural) which is available
             controller.sliding_sync.subscribe_to_rooms(
@@ -376,12 +430,12 @@ pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) 
                 None, // Use default room subscription settings
                 true, // Cancel in-flight requests
             );
-            println!("RUST DEBUG: Successfully called subscribe_to_rooms for {} rooms", room_id_refs.len());
+            debug!("subscribe_to_rooms for {} rooms ok", room_id_refs.len());
         } else {
-            println!("RUST DEBUG: No valid room IDs to subscribe to");
+            debug!("no valid room ids to subscribe to");
         }
     } else {
-        println!("RUST DEBUG: No room IDs provided for subscription");
+        debug!("no room ids provided for subscription");
     }
 
     Ok(AckResponse { ok: true })

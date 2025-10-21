@@ -48,6 +48,12 @@ static ACTIVE_CLIENT: Lazy<RwLock<Option<Arc<Client>>>> = Lazy::new(|| RwLock::n
 /// Ephemeral cache of rooms muted via push rules in this process.
 static MUTED_ROOMS: Lazy<RwLock<HashSet<String>>> = Lazy::new(|| RwLock::new(HashSet::new()));
 
+/// Public helper to read in-memory mute cache.
+pub fn is_room_muted(room_id: &str) -> bool {
+    let guard = MUTED_ROOMS.read().expect("MUTED_ROOMS lock poisoned");
+    guard.contains(room_id)
+}
+
 fn runtime() -> &'static Runtime {
     RUNTIME.get_or_init(|| {
         Builder::new_multi_thread()

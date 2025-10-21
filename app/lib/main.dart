@@ -1318,10 +1318,10 @@ class _RoomListSection extends StatelessWidget {
         padding: EdgeInsets.only(bottom: spacing.gap.md),
         child: MessieSegmentedControl<String>(
           value: 'all',
-          segments: const ['all', 'unread', 'favorites'],
+          // Remove 'unread' option since Synapse sliding sync doesn't provide counts
+          segments: const ['all', 'favorites'],
           labelBuilder: (s) => Text(
             switch (s) {
-              'unread' => 'Unread',
               'favorites' => 'Favorites',
               _ => 'All',
             },
@@ -1473,10 +1473,7 @@ class _RoomTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final spacing = MessieSpacing.of(context);
     final scheme = Theme.of(context).colorScheme;
-    final unread = room.notificationCount;
     final isMuted = room.isMuted;
-    // Show badge only when numeric count is available to avoid noisy dots.
-    final hasUnread = unread > 0 && !isMuted;
 
     return Padding(
       padding: EdgeInsets.only(bottom: spacing.gap.sm),
@@ -1496,24 +1493,6 @@ class _RoomTile extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (hasUnread)
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: spacing.gap.sm,
-                  vertical: spacing.gap.xs,
-                ),
-                decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(spacing.gap.sm),
-                ),
-                child: Text(
-                  unread > 99 ? '99+' : '$unread',
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelSmall
-                      ?.copyWith(color: scheme.onPrimaryContainer),
-                ),
-              ),
             IconButton(
               visualDensity: VisualDensity.compact,
               splashRadius: 18,
