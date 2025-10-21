@@ -13,6 +13,7 @@ use serde::Deserialize;
 use messie_matrix_v2 as v2;
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct EnvelopeOk<T> { #[allow(dead_code)] ok: bool, data: T }
 
 fn must_env(key: &str) -> Result<String> { std::env::var(key).map_err(|_| anyhow!("missing env {key}")) }

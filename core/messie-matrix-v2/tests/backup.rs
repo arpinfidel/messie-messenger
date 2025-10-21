@@ -10,6 +10,7 @@ use serde::Deserialize;
 struct EnvelopeOk<T> { #[allow(dead_code)] ok: bool, data: T }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct HandleData { handle: u64 }
 
 #[derive(Debug, Deserialize)]

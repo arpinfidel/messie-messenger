@@ -2,17 +2,23 @@
 
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
+#[cfg(feature = "test-helpers")]
+use anyhow::Context;
 use messie_matrix_v2 as v2;
 use serde::Deserialize;
+#[cfg(feature = "test-helpers")]
 use std::thread;
+#[cfg(feature = "test-helpers")]
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct EnvelopeOk<T> { #[allow(dead_code)] ok: bool, data: T }
 
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct HandleData { handle: u64 }
 
 fn must_env(key: &str) -> Result<String> { std::env::var(key).map_err(|_| anyhow!("missing env {key}")) }

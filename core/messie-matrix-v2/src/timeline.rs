@@ -2,7 +2,6 @@ use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, Context, Result};
-use futures::StreamExt;
 use matrix_sdk::{
     room::{Messages, MessagesOptions, Room as MatrixRoom},
     ruma::{OwnedRoomId, UInt},
@@ -224,4 +223,3 @@ async fn maybe_decrypt_events(ctrl: &Arc<TimelineController>, events: &mut [Stri
         }
     }
 }
-

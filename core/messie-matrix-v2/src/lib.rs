@@ -6,10 +6,9 @@ mod sync;
 mod rooms;
 mod timeline;
 
-use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use matrix_sdk::{
     config::SyncSettings,
     Client,
@@ -24,8 +23,9 @@ use once_cell::sync::Lazy;
 use serde::{Serialize};
 use tokio::time::{self, Duration, MissedTickBehavior};
 use allo_isolate::Isolate;
-use futures::StreamExt;
 use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
+
+use futures::StreamExt;
 
 // ---------- Runtime (private to v2) ----------
 use common::runtime::runtime;
