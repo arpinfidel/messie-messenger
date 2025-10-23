@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart' show consolidateHttpClientResponseBytes;
 import 'l10n/app_localizations.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -1741,6 +1742,7 @@ class _SenderAvatarState extends ConsumerState<_SenderAvatar> {
 
 class _AvatarPlaceholderState extends ConsumerState<_AvatarPlaceholder> {
   String? _httpUrl;
+  String? _filePath;
 
   @override
   void didUpdateWidget(covariant _AvatarPlaceholder oldWidget) {
@@ -1759,15 +1761,48 @@ class _AvatarPlaceholderState extends ConsumerState<_AvatarPlaceholder> {
   Future<void> _resolve() async {
     final mxc = widget.avatarUrl;
     if (mxc == null || mxc.isEmpty || !mxc.startsWith('mxc://')) {
-      if (mounted) setState(() => _httpUrl = null);
+      if (mounted) setState(() { _httpUrl = null; _filePath = null; });
       return;
     }
     final res = await rustMxcToHttp(mxc: mxc, w: 96, h: 96);
     if (!res.isOk || res.data == null) {
-      if (mounted) setState(() => _httpUrl = null);
+      if (mounted) setState(() { _httpUrl = null; _filePath = null; });
       return;
     }
-    if (mounted) setState(() => _httpUrl = res.data);
+    final httpUrl = res.data!;
+
+    // Check persistent cache first
+    final dir = await getApplicationSupportDirectory();
+    final cacheDir = Directory(p.join(dir.path, 'messie', 'media', 'avatars'));
+    try { await cacheDir.create(recursive: true); } catch (_) {}
+    final key = _avatarCacheKey(mxc, w: 96, h: 96);
+    final target = File(p.join(cacheDir.path, '$key'));
+    if (await target.exists()) {
+      if (mounted) setState(() { _filePath = target.path; _httpUrl = null; });
+      return;
+    }
+
+    // Download and persist
+    final session = ref.read(authControllerProvider).asData?.value;
+    try {
+      final client = HttpClient();
+      final uri = Uri.parse(httpUrl);
+      final req = await client.getUrl(uri);
+      if (session != null) {
+        req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${session.accessToken}');
+      }
+      final resp = await req.close();
+      if (resp.statusCode == 200) {
+        final bytes = await consolidateHttpClientResponseBytes(resp);
+        await target.writeAsBytes(bytes, flush: true);
+        if (mounted) setState(() { _filePath = target.path; _httpUrl = null; });
+      } else {
+        if (mounted) setState(() => _httpUrl = httpUrl);
+      }
+      client.close(force: true);
+    } catch (_) {
+      if (mounted) setState(() => _httpUrl = httpUrl);
+    }
   }
 
   @override
@@ -1775,11 +1810,34 @@ class _AvatarPlaceholderState extends ConsumerState<_AvatarPlaceholder> {
     final initials = _initials(widget.name);
     final colors = Theme.of(context).colorScheme;
     final url = _httpUrl;
+    final filePath = _filePath;
     final session = ref.watch(authControllerProvider).asData?.value;
     final headers = session != null
         ? <String, String>{'Authorization': 'Bearer ${session.accessToken}'}
         : null;
 
+    if (filePath != null && filePath.isNotEmpty && File(filePath).existsSync()) {
+      return CircleAvatar(
+        backgroundColor: colors.secondaryContainer,
+        child: ClipOval(
+          child: Image.file(
+            File(filePath),
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              return Center(
+                child: Text(
+                  initials,
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelLarge
+                      ?.copyWith(color: colors.onSecondaryContainer),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    }
     if (url != null && url.isNotEmpty) {
       // Use Image.network with errorBuilder to avoid global image exceptions
       // when the thumbnail endpoint returns 404. Fallback to initials.
@@ -1815,6 +1873,14 @@ class _AvatarPlaceholderState extends ConsumerState<_AvatarPlaceholder> {
             ?.copyWith(color: colors.onSecondaryContainer),
       ),
     );
+  }
+
+  String _avatarCacheKey(String mxc, {required int w, required int h}) {
+    // Stable filename: sanitize mxc and include size
+    final base = mxc.replaceAll('mxc://', '');
+    final size = 'w${w}h$h';
+    final sanitized = base.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+    return '${sanitized}_$size';
   }
 
   String _initials(String value) {
