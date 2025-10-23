@@ -7,6 +7,7 @@ use serde::Serialize;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tokio::{sync::RwLock as AsyncRwLock, sync::Mutex as AsyncMutex};
+use log::{debug, info, warn, trace};
 
 use crate::{client, runtime, sliding_sync::AckResponse};
 use matrix_sdk::encryption::recovery::RecoveryState;
@@ -77,7 +78,7 @@ impl BackupStatusController {
                     _ = cancel_token.cancelled() => break,
                     _ = ticker.tick() => {
                         if let Err(err) = controller.poll_and_broadcast().await {
-                            eprintln!("backup_status poll failed: {err:?}");
+                            warn!("[backup] status poll failed: {err:?}");
                         }
                     }
                 }
