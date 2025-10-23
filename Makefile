@@ -101,6 +101,76 @@ flutter-run-ios:
 	cd app && flutter pub get
 	cd app && flutter run -d ios --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
 
+# -------- Flutter profiling helpers --------
+.PHONY: profile-help flutter-profile-android flutter-profile-android-trace flutter-profile-android-sksl flutter-build-android-sksl flutter-profile-ios flutter-profile-ios-trace flutter-profile-ios-sksl flutter-build-ios-sksl
+
+# Default devices (override: make flutter-profile-android DEVICE=<id>)
+DEVICE ?= emulator-5554
+IOS_DEVICE ?= ios
+# Path to a saved SkSL warmup file exported from DevTools Performance (override as needed)
+SKSL_PATH ?= app/flutter_sksl.json
+
+profile-help:
+	@echo "Profiling targets:"
+	@echo "  make flutter-profile-android            # Run on Android in --profile (press 'P' to show overlay)"
+	@echo "  make flutter-profile-android-trace      # Run with --trace-startup and --trace-skia (diagnose jank)"
+	@echo "  make flutter-profile-android-sksl       # Run with --cache-sksl to capture SkSL (reduce shader jank)"
+	@echo "  make flutter-build-android-sksl         # Build APK bundling SKSL_PATH=$(SKSL_PATH)"
+	@echo "  make flutter-profile-ios                # Run on iOS in --profile (press 'P' to show overlay)"
+	@echo "  make flutter-profile-ios-trace          # Run with --trace-startup and --trace-skia (diagnose jank)"
+	@echo "  make flutter-profile-ios-sksl           # Run with --cache-sksl to capture SkSL (reduce shader jank)"
+	@echo "  make flutter-build-ios-sksl             # Build iOS app bundling SKSL_PATH=$(SKSL_PATH)"
+	@echo "Notes:"
+	@echo "  - What is TRACE? Adds startup + Skia GPU timeline events for DevTools."
+	@echo "    Use *trace* to FIND the cause of jank (UI vs GPU)."
+	@echo "    Steps: run trace target → open DevTools Performance → Record 10s → Stop → inspect long frames."
+	@echo "  - What is SKSL? Skia shader compile warmup."
+	@echo "    Use *sksl* to REDUCE first-run GPU stutters after you've seen GPU graph spikes."
+	@echo "    Steps: run sksl target → open DevTools Performance → Export SkSL → save to $(SKSL_PATH) → build with *build-*-sksl*."
+	@echo "  - Overlay: Press 'P' in the 'flutter run' terminal to toggle the performance overlay (top=UI, bottom=GPU)."
+	@echo "  - DevTools: A link appears in 'flutter run' output; open it → Performance tab."
+
+flutter-profile-android:
+	make bridge-build-android
+	cd app && flutter pub get
+	cd app && flutter gen-l10n
+	cd app && flutter run -d $(DEVICE) --profile --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+
+flutter-profile-android-trace:
+	make bridge-build-android
+	cd app && flutter pub get
+	cd app && flutter gen-l10n
+	cd app && flutter run -d $(DEVICE) --profile --trace-startup --trace-skia --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+
+flutter-profile-android-sksl:
+	make bridge-build-android
+	cd app && flutter pub get
+	cd app && flutter gen-l10n
+	cd app && flutter run -d $(DEVICE) --profile --cache-sksl --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+
+flutter-build-android-sksl:
+	@echo "Building Android APK with SkSL warmup from $(SKSL_PATH)"
+	cd app && flutter build apk --bundle-sksl-path ../$(SKSL_PATH)
+
+flutter-profile-ios:
+	make bridge-build-ios
+	cd app && flutter pub get
+	cd app && flutter run -d $(IOS_DEVICE) --profile --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+
+flutter-profile-ios-trace:
+	make bridge-build-ios
+	cd app && flutter pub get
+	cd app && flutter run -d $(IOS_DEVICE) --profile --trace-startup --trace-skia --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+
+flutter-profile-ios-sksl:
+	make bridge-build-ios
+	cd app && flutter pub get
+	cd app && flutter run -d $(IOS_DEVICE) --profile --cache-sksl --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+
+flutter-build-ios-sksl:
+	@echo "Building iOS app with SkSL warmup from $(SKSL_PATH)"
+	cd app && flutter build ios --no-codesign --bundle-sksl-path ../$(SKSL_PATH)
+
 test-e2e-codegen:
 	cd frontend && npm run test:e2e:codegen
 

@@ -399,6 +399,8 @@ extension on AuthController {
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
+  static DateTime? _lastBackPress;
+  static const Duration _exitInterval = Duration(seconds: 2);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -474,11 +476,23 @@ class HomeScreen extends ConsumerWidget {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
         final handled = await BackEscPolicy.of(context).handleBack();
-        if (!handled) {
-          // allow normal back behavior if not handled
-          // ignore: use_build_context_synchronously
-          Navigator.of(context).maybePop();
+        if (handled) return;
+
+        final now = DateTime.now();
+        final last = _lastBackPress;
+        if (last != null && now.difference(last) <= _exitInterval) {
+          SystemNavigator.pop();
+          return;
         }
+        _lastBackPress = now;
+        final messenger = ScaffoldMessenger.maybeOf(context);
+        messenger?.clearSnackBars();
+        messenger?.showSnackBar(
+          const SnackBar(
+            content: Text('Press back again to exit'),
+            duration: Duration(seconds: 2),
+          ),
+        );
       },
       child: content,
     );
@@ -2085,7 +2099,7 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
       }
     }
 
-    return LayoutBuilder(
+    final built = LayoutBuilder(
       builder: (context, constraints) {
         final hasBoundedHeight = constraints.maxHeight.isFinite;
 
@@ -2367,6 +2381,29 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
         );
       },
     );
+
+    // On mobile (when an explicit onClose is provided), intercept system back
+    // to close the conversation instead of attempting to pop the root route.
+    if (widget.onClose != null) {
+      return BackEscSurface(
+        priority: SurfacePriority.route,
+        onDismiss: () async {
+          widget.onClose?.call();
+          return true;
+        },
+        child: PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) async {
+            if (!didPop) {
+              widget.onClose?.call();
+            }
+          },
+          child: built,
+        ),
+      );
+    }
+
+    return built;
   }
 }
 
