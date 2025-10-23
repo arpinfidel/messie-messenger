@@ -1,7 +1,6 @@
 // ignore_for_file: avoid_print
-@Timeout(Duration(minutes: 2))
-import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -16,7 +15,8 @@ class _Env {
   final String senderUser;
   final String senderPass;
   final String senderBase;
-  _Env(this.hs, this.user, this.pass, this.base, this.groupRoom, this.senderUser, this.senderPass, this.senderBase);
+  _Env(this.hs, this.user, this.pass, this.base, this.groupRoom,
+      this.senderUser, this.senderPass, this.senderBase);
 }
 
 _Env? _loadEnv() {
@@ -24,16 +24,24 @@ _Env? _loadEnv() {
   final hs = env['MESSIE_MATRIX_HOMESERVER'];
   final user = env['MESSIE_MATRIX_USERNAME'];
   final pass = env['MESSIE_MATRIX_PASSWORD'];
-  final base = env['MESSIE_MATRIX_STORE_BASE'] ?? Directory.systemTemp.createTempSync('messie_v1').path;
+  final base = env['MESSIE_MATRIX_STORE_BASE'] ??
+      Directory.systemTemp.createTempSync('messie_v1').path;
   final group = env['MESSIE_GROUP_ROOM'];
   final senderUser = env['MESSIE_SENDER_USERNAME'];
   final senderPass = env['MESSIE_SENDER_PASSWORD'];
   // Default to repo-level sender store so token persists across runs (avoid 429)
   final senderBase = env['MESSIE_SENDER_STORE_BASE'] ??
       (Platform.environment['PWD'] != null
-          ? File('${Platform.environment['PWD']}/../.messie_store_v2_sender').absolute.path
+          ? File('${Platform.environment['PWD']}/../.messie_store_v2_sender')
+              .absolute
+              .path
           : Directory.systemTemp.createTempSync('messie_v1_sender').path);
-  if (hs == null || user == null || pass == null || group == null || senderUser == null || senderPass == null) {
+  if (hs == null ||
+      user == null ||
+      pass == null ||
+      group == null ||
+      senderUser == null ||
+      senderPass == null) {
     return null;
   }
   return _Env(hs, user, pass, base, group, senderUser, senderPass, senderBase);
@@ -55,22 +63,33 @@ Future<void> _writeAccessToken(String basePath, String accessToken) async {
   try {
     await Directory(basePath).create(recursive: true);
     final file = File('$basePath/session.json');
-    await file.writeAsString(json.encode({'access_token': accessToken}), flush: true);
+    await file.writeAsString(json.encode({'access_token': accessToken}),
+        flush: true);
   } catch (_) {
     // best-effort persist; test still proceeds
   }
 }
 
-Future<String?> _sendWithCurl({required String hs, required String roomId, required String body, required String accessToken}) async {
+Future<String?> _sendWithCurl(
+    {required String hs,
+    required String roomId,
+    required String body,
+    required String accessToken}) async {
   final txn = DateTime.now().millisecondsSinceEpoch.toString();
-  final url = Uri.parse('$hs/_matrix/client/v3/rooms/${Uri.encodeComponent(roomId)}/send/m.room.message/$txn').toString();
+  final url = Uri.parse(
+          '$hs/_matrix/client/v3/rooms/${Uri.encodeComponent(roomId)}/send/m.room.message/$txn')
+      .toString();
   final payload = json.encode({'msgtype': 'm.text', 'body': body});
   final result = await Process.run('curl', [
     '-sS',
-    '-X', 'PUT',
-    '-H', 'Authorization: Bearer $accessToken',
-    '-H', 'Content-Type: application/json',
-    '--data', payload,
+    '-X',
+    'PUT',
+    '-H',
+    'Authorization: Bearer $accessToken',
+    '-H',
+    'Content-Type: application/json',
+    '--data',
+    payload,
     url,
   ]);
   if (result.exitCode == 0) {
@@ -85,14 +104,23 @@ Future<String?> _sendWithCurl({required String hs, required String roomId, requi
   return null;
 }
 
-Future<bool> _joinWithCurl({required String hs, required String roomId, required String accessToken}) async {
-  final url = Uri.parse('$hs/_matrix/client/v3/rooms/${Uri.encodeComponent(roomId)}/join').toString();
+Future<bool> _joinWithCurl(
+    {required String hs,
+    required String roomId,
+    required String accessToken}) async {
+  final url = Uri.parse(
+          '$hs/_matrix/client/v3/rooms/${Uri.encodeComponent(roomId)}/join')
+      .toString();
   final result = await Process.run('curl', [
     '-sS',
-    '-X', 'POST',
-    '-H', 'Authorization: Bearer $accessToken',
-    '-H', 'Content-Type: application/json',
-    '--data', '{}',
+    '-X',
+    'POST',
+    '-H',
+    'Authorization: Bearer $accessToken',
+    '-H',
+    'Content-Type: application/json',
+    '--data',
+    '{}',
     url,
   ]);
   if (result.exitCode == 0) {
@@ -128,7 +156,8 @@ Future<_SyncCounts> _syncFetchCounts({
   if (since != null && since.isNotEmpty) qp['since'] = since;
   if (timeoutMs > 0) qp['timeout'] = '$timeoutMs';
   if (fullState) qp['full_state'] = 'true';
-  final uri = Uri.parse(hs).replace(path: '/_matrix/client/v3/sync', queryParameters: qp.isEmpty ? null : qp);
+  final uri = Uri.parse(hs).replace(
+      path: '/_matrix/client/v3/sync', queryParameters: qp.isEmpty ? null : qp);
   final client = HttpClient();
   try {
     final req = await client.getUrl(uri);
@@ -158,7 +187,9 @@ void main() {
   final env = _loadEnv();
   if (env == null) {
     test('skipped - env not set', () {
-      expect(true, isTrue, reason: 'Set MESSIE_MATRIX_* + MESSIE_GROUP_ROOM + sender env to run');
+      expect(true, isTrue,
+          reason:
+              'Set MESSIE_MATRIX_* + MESSIE_GROUP_ROOM + sender env to run');
     }, skip: true);
     return;
   }
@@ -210,10 +241,11 @@ void main() {
         senderToken = senderLogin.data!.accessToken;
         await _writeAccessToken(env.senderBase, senderToken);
       }
-      expect(senderToken != null && senderToken!.isNotEmpty, isTrue, reason: 'sender token missing');
+      final st = senderToken;
+      expect(st.isNotEmpty, isTrue, reason: 'sender token missing');
 
       // Ensure sender is joined to the target room (best effort)
-      await _joinWithCurl(hs: env.hs, roomId: env.groupRoom, accessToken: senderToken!);
+      await _joinWithCurl(hs: env.hs, roomId: env.groupRoom, accessToken: st);
 
       // Send a mention to try to trigger default push rules in a group.
       // Include both full user id and localpart forms to maximize matches.
@@ -221,15 +253,17 @@ void main() {
       final lp = (uid.startsWith('@') && uid.contains(':'))
           ? uid.substring(1, uid.indexOf(':'))
           : uid;
-      final body = 'v1 unread ping @$lp $uid ${DateTime.now().millisecondsSinceEpoch}';
+      final body =
+          'v1 unread ping @$lp $uid ${DateTime.now().millisecondsSinceEpoch}';
       final sentEventId = await _sendWithCurl(
         hs: env.hs,
         roomId: env.groupRoom,
         body: body,
-        accessToken: senderToken!,
+        accessToken: st,
       );
-      print('send via curl: ${sentEventId ?? '(unknown event id)'}');
-      expect(sentEventId != null, isTrue, reason: 'failed to send test message via curl');
+      debugPrint('send via curl: ${sentEventId ?? '(unknown event id)'}');
+      expect(sentEventId != null, isTrue,
+          reason: 'failed to send test message via curl');
 
       // Poll incremental /sync (since=baseline.next_batch) and expect counts to increase
       final end = DateTime.now().add(const Duration(seconds: 30));
@@ -249,8 +283,10 @@ void main() {
         if (s.present && gotN > baseN) break;
         await Future<void>.delayed(const Duration(seconds: 2));
       }
-      print('server unread after send: n=$gotN (+${gotN - baseN}) h=$gotH (+${gotH - baseH})');
-      expect(gotN > baseN, isTrue, reason: 'notification count did not increase');
+      debugPrint(
+          'server unread after send: n=$gotN (+${gotN - baseN}) h=$gotH (+${gotH - baseH})');
+      expect(gotN > baseN, isTrue,
+          reason: 'notification count did not increase');
       // Highlight may depend on push rules; do not require strictly > baseline
     }, timeout: const Timeout(Duration(seconds: 90)));
   });

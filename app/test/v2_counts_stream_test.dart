@@ -3,8 +3,10 @@ import 'dart:convert';
 import 'dart:ffi'; // for SendPort.nativePort
 import 'dart:isolate';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 import 'package:flutter_test/flutter_test.dart';
+// ignore_for_file: undefined_function, unnecessary_non_null_assertion
 import 'package:messie_app/bridge_v2/messie_bridge_v2.dart' as v2;
 
 class _Env {
@@ -16,7 +18,8 @@ class _Env {
   final String senderUser;
   final String senderPass;
   final String senderBase;
-  _Env(this.hs, this.user, this.pass, this.base, this.groupRoom, this.senderUser, this.senderPass, this.senderBase);
+  _Env(this.hs, this.user, this.pass, this.base, this.groupRoom,
+      this.senderUser, this.senderPass, this.senderBase);
 }
 
 _Env? _loadEnv() {
@@ -24,7 +27,8 @@ _Env? _loadEnv() {
   final hs = env['MESSIE_MATRIX_HOMESERVER'];
   final user = env['MESSIE_MATRIX_USERNAME'];
   final pass = env['MESSIE_MATRIX_PASSWORD'];
-  final base = env['MESSIE_MATRIX_STORE_BASE'] ?? Directory.systemTemp.createTempSync('messie_v2').path;
+  final base = env['MESSIE_MATRIX_STORE_BASE'] ??
+      Directory.systemTemp.createTempSync('messie_v2').path;
   final group = env['MESSIE_GROUP_ROOM'];
   final senderUser = env['MESSIE_SENDER_USERNAME'];
   final senderPass = env['MESSIE_SENDER_PASSWORD'];
@@ -32,9 +36,16 @@ _Env? _loadEnv() {
       // Default to repo-level persistent sender store to avoid 429s
       // Use a path that persists across runs rather than temp.
       (Platform.environment['PWD'] != null
-          ? File('${Platform.environment['PWD']}/../.messie_store_v2_sender').absolute.path
+          ? File('${Platform.environment['PWD']}/../.messie_store_v2_sender')
+              .absolute
+              .path
           : Directory.systemTemp.createTempSync('messie_v2_sender').path);
-  if (hs == null || user == null || pass == null || group == null || senderUser == null || senderPass == null) {
+  if (hs == null ||
+      user == null ||
+      pass == null ||
+      group == null ||
+      senderUser == null ||
+      senderPass == null) {
     return null;
   }
   return _Env(hs, user, pass, base, group, senderUser, senderPass, senderBase);
@@ -53,24 +64,34 @@ Future<String?> _readSenderAccessToken(String senderBase) async {
   }
 }
 
-Future<bool> _sendWithCurl({required String hs, required String roomId, required String body, required String accessToken}) async {
+Future<bool> _sendWithCurl(
+    {required String hs,
+    required String roomId,
+    required String body,
+    required String accessToken}) async {
   // PUT /_matrix/client/v3/rooms/{roomId}/send/m.room.message/{txnId}
   final txn = DateTime.now().millisecondsSinceEpoch.toString();
-  final url = Uri.parse('$hs/_matrix/client/v3/rooms/${Uri.encodeComponent(roomId)}/send/m.room.message/$txn').toString();
+  final url = Uri.parse(
+          '$hs/_matrix/client/v3/rooms/${Uri.encodeComponent(roomId)}/send/m.room.message/$txn')
+      .toString();
   final payload = json.encode({'msgtype': 'm.text', 'body': body});
   final result = await Process.run('curl', [
     '-sS',
-    '-X', 'PUT',
-    '-H', 'Authorization: Bearer $accessToken',
-    '-H', 'Content-Type: application/json',
-    '--data', payload,
+    '-X',
+    'PUT',
+    '-H',
+    'Authorization: Bearer $accessToken',
+    '-H',
+    'Content-Type: application/json',
+    '--data',
+    payload,
     url,
   ]);
   if (result.exitCode == 0) {
     return true;
   }
   // ignore: avoid_print
-  print('curl send failed: ${result.exitCode} ${result.stderr}');
+  debugPrint('curl send failed: ${result.exitCode} ${result.stderr}');
   return false;
 }
 
@@ -82,7 +103,8 @@ Future<Map<String, dynamic>> _waitForCounts(
   final end = DateTime.now().add(timeout);
   await for (final message in stream) {
     if (DateTime.now().isAfter(end)) {
-      throw TimeoutException('Timed out waiting for counts_update for room', timeout);
+      throw TimeoutException(
+          'Timed out waiting for counts_update for room', timeout);
     }
     if (message is! String) continue;
     try {
@@ -114,7 +136,8 @@ Future<(int n, int h)> _settleCounts(
       }
       lastN = n;
       lastH = h;
-      end = DateTime.now().add(const Duration(seconds: 2)); // require brief stability
+      end = DateTime.now()
+          .add(const Duration(seconds: 2)); // require brief stability
     } on TimeoutException {
       // No update within perWait; keep trying within window
       await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -138,10 +161,12 @@ void main() {
   group('v2 global counts stream', () {
     test('counts_update bumps after mention in group room', () async {
       // Receiver
-      final recvCreate = v2.clientCreate(homeserverUrl: env.hs, basePath: env.base);
+      final recvCreate =
+          v2.clientCreate(homeserverUrl: env.hs, basePath: env.base);
       expect(recvCreate.success, isTrue, reason: 'client_create failed');
       final recv = recvCreate.handle;
-      final login = v2.clientLogin(handle: recv, username: env.user, password: env.pass);
+      final login =
+          v2.clientLogin(handle: recv, username: env.user, password: env.pass);
       expect(login.success, isTrue, reason: 'login failed');
       final userId = login.userId!;
       // Ensure receiver is joined to the target room
@@ -156,7 +181,8 @@ void main() {
         pollTimeoutMs: 0,
         networkTimeoutMs: 0,
       );
-      expect(v2.ssStart(ssHandle: ss, port: 0), isTrue, reason: 'ssStart failed');
+      expect(v2.ssStart(ssHandle: ss, port: 0), isTrue,
+          reason: 'ssStart failed');
       final okSub = v2.ssSubscribeToRooms(
         ssHandle: ss,
         roomIds: [env.groupRoom],
@@ -180,17 +206,21 @@ void main() {
       // Also open a timeline stream for the target room to ensure immediate ingestion
       final tl = v2.timelineOpen(clientHandle: recv, roomId: env.groupRoom);
       expect(tl.success, isTrue, reason: 'timeline_open failed');
-      expect(v2.timelineStartStreaming(timelineHandle: tl.handle, port: 0), isTrue, reason: 'timeline_start_streaming failed');
+      expect(
+          v2.timelineStartStreaming(timelineHandle: tl.handle, port: 0), isTrue,
+          reason: 'timeline_start_streaming failed');
 
       // Start counts stream AFTER SS + timeline are set up so initial snapshot captures room
       final port = ReceivePort('v2_counts');
       addTearDown(() => port.close());
       final stream = port.asBroadcastStream();
-      final okCounts = v2.roomCountsStream(handle: recv, port: port.sendPort.nativePort);
+      final okCounts =
+          v2.roomCountsStream(handle: recv, port: port.sendPort.nativePort);
       expect(okCounts, isTrue, reason: 'room_counts_stream failed');
       // Force a clean baseline by marking read up to the latest event
       expect(
-        v2.roomMarkReadUpTo(clientHandle: recv, roomId: env.groupRoom, eventId: '__LATEST__'),
+        v2.roomMarkReadUpTo(
+            clientHandle: recv, roomId: env.groupRoom, eventId: '__LATEST__'),
         isTrue,
         reason: 'mark_read_up_to __LATEST__ failed',
       );
@@ -199,19 +229,26 @@ void main() {
       // Set baseline based on SDK after mark-read
       var baselineN = 0;
       var baselineH = 0;
-      final sdkBaseline = v2.roomGetUnreadCounts(handle: recv, roomId: env.groupRoom);
-      final srvBaseline = v2.roomFetchServerUnreadCounts(handle: recv, roomId: env.groupRoom, timeoutMs: 0);
+      final sdkBaseline =
+          v2.roomGetUnreadCounts(handle: recv, roomId: env.groupRoom);
+      final srvBaseline = v2.roomFetchServerUnreadCounts(
+          handle: recv, roomId: env.groupRoom, timeoutMs: 0);
       // ignore: avoid_print
-      print('counts baseline (post-read) for ${env.groupRoom}: sdk-get n=${sdkBaseline.notification} h=${sdkBaseline.highlight}; server-get n=${srvBaseline.notification} h=${srvBaseline.highlight}');
-      expect(sdkBaseline.notification, equals(0), reason: 'baseline notification not zero after mark-read');
+      debugPrint(
+          'counts baseline (post-read) for ${env.groupRoom}: sdk-get n=${sdkBaseline.notification} h=${sdkBaseline.highlight}; server-get n=${srvBaseline.notification} h=${srvBaseline.highlight}');
+      expect(sdkBaseline.notification, equals(0),
+          reason: 'baseline notification not zero after mark-read');
 
       // Sender: join + sync + send mention
       // Ensure persistent sender store exists to reuse access token and avoid 429s
       Directory(env.senderBase).createSync(recursive: true);
-      final senderCreate = v2.clientCreate(homeserverUrl: env.hs, basePath: env.senderBase);
-      expect(senderCreate.success, isTrue, reason: 'sender client_create failed');
+      final senderCreate =
+          v2.clientCreate(homeserverUrl: env.hs, basePath: env.senderBase);
+      expect(senderCreate.success, isTrue,
+          reason: 'sender client_create failed');
       final sender = senderCreate.handle;
-      final senderLogin = v2.clientLogin(handle: sender, username: env.senderUser, password: env.senderPass);
+      final senderLogin = v2.clientLogin(
+          handle: sender, username: env.senderUser, password: env.senderPass);
       expect(senderLogin.success, isTrue, reason: 'sender login failed');
       // Best-effort ensure sender is joined
       v2.roomJoin(handle: sender, roomId: env.groupRoom);
@@ -225,17 +262,20 @@ void main() {
       var sent = false;
       if (token != null && token.isNotEmpty) {
         // ignore: avoid_print
-        print('sending via curl to ${env.groupRoom} with persisted token ...');
-        sent = await _sendWithCurl(hs: env.hs, roomId: env.groupRoom, body: body, accessToken: token);
+        debugPrint('sending via curl to ${env.groupRoom} with persisted token ...');
+        sent = await _sendWithCurl(
+            hs: env.hs, roomId: env.groupRoom, body: body, accessToken: token);
       }
       if (!sent) {
         // Fallback to SDK send
         // ignore: avoid_print
-        print('curl send not used or failed; falling back to SDK send ...');
-        sent = v2.roomSendText(clientHandle: sender, roomId: env.groupRoom, body: body);
+        debugPrint('curl send not used or failed; falling back to SDK send ...');
+        sent = v2.roomSendText(
+            clientHandle: sender, roomId: env.groupRoom, body: body);
       }
       // ignore: avoid_print
-      print('send result: ${sent ? 'ok' : 'failed'}; waiting for counts to increase from baseline n=$baselineN h=$baselineH');
+      debugPrint(
+          'send result: ${sent ? 'ok' : 'failed'}; waiting for counts to increase from baseline n=$baselineN h=$baselineH');
       expect(sent, isTrue, reason: 'send failed');
 
       // Expect counts to strictly increase (notification count)
@@ -260,10 +300,15 @@ void main() {
       }
       // Log final counts for diagnostics
       // ignore: avoid_print
-      final sdkAfter = v2.roomGetUnreadCounts(handle: recv, roomId: env.groupRoom);
-      final srvAfter = v2.roomFetchServerUnreadCounts(handle: recv, roomId: env.groupRoom, timeoutMs: 0);
-      print('counts after (final) for ${env.groupRoom}: n=$n h=$h (baseline n=$baselineN h=$baselineH) sdk-get(n=${sdkAfter.notification} h=${sdkAfter.highlight}) server-get(n=${srvAfter.notification} h=${srvAfter.highlight})');
-      expect(n > baselineN || sdkAfter.notification > baselineN, isTrue, reason: 'notification count did not strictly increase (stream:$n sdk:${sdkAfter.notification} vs baseline $baselineN)');
+      final sdkAfter =
+          v2.roomGetUnreadCounts(handle: recv, roomId: env.groupRoom);
+      final srvAfter = v2.roomFetchServerUnreadCounts(
+          handle: recv, roomId: env.groupRoom, timeoutMs: 0);
+      debugPrint(
+          'counts after (final) for ${env.groupRoom}: n=$n h=$h (baseline n=$baselineN h=$baselineH) sdk-get(n=${sdkAfter.notification} h=${sdkAfter.highlight}) server-get(n=${srvAfter.notification} h=${srvAfter.highlight})');
+      expect(n > baselineN || sdkAfter.notification > baselineN, isTrue,
+          reason:
+              'notification count did not strictly increase (stream:$n sdk:${sdkAfter.notification} vs baseline $baselineN)');
     }, timeout: const Timeout(Duration(seconds: 45)));
   });
 }

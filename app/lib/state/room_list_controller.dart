@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 
 import '../bridge/messie_bridge.dart';
+import '../services/counts_sync_service.dart';
 
 const _slidingSyncHandle = 'primary';
 const _defaultHpSize = 12;
@@ -16,17 +17,20 @@ const _kNoUpdate = Object();
 
 final roomListControllerProvider =
     StateNotifierProvider<RoomListController, RoomListState>(
-  (ref) => RoomListController(),
+  (ref) => RoomListController(ref),
 );
 
 class RoomListController extends StateNotifier<RoomListState> {
-  RoomListController() : super(RoomListState.initial());
+  RoomListController(this._ref) : super(RoomListState.initial());
+
+  final Ref _ref;
 
   ReceivePort? _receivePort;
   StreamSubscription<dynamic>? _subscription;
   bool _started = false;
   // Legacy throttling flags removed; sliding sync drives updates.
   final Map<String, RoomPreview> _roomCache = <String, RoomPreview>{};
+  ProviderSubscription<Map<String, UnreadCounts>>? _countsSub;
 
   Future<void> start() async => _ensureStarted();
 
@@ -49,6 +53,11 @@ class RoomListController extends StateNotifier<RoomListState> {
     if (_started) return;
     _started = true;
     state = state.copyWith(isLoading: true, error: null);
+
+    _countsSub =
+        _ref.listen<Map<String, UnreadCounts>>(countsSyncProvider, (prev, next) {
+      if (_started) _rebuildFromCache();
+    });
 
     Future<void>(() async {
       final startResult = await rustStartSlidingSync(
@@ -91,6 +100,8 @@ class RoomListController extends StateNotifier<RoomListState> {
     _subscription = null;
     _receivePort?.close();
     _receivePort = null;
+    _countsSub?.close();
+    _countsSub = null;
   }
 
   void _handleMessage(dynamic message) {
@@ -157,7 +168,21 @@ class RoomListController extends StateNotifier<RoomListState> {
   Future<void> _refreshRooms() async {}
 
   void _rebuildFromCache() {
-    final previews = _roomCache.values.toList();
+    final counts = _ref.read(countsSyncProvider);
+    final previews = _roomCache.values.map((p) {
+      final c = counts[p.roomId];
+      if (c == null) return p;
+      return RoomPreview(
+        roomId: p.roomId,
+        name: p.name,
+        avatarUrl: p.avatarUrl,
+        bumpTs: p.bumpTs,
+        notificationCount: c.notification,
+        highlightCount: c.highlight,
+        isMarkedUnread: p.isMarkedUnread,
+        isMuted: p.isMuted,
+      );
+    }).toList();
     // Sort by bumpTs desc, fallback to name.
     previews.sort((a, b) {
       final aTs = a.bumpTs ?? 0;

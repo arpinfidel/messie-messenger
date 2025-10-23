@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ffi';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 import 'package:flutter_test/flutter_test.dart';
+// ignore_for_file: undefined_function, unnecessary_non_null_assertion
 import 'package:messie_app/bridge_v2/messie_bridge_v2.dart' as v2;
 
 class _Env {
@@ -102,7 +104,7 @@ Future<String?> _sendWithCurl({required String hs, required String roomId, requi
     }
   }
   // ignore: avoid_print
-  print('curl send failed: ${result.exitCode} ${result.stderr}');
+  debugPrint('curl send failed: ${result.exitCode} ${result.stderr}');
   return null;
 }
 
@@ -151,7 +153,7 @@ void main() {
           .where((e) => e.isNotEmpty)
           .toSet();
       // ignore: avoid_print
-      print('baseline: token=${baselineToken ?? '(none)'} roomCount=${baselineRoomIds.length} sdk(n=${sdkBefore.notification} h=${sdkBefore.highlight}) server(n=${srvBefore.notification} h=${srvBefore.highlight})');
+      debugPrint('baseline: token=${baselineToken ?? '(none)'} roomCount=${baselineRoomIds.length} sdk(n=${sdkBefore.notification} h=${sdkBefore.highlight}) server(n=${srvBefore.notification} h=${srvBefore.highlight})');
 
       // Sender: send a mention
       Directory(env.senderBase).createSync(recursive: true);
@@ -168,13 +170,13 @@ void main() {
       String? sentEventId;
       if (senderToken != null && senderToken.isNotEmpty) {
         // ignore: avoid_print
-        print('sending via curl to ${env.groupRoom} with persisted token ...');
+        debugPrint('sending via curl to ${env.groupRoom} with persisted token ...');
         sentEventId = await _sendWithCurl(hs: env.hs, roomId: env.groupRoom, body: body, accessToken: senderToken);
       }
       var sent = sentEventId != null;
       if (!sent) {
         // ignore: avoid_print
-        print('curl send not used or failed; falling back to SDK send ...');
+        debugPrint('curl send not used or failed; falling back to SDK send ...');
         sent = v2.roomSendText(clientHandle: sender, roomId: env.groupRoom, body: body);
       }
       // ignore: avoid_print
@@ -216,7 +218,7 @@ void main() {
           if (sdkAfter.notification > 0 || srvAfter.notification > 0) break;
         }
       }
-      print('notifications endpoint delta for ${env.groupRoom}: +$roomNewCount (baseline=${baselineRoomIds.length}); matchedEvent=${foundEvent ? 'yes' : 'no'}; sdk after (n=${sdkAfter.notification} h=${sdkAfter.highlight}) server after (n=${srvAfter.notification} h=${srvAfter.highlight})');
+      debugPrint('notifications endpoint delta for ${env.groupRoom}: +$roomNewCount (baseline=${baselineRoomIds.length}); matchedEvent=${foundEvent ? 'yes' : 'no'}; sdk after (n=${sdkAfter.notification} h=${sdkAfter.highlight}) server after (n=${srvAfter.notification} h=${srvAfter.highlight})');
       if (sentEventId != null) {
         expect(foundEvent, isTrue, reason: 'notifications endpoint did not include sent event $sentEventId');
       }

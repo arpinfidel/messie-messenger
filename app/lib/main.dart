@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +19,7 @@ import 'state/room_list_controller.dart';
 import 'state/timeline_controller.dart';
 import 'state/backup_controller.dart';
 import 'state/verification_controller.dart';
+import 'services/counts_sync_service.dart';
 // Legacy theme remains for reference, but global theme now uses OKLCH builder.
 // import 'theme/app_theme.dart';
 import 'theme/messie_tokens.dart';
@@ -59,6 +61,21 @@ class MessieApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Start/stop classic-sync counts loop when auth session changes.
+    ref.listen<AsyncValue<MatrixSession?>>(authControllerProvider,
+        (prev, next) {
+      final session = next.asData?.value;
+      final counts = ref.read(countsSyncProvider.notifier);
+      if (session != null) {
+        counts.start(
+          homeserverUrl: session.homeserverUrl,
+          accessToken: session.accessToken,
+          userId: session.userId,
+        );
+      } else {
+        counts.stop();
+      }
+    });
     final themeMode = ref.watch(themeControllerProvider).maybeWhen(
           data: (m) => m,
           orElse: () => ThemeMode.system,
@@ -244,6 +261,11 @@ class AuthController extends AsyncNotifier<MatrixSession?> {
       deviceId: data.deviceId ?? deviceId,
       backendJwt: backendJwt,
     );
+    // If store has a fresher access token than secure storage, prefer it.
+    final fromStore = await _readStoreAccessToken(_basePath);
+    if (fromStore != null && fromStore.isNotEmpty && fromStore != session.accessToken) {
+      session = session.copyWith(accessToken: fromStore);
+    }
     // Optionally refresh backend JWT if missing
     if (session.backendJwt == null || session.backendJwt!.isEmpty) {
       session = await _fetchAndAttachBackendJwt(session);
@@ -266,6 +288,18 @@ class AuthController extends AsyncNotifier<MatrixSession?> {
     if (session.backendJwt != null && session.backendJwt!.isNotEmpty) {
       await _secureStorage.write(
           key: _kBackendJwtKey, value: session.backendJwt);
+    }
+  }
+
+  Future<String?> _readStoreAccessToken(String basePath) async {
+    try {
+      final file = File(p.join(basePath, 'session.json'));
+      if (!await file.exists()) return null;
+      final raw = await file.readAsString();
+      final jsonMap = jsonDecode(raw) as Map<String, dynamic>;
+      return jsonMap['access_token'] as String?;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -1508,6 +1542,14 @@ class _RoomTile extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (room.highlightCount > 0 || room.notificationCount > 0)
+              _CountBadge(
+                count: room.highlightCount > 0
+                    ? room.highlightCount
+                    : room.notificationCount,
+                isHighlight: room.highlightCount > 0,
+              ),
+            SizedBox(width: room.highlightCount > 0 || room.notificationCount > 0 ? spacing.gap.sm : 0),
             IconButton(
               visualDensity: VisualDensity.compact,
               splashRadius: 18,
@@ -1538,6 +1580,36 @@ class _AvatarPlaceholder extends ConsumerStatefulWidget {
 
   @override
   ConsumerState<_AvatarPlaceholder> createState() => _AvatarPlaceholderState();
+}
+
+class _CountBadge extends StatelessWidget {
+  const _CountBadge({required this.count, this.isHighlight = false});
+  final int count;
+  final bool isHighlight;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final bg = isHighlight ? scheme.primary : scheme.secondaryContainer;
+    final fg = isHighlight ? scheme.onPrimary : scheme.onSecondaryContainer;
+    final text = count > 99 ? '99+' : '$count';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      constraints: const BoxConstraints(minWidth: 24, minHeight: 20),
+      alignment: Alignment.center,
+      child: Text(
+        text,
+        style: Theme.of(context)
+            .textTheme
+            .labelSmall
+            ?.copyWith(color: fg, fontWeight: FontWeight.w700),
+      ),
+    );
+  }
 }
 
 class _SenderAvatar extends ConsumerStatefulWidget {
