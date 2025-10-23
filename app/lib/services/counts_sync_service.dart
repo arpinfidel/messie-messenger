@@ -37,6 +37,7 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
       _since = null; // reset since on credential change
       _filterId = null; // recreate filter for new user/session
       _didBaseline = false;
+      _primedFromDisk = false; // allow re-prime for new session
     }
     if (_running && !credsChanged) return;
     _hs = homeserverUrl;
@@ -59,6 +60,13 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
   void stop() {
     _running = false;
     _task = null;
+    // Reset in-memory cursors so a fresh start() for a new session baselines cleanly.
+    _since = null;
+    _filterId = null;
+    _didBaseline = false;
+    _primedFromDisk = false;
+    // Clear published state to avoid showing previous user's counters post-logout.
+    state = const <String, UnreadCounts>{};
   }
 
   Future<void> _loop() async {

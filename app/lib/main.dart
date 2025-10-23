@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:characters/characters.dart';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -481,7 +482,9 @@ class HomeScreen extends ConsumerWidget {
         final now = DateTime.now();
         final last = _lastBackPress;
         if (last != null && now.difference(last) <= _exitInterval) {
-          SystemNavigator.pop();
+          if (Platform.isAndroid) {
+            SystemNavigator.pop();
+          }
           return;
         }
         _lastBackPress = now;
