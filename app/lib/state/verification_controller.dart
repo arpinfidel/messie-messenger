@@ -7,12 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../bridge/messie_bridge.dart';
 
 final verificationControllerProvider =
-    StateNotifierProvider<VerificationController, VerificationState>(
-  (ref) => VerificationController(),
+    StateNotifierProvider<VerificationViewModel, VerificationState>(
+  (ref) => VerificationViewModel(),
 );
 
-class VerificationController extends StateNotifier<VerificationState> {
-  VerificationController() : super(const VerificationState.initial());
+class VerificationViewModel extends StateNotifier<VerificationState> {
+  VerificationViewModel() : super(const VerificationState.initial());
 
   ReceivePort? _port;
   StreamSubscription<dynamic>? _sub;

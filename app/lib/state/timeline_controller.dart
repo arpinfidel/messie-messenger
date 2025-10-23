@@ -11,12 +11,12 @@ const _defaultLoadPage = 20;
 const _kNoUpdate = Object();
 
 final timelineControllerProvider =
-    StateNotifierProvider<TimelineController, TimelineState>(
-  (ref) => TimelineController(),
+    StateNotifierProvider<TimelineViewModel, TimelineState>(
+  (ref) => TimelineViewModel(),
 );
 
-class TimelineController extends StateNotifier<TimelineState> {
-  TimelineController() : super(TimelineState.initial());
+class TimelineViewModel extends StateNotifier<TimelineState> {
+  TimelineViewModel() : super(TimelineState.initial());
 
   ReceivePort? _receivePort;
   StreamSubscription<dynamic>? _subscription;
@@ -167,6 +167,15 @@ class TimelineController extends StateNotifier<TimelineState> {
     _receivePort?.close();
     _receivePort = null;
     state = TimelineState.initial();
+  }
+
+  Future<bool> sendText({required String roomId, required String body, String? replyTo}) async {
+    final res = await rustSendText(roomId: roomId, body: body, replyTo: replyTo);
+    if (!res.isOk) {
+      // Surface the error in state for observers; UI may also show a snackbar.
+      state = state.copyWith(error: res.error ?? 'Failed to send');
+    }
+    return res.isOk;
   }
 
   void _handleMessage(dynamic message) {

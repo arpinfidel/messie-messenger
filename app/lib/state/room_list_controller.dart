@@ -18,12 +18,12 @@ const _defaultLpTimeline = 1;
 const _kNoUpdate = Object();
 
 final roomListControllerProvider =
-    StateNotifierProvider<RoomListController, RoomListState>(
-  (ref) => RoomListController(ref),
+    StateNotifierProvider<RoomListViewModel, RoomListState>(
+  (ref) => RoomListViewModel(ref),
 );
 
-class RoomListController extends StateNotifier<RoomListState> {
-  RoomListController(this._ref) : super(RoomListState.initial());
+class RoomListViewModel extends StateNotifier<RoomListState> {
+  RoomListViewModel(this._ref) : super(RoomListState.initial());
 
   final Ref _ref;
   final FlutterSecureStorage _secure = const FlutterSecureStorage();

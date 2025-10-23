@@ -7,12 +7,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../bridge/messie_bridge.dart';
 
 final backupControllerProvider =
-    StateNotifierProvider<BackupController, BackupState>(
-  (ref) => BackupController(),
+    StateNotifierProvider<BackupViewModel, BackupState>(
+  (ref) => BackupViewModel(),
 );
 
-class BackupController extends StateNotifier<BackupState> {
-  BackupController() : super(const BackupState.initial());
+class BackupViewModel extends StateNotifier<BackupState> {
+  BackupViewModel() : super(const BackupState.initial());
 
   ReceivePort? _port;
   StreamSubscription<dynamic>? _sub;
