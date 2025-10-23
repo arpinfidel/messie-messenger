@@ -2,8 +2,6 @@
 members = [
     "messie-matrix",
     "messie-ffi",
-    "messie-matrix-v2",
-    "messie-ffi-v2",
 ]
 resolver = "2"
 

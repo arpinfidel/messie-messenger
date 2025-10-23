@@ -2096,19 +2096,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "messie-ffi-v2"
-version = "0.1.0"
-dependencies = [
- "allo-isolate",
- "android_logger",
- "anyhow",
- "log",
- "messie-matrix-v2",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "messie-matrix"
 version = "0.1.0"
 dependencies = [
@@ -2121,26 +2108,6 @@ dependencies = [
  "matrix-sdk-common",
  "once_cell",
  "reqwest 0.11.27",
- "serde",
- "serde_json",
- "serial_test",
- "tokio",
- "tokio-util",
- "url",
-]
-
-[[package]]
-name = "messie-matrix-v2"
-version = "0.1.0"
-dependencies = [
- "allo-isolate",
- "anyhow",
- "futures",
- "libsqlite3-sys",
- "log",
- "matrix-sdk",
- "matrix-sdk-common",
- "once_cell",
  "serde",
  "serde_json",
  "serial_test",
