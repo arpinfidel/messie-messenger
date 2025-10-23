@@ -376,8 +376,7 @@ impl TimelineController {
                     }
                 }
                 Err(err) => {
-                    warn!("decryption retry failed for room {}: {err:?}", self.room_id);
-                    println!("decryption retry failed for room {}: {err:?}", self.room_id);
+                    warn!("[timeline] decryption retry failed for room {}: {err:?}", self.room_id);
                 }
             }
         }

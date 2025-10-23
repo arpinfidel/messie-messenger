@@ -6,7 +6,7 @@ use std::{
 use allo_isolate::Isolate;
 use anyhow::{anyhow, Context, Result};
 use futures::StreamExt;
-use log::{debug, warn};
+use log::{debug, warn, trace};
 use matrix_sdk::{
     sliding_sync::{SlidingSync, SlidingSyncList, SlidingSyncMode, UpdateSummary, Version},
     Client, RoomDisplayName, RoomState,
@@ -239,8 +239,8 @@ impl SlidingSyncController {
         let UpdateSummary { lists, rooms } = summary;
         let rooms: Vec<String> = rooms.into_iter().map(|room| room.to_string()).collect();
 
-        // DEBUG: Log detailed info about this sliding sync update
-        debug!("sliding sync '{}' update: {} rooms: {:?}", self.handle, rooms.len(), rooms);
+        // Concise overview; use trace for details
+        debug!("[ss] update: {} rooms", rooms.len());
 
         if !rooms.is_empty() {
             let mut known = self.room_ids.write().await;
@@ -248,24 +248,24 @@ impl SlidingSyncController {
                 known.insert(room.clone());
             }
 
-            // DEBUG: Check what notification data is available for updated rooms
+            // TRACE: per-room notification data (noisy)
             if let Some(client) = crate::client() {
                 for room_id_str in &rooms {
                     if let Ok(room_id) = room_id_str.parse::<matrix_sdk::ruma::OwnedRoomId>() {
                         if let Some(room) = client.get_room(&room_id) {
                             let counts = room.unread_notification_counts();
-                            debug!("ss update - room {} counts n={}, h={}", room_id_str, counts.notification_count, counts.highlight_count);
+                            trace!("[ss] room {} counts n={} h={}", room_id_str, counts.notification_count, counts.highlight_count);
 
                             // Also check if this room has any recent activity
                             let recency = room.recency_stamp();
-                            debug!("ss update - room {} recency_stamp: {:?}", room_id_str, recency);
+                            trace!("[ss] room {} recency: {:?}", room_id_str, recency);
                         } else {
-                            debug!("ss update - room {} not in cache", room_id_str);
+                            trace!("[ss] room {} not in cache", room_id_str);
                         }
                     }
                 }
             } else {
-                debug!("ss update - no client available");
+                trace!("[ss] update with no client available");
             }
         }
 
@@ -442,9 +442,9 @@ pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) 
         .ok_or_else(|| anyhow!("Sliding sync '{handle}' has not been started"))?;
     drop(controllers);
 
-    debug!("subscribing to {} rooms for sliding sync '{}'", room_ids.len(), handle);
+    debug!("[ss] subscribing to {} rooms", room_ids.len());
     for room_id in &room_ids {
-        debug!("- subscribing to room: {}", room_id);
+        trace!("[ss] subscribing: {}", room_id);
     }
 
     // Subscribe to specific rooms with notifications enabled
@@ -455,7 +455,7 @@ pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) 
             .filter_map(|id| {
                 match id.parse() {
                     Ok(parsed) => {
-                        debug!("parsed room id: {}", id);
+                        trace!("[ss] parsed room id: {}", id);
                         Some(parsed)
                     }
                     Err(e) => {
@@ -472,7 +472,7 @@ pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) 
                 .map(|id| id.as_ref())
                 .collect();
 
-            debug!("calling subscribe_to_rooms with {} valid room ids", room_id_refs.len());
+            debug!("[ss] subscribe_to_rooms with {} valid ids", room_id_refs.len());
 
             // Provide a RoomSubscription with required_state to satisfy Synapse.
             let mut sub = http::request::RoomSubscription::default();
@@ -484,12 +484,12 @@ pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) 
             controller
                 .sliding_sync
                 .subscribe_to_rooms(&room_id_refs, Some(sub), true);
-            debug!("subscribe_to_rooms for {} rooms ok", room_id_refs.len());
+            debug!("[ss] subscribed: {} rooms", room_id_refs.len());
         } else {
-            debug!("no valid room ids to subscribe to");
+            debug!("[ss] no valid room ids to subscribe to");
         }
     } else {
-        debug!("no room ids provided for subscription");
+        debug!("[ss] no room ids provided for subscription");
     }
 
     Ok(AckResponse { ok: true })

@@ -11,7 +11,7 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use log::{info, warn};
+use log::{info, warn, debug, trace};
 use matrix_sdk::{
     authentication::matrix::MatrixSession,
     config::SyncSettings,
@@ -58,6 +58,14 @@ pub fn is_room_muted(room_id: &str) -> bool {
 }
 
 fn runtime() -> &'static Runtime {
+    // Ensure logger is configured once per process (no-op if already set).
+    static INIT_LOGGER: std::sync::Once = std::sync::Once::new();
+    INIT_LOGGER.call_once(|| {
+        let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
+            .format_timestamp_millis()
+            .try_init();
+    });
+
     RUNTIME.get_or_init(|| {
         Builder::new_multi_thread()
             .enable_all()
@@ -108,8 +116,7 @@ fn ensure_push_rules_loaded_sync(client: &Client) {
     let _ = runtime.block_on(async move {
         match client.account().push_rules().await {
             Ok(rules) => {
-                println!("RUST DEBUG: Push rules loaded successfully: {} underride rules",
-                    rules.underride.len());
+                log::debug!("[push] loaded underride rules: {}", rules.underride.len());
 
                 // Check for key notification rules
                 let has_mention_rule = rules.underride.iter()
@@ -117,32 +124,36 @@ fn ensure_push_rules_loaded_sync(client: &Client) {
                 let has_dm_rule = rules.underride.iter()
                     .any(|rule| rule.rule_id == ".m.rule.room_one_to_one");
 
-                println!("RUST DEBUG: Key push rules present: mention={}, DM={}",
-                    has_mention_rule, has_dm_rule);
+                log::debug!(
+                    "[push] key rules present: mention={}, dm={}",
+                    has_mention_rule,
+                    has_dm_rule
+                );
 
                 // Log all rule IDs for debugging
-                println!("RUST DEBUG: All underride rule IDs:");
+                log::trace!("[push] underride rule ids:");
                 for rule in &rules.underride {
-                    println!("RUST DEBUG: - {}", rule.rule_id);
+                    log::trace!("[push]  - {}", rule.rule_id);
                 }
 
                 // Debug all underride rules in detail
                 for rule in &rules.underride {
-                    println!("RUST DEBUG: Rule {} - enabled: {}, actions: {:?}",
-                        rule.rule_id, rule.enabled, rule.actions);
+                    log::trace!(
+                        "[push] rule {} enabled={} actions={:?}",
+                        rule.rule_id, rule.enabled, rule.actions
+                    );
                     if rule.rule_id == ".m.rule.contains_user_name" {
-                        println!("RUST DEBUG: Found mention rule with conditions: {:?}", rule.conditions);
+                        log::trace!("[push] mention rule conditions: {:?}", rule.conditions);
                     }
                 }
 
                 // Log the issue but don't try to fix it - Element works so server has the rule
                 if !has_mention_rule {
-                    println!("RUST DEBUG: Missing mention push rule on client side");
-                    println!("RUST DEBUG: But Element works, so server must have notifications");
+                    log::debug!("[push] mention rule not present in underride set");
                 }
             }
             Err(e) => {
-                println!("RUST DEBUG: Failed to load push rules: {}", e);
+                log::debug!("[push] failed to load push rules: {}", e);
             }
         }
         Result::<(), ()>::Ok(())
@@ -156,17 +167,21 @@ async fn get_updated_notification_counts(room: &MatrixRoom) -> Option<(u64, u64)
     // The test is calling room_overview immediately after sending a message, but
     // sliding sync may not have processed the server response yet.
 
-    println!("RUST DEBUG: Attempting to wait for sliding sync updates for room {}", room.room_id());
+    log::debug!("[counts] wait for room update: {}", room.room_id());
 
     // First check if the room already has updates available by reading current counts
     let initial_counts = room.unread_notification_counts();
-    println!("RUST DEBUG: Initial immediate read - Room {} notif={}, highlight={}",
-        room.room_id(), initial_counts.notification_count, initial_counts.highlight_count);
+    log::trace!(
+        "[counts] initial read {} n={} h={}",
+        room.room_id(),
+        initial_counts.notification_count,
+        initial_counts.highlight_count
+    );
 
     // Try to subscribe to room updates with a short timeout
     // This implements the expert's recommendation properly
     let mut rx = room.subscribe_to_updates();
-    println!("RUST DEBUG: Created room update subscription for {}", room.room_id());
+    log::trace!("[counts] subscribed to room updates: {}", room.room_id());
 
     // Set a reasonable timeout for waiting for updates
     let timeout_duration = std::time::Duration::from_millis(500);
@@ -175,18 +190,22 @@ async fn get_updated_notification_counts(room: &MatrixRoom) -> Option<(u64, u64)
         Ok(Ok(update)) => {
             // We got a room update! Now read the fresh counts
             let fresh_counts = room.unread_notification_counts();
-            println!("RUST DEBUG: Got room update for {}! Update: {:?}, Fresh counts: notif={}, highlight={}",
-                room.room_id(), update, fresh_counts.notification_count, fresh_counts.highlight_count);
+            log::debug!(
+                "[counts] update {} n={} h={}",
+                room.room_id(),
+                fresh_counts.notification_count,
+                fresh_counts.highlight_count
+            );
 
             // Return the fresh counts (even if they're zero - that's valid)
             Some((fresh_counts.notification_count, fresh_counts.highlight_count))
         }
         Ok(Err(e)) => {
-            println!("RUST DEBUG: Room update subscription error for {}: {:?}", room.room_id(), e);
+            log::debug!("[counts] subscription error {}: {:?}", room.room_id(), e);
             None
         }
         Err(_timeout) => {
-            println!("RUST DEBUG: Timeout waiting for room update for {}, using immediate read", room.room_id());
+            log::debug!("[counts] timeout waiting for update: {}", room.room_id());
             None
         }
     }
@@ -574,26 +593,22 @@ pub fn recover_with_key(recovery_key: &str) -> Result<()> {
     let _guard = runtime.enter();
 
     runtime.block_on(async {
-        info!("recover_with_key: starting recovery workflow");
-        println!("recover_with_key: starting recovery workflow");
+        info!("[backup] starting recovery workflow");
         client.encryption().recovery().recover(recovery_key).await?;
         let encryption = client.encryption();
         encryption.wait_for_e2ee_initialization_tasks().await;
         let recovery_state = encryption.recovery().state();
-        info!("recover_with_key: recovery state {recovery_state:?}");
-        println!("recover_with_key: recovery state {recovery_state:?}");
+        info!("[backup] recovery state {recovery_state:?}");
         if let Err(err) = encryption.recovery().enable_backup().await {
-            warn!("recover_with_key: failed to enable backup after recovery: {err:?}");
-            println!("recover_with_key: failed to enable backup after recovery: {err:?}");
+            warn!("[backup] failed to enable backup after recovery: {err:?}");
         }
         let backups = encryption.backups();
         let enabled = backups.are_enabled().await;
         let exists = backups.fetch_exists_on_server().await.unwrap_or(false);
-        info!("recover_with_key: backups enabled={enabled}, exists_on_server={exists}");
-        println!("recover_with_key: backups enabled={enabled}, exists_on_server={exists}");
+        info!("[backup] backups enabled={enabled}, exists_on_server={exists}");
         if exists && !enabled {
             use matrix_sdk::ruma::{events::GlobalAccountDataEventType, serde::Raw};
-            println!("recover_with_key: forcing backup disabled flag to false");
+            debug!("[backup] forcing backup disabled flag to false");
             let raw = Raw::from_json_string("{\"disabled\":false}".to_owned())?;
             client
                 .account()
@@ -604,18 +619,9 @@ pub fn recover_with_key(recovery_key: &str) -> Result<()> {
                 .await?;
         }
         match timeout(Duration::from_secs(10), backups.wait_for_steady_state()).await {
-            Ok(Ok(())) => {
-                info!("recover_with_key: backup reached steady state");
-                println!("recover_with_key: backup reached steady state");
-            }
-            Ok(Err(err)) => {
-                warn!("recover_with_key: backup steady state failed: {err:?}");
-                println!("recover_with_key: backup steady state failed: {err:?}");
-            }
-            Err(_) => {
-                warn!("recover_with_key: waiting for backup steady state timed out");
-                println!("recover_with_key: waiting for backup steady state timed out");
-            }
+            Ok(Ok(())) => { info!("[backup] reached steady state"); }
+            Ok(Err(err)) => { warn!("[backup] steady state failed: {err:?}"); }
+            Err(_) => { warn!("[backup] waiting for steady state timed out"); }
         }
 
         if exists {
@@ -626,27 +632,12 @@ pub fn recover_with_key(recovery_key: &str) -> Result<()> {
                 .map(|room| room.room_id().to_owned())
                 .collect();
 
-            info!(
-                "recover_with_key: attempting backup download for {} joined rooms",
-                joined_rooms.len()
-            );
-            println!(
-                "recover_with_key: attempting backup download for {} joined rooms",
-                joined_rooms.len()
-            );
+            info!("[backup] attempting download for {} joined rooms", joined_rooms.len());
 
             for room_id in joined_rooms {
                 match backups.download_room_keys_for_room(&room_id).await {
-                    Ok(()) => {
-                        info!("recover_with_key: downloaded backup for {room_id}");
-                        println!("recover_with_key: downloaded backup for {room_id}");
-                    }
-                    Err(err) => {
-                        warn!("recover_with_key: failed to download backup for {room_id}: {err:?}");
-                        println!(
-                            "recover_with_key: failed to download backup for {room_id}: {err:?}"
-                        );
-                    }
+                    Ok(()) => { info!("[backup] downloaded backup for {room_id}"); }
+                    Err(err) => { warn!("[backup] download failed for {room_id}: {err:?}"); }
                 }
             }
         }
@@ -799,26 +790,26 @@ pub fn register_backup_status_listener(handle: &str, port: i64) -> Result<slidin
 
 async fn dump_room_crypto_async(client: &Client, room_id: &OwnedRoomId) -> Result<()> {
     let Some(room) = client.get_room(room_id) else {
-        println!("[crypto] room {room_id} not found in client");
+        debug!("[crypto] room {room_id} not found in client");
         return Ok(());
     };
 
-    println!("[crypto] inspecting room {room_id}");
+    debug!("[crypto] inspecting room {room_id}");
 
     let backups = client.encryption().backups();
     let exists = backups.fetch_exists_on_server().await.unwrap_or(false);
     let enabled = backups.are_enabled().await;
-    println!("[crypto] backups exists_on_server={exists}, enabled={enabled}");
+    debug!("[crypto] backups exists_on_server={exists}, enabled={enabled}");
 
     let recovery_state = client.encryption().recovery().state();
-    println!("[crypto] recovery_state={recovery_state:?}");
+    debug!("[crypto] recovery_state={recovery_state:?}");
 
     let mut options = MessagesOptions::backward();
     options.limit = matrix_sdk::ruma::UInt::from(1u32);
     if let Ok(messages) = room.messages(options).await {
         if let Some(event) = messages.chunk.first() {
             if let Ok(raw) = event.raw().deserialize() {
-                println!("[crypto] sample event type={:?}", raw.event_type());
+                trace!("[crypto] sample event type={:?}", raw.event_type());
             }
         }
     }
@@ -1013,7 +1004,7 @@ pub fn list_joined_rooms() -> Result<RoomListResponse> {
 
 /// Return overview details for a given room ID.
 pub fn room_overview(room_id: &str) -> Result<RoomOverview> {
-    println!("RUST DEBUG: room_overview called for {}", room_id);
+    log::trace!("[room] overview: {}", room_id);
     let client = client().ok_or_else(|| anyhow!("Matrix client has not been initialised"))?;
     let runtime = runtime();
     let _guard = runtime.enter();
@@ -1093,14 +1084,18 @@ async fn build_room_overview(room: &MatrixRoom) -> Result<RoomOverview> {
 
     let (notification_count, highlight_count) = match get_updated_notification_counts(&room).await {
         Some((n, h)) => {
-            println!("RUST DEBUG: Room {} - Got updated counts from sliding sync: notif={}, highlight={}", room_id, n, h);
+            log::trace!("[room] ss counts {} n={} h= {}", room_id, n, h);
             (n, h)
         }
         None => {
             // Fallback to immediate read (which may not have latest server data)
             let unread_counts = room.unread_notification_counts();
-            println!("RUST DEBUG: Room {} - Fallback immediate read: notif={}, highlight={}",
-                room_id, unread_counts.notification_count, unread_counts.highlight_count);
+            log::trace!(
+                "[room] fallback counts {} n={} h={}",
+                room_id,
+                unread_counts.notification_count,
+                unread_counts.highlight_count
+            );
             (unread_counts.notification_count, unread_counts.highlight_count)
         }
     };
@@ -1111,8 +1106,10 @@ async fn build_room_overview(room: &MatrixRoom) -> Result<RoomOverview> {
     let old_notification = room.num_unread_notifications();
     let old_highlight = room.num_unread_mentions();
 
-    println!("RUST DEBUG: Room {} - Final: notif={}, highlight={} | Old client-computed: notif={}, highlight={}",
-        room_id, notification_count, highlight_count, old_notification, old_highlight);
+    log::debug!(
+        "[room] counts {} n={} h={} (legacy n={} h={})",
+        room_id, notification_count, highlight_count, old_notification, old_highlight
+    );
 
 
     // Determine mute from SDK notification settings if available.

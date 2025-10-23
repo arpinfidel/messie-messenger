@@ -14,6 +14,7 @@ use matrix_sdk::encryption::verification::SasState as SdkSasState;
 use matrix_sdk::ruma::OwnedUserId;
 use matrix_sdk::config::SyncSettings;
 use matrix_sdk::LoopCtrl;
+use log::{debug, trace, info, warn};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct StartSasResponse {
@@ -260,18 +261,18 @@ pub fn request_sas_verification(user_id: &str, device_id: Option<&str>) -> Resul
 
         // If a device id is provided, target that device explicitly; otherwise request with user identity.
         let request: VerificationRequest = if let Some(did) = device_id {
-            println!("[sas] requesting verification with target device '{}' for user {}", did, user_id);
+            debug!("[sas] request verification for user {} device {}", user_id, did);
             // Ensure we have up-to-date device list by doing a short /sync loop if needed.
             let mut device_opt = None;
             for attempt in 0..8 { // up to ~3.2s with sleeps
                 match encryption.get_device(&user_id, did.into()).await {
                     Ok(Some(device)) => { 
-                        println!("[sas] found target device '{}' on attempt {}", did, attempt + 1);
+                        debug!("[sas] found target device '{}' on attempt {}", did, attempt + 1);
                         device_opt = Some(device); 
                         break; 
                     }
                     Ok(None) => {
-                        if attempt == 0 { println!("[sas] target device '{}' not in store yet; kicking short syncs to refresh device list", did); }
+                        if attempt == 0 { debug!("[sas] target device '{}' not in store yet; nudging short syncs", did); }
                         // Kick a short sync to fetch device list updates.
                         let _ = client.sync_once(SyncSettings::default().timeout(Duration::from_millis(800))).await;
                         sleep(Duration::from_millis(200)).await;
@@ -281,7 +282,7 @@ pub fn request_sas_verification(user_id: &str, device_id: Option<&str>) -> Resul
             }
 
             let device = device_opt.ok_or_else(|| {
-                println!("[sas] target device '{}' not found after refresh attempts", did);
+                warn!("[sas] target device '{}' not found after refresh attempts", did);
                 anyhow!("target device not found")
             })?;
             device

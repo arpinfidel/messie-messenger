@@ -38,6 +38,8 @@ export MESSIE_SENDER_PASSWORD ?= bridgeTesterPass!
 # Backend API base URL for Flutter (used via --dart-define)
 # For Android emulator, 10.0.2.2 points to host loopback. Override for iOS/desktop if needed.
 APP_API_BASE_URL ?= http://10.0.2.2:8080/api/v1
+# Default Rust log level for the native library (override per-invocation as needed)
+RUST_LOG ?= messie_matrix=debug
 
 STACK ?= dev
 COMPOSE = docker compose -f docker-compose.$(STACK).yml
@@ -93,13 +95,13 @@ flutter-run-android:
 	make bridge-build-android
 	cd app && flutter pub get
 	cd app && flutter gen-l10n
-	cd app && flutter run -d emulator-5554 --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+	cd app && RUST_LOG="$(RUST_LOG)" flutter run -d emulator-5554 --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
 
 flutter-run-ios:
 	# Ensure Rust iOS/macOS libraries are built (if needed for your flow)
 	make bridge-build-ios
 	cd app && flutter pub get
-	cd app && flutter run -d ios --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+	cd app && RUST_LOG="$(RUST_LOG)" flutter run -d ios --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
 
 # -------- Flutter profiling helpers --------
 .PHONY: profile-help flutter-profile-android flutter-profile-android-trace flutter-profile-android-sksl flutter-build-android-sksl flutter-profile-ios flutter-profile-ios-trace flutter-profile-ios-sksl flutter-build-ios-sksl
@@ -134,19 +136,19 @@ flutter-profile-android:
 	make bridge-build-android
 	cd app && flutter pub get
 	cd app && flutter gen-l10n
-	cd app && flutter run -d $(DEVICE) --profile --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+	cd app && RUST_LOG="$(RUST_LOG)" flutter run -d $(DEVICE) --profile --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
 
 flutter-profile-android-trace:
 	make bridge-build-android
 	cd app && flutter pub get
 	cd app && flutter gen-l10n
-	cd app && flutter run -d $(DEVICE) --profile --trace-startup --trace-skia --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+	cd app && RUST_LOG="$(RUST_LOG)" flutter run -d $(DEVICE) --profile --trace-startup --trace-skia --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
 
 flutter-profile-android-sksl:
 	make bridge-build-android
 	cd app && flutter pub get
 	cd app && flutter gen-l10n
-	cd app && flutter run -d $(DEVICE) --profile --cache-sksl --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+	cd app && RUST_LOG="$(RUST_LOG)" flutter run -d $(DEVICE) --profile --cache-sksl --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
 
 flutter-build-android-sksl:
 	@echo "Building Android APK with SkSL warmup from $(SKSL_PATH)"
@@ -155,17 +157,17 @@ flutter-build-android-sksl:
 flutter-profile-ios:
 	make bridge-build-ios
 	cd app && flutter pub get
-	cd app && flutter run -d $(IOS_DEVICE) --profile --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+	cd app && RUST_LOG="$(RUST_LOG)" flutter run -d $(IOS_DEVICE) --profile --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
 
 flutter-profile-ios-trace:
 	make bridge-build-ios
 	cd app && flutter pub get
-	cd app && flutter run -d $(IOS_DEVICE) --profile --trace-startup --trace-skia --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+	cd app && RUST_LOG="$(RUST_LOG)" flutter run -d $(IOS_DEVICE) --profile --trace-startup --trace-skia --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
 
 flutter-profile-ios-sksl:
 	make bridge-build-ios
 	cd app && flutter pub get
-	cd app && flutter run -d $(IOS_DEVICE) --profile --cache-sksl --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+	cd app && RUST_LOG="$(RUST_LOG)" flutter run -d $(IOS_DEVICE) --profile --cache-sksl --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
 
 flutter-build-ios-sksl:
 	@echo "Building iOS app with SkSL warmup from $(SKSL_PATH)"
@@ -399,7 +401,7 @@ flutter-bridge-build-lib:
 # Honors env overrides like MESSIE_MATRIX_HOMESERVER, MESSIE_MATRIX_USERNAME, etc.
 flutter-bridge-test: flutter-bridge-build-lib
 	cd app && flutter pub get
-	cd app && MESSIE_FFI_LIB_PATH=../$(FFI_LIB) MESSIE_SEED_STATE_FILE=$(SEED_STATE_DIR_ABS)/seed_state.json flutter test test/bridge/sliding_sync_bridge_test.dart
+	cd app && RUST_LOG="$(RUST_LOG)" MESSIE_FFI_LIB_PATH=../$(FFI_LIB) MESSIE_SEED_STATE_FILE=$(SEED_STATE_DIR_ABS)/seed_state.json flutter test test/bridge/sliding_sync_bridge_test.dart
 	# Headless bridge test (sliding sync)
 
 # Run the v1 bridge unread-counts fallback test which uses the CS API endpoint
@@ -409,6 +411,7 @@ flutter-bridge-test: flutter-bridge-build-lib
 flutter-bridge-unread: flutter-bridge-build-lib
 	cd app && flutter pub get
 	cd app && \
+	  RUST_LOG="$(RUST_LOG)" \
 	  MESSIE_FFI_LIB_PATH=../$(FFI_LIB) \
 	  flutter test test/bridge/unread_notifications_bridge_test.dart test/bridge/v1_counts_baseline_test.dart
 
@@ -416,6 +419,7 @@ flutter-bridge-unread: flutter-bridge-build-lib
 flutter-bridge-all: flutter-bridge-build-lib
 	cd app && flutter pub get
 	cd app && \
+	  RUST_LOG="$(RUST_LOG)" \
 	  MESSIE_FFI_LIB_PATH=../$(FFI_LIB) \
 	  flutter test test/bridge
 
