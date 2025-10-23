@@ -29,6 +29,7 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
   Future<void>? _task;
   final FlutterSecureStorage _secure = const FlutterSecureStorage();
   bool _didBaseline = false;
+  bool _primedFromDisk = false;
 
   void start({required String homeserverUrl, required String accessToken, required String userId}) {
     final credsChanged = _hs != homeserverUrl || _token != accessToken || _userId != userId;
@@ -42,6 +43,16 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
     _token = accessToken;
     _userId = userId;
     _running = true;
+    // Prime state from persisted counts so UI shows correct badges offline.
+    if (!_primedFromDisk && _userId != null) {
+      _primedFromDisk = true;
+      unawaited(() async {
+        final loaded = await _loadPersistedCounts(userId: _userId!, homeserverUrl: _hs!);
+        if (loaded != null && loaded.isNotEmpty) {
+          state = loaded;
+        }
+      }());
+    }
     _task ??= _loop();
   }
 
@@ -102,6 +113,9 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
             final next = Map<String, UnreadCounts>.from(state);
             next.addAll(baseline);
             state = next;
+            if (_userId != null) {
+              unawaited(_persistCounts(userId: _userId!, homeserverUrl: _hs!, counts: state));
+            }
           }
           _didBaseline = true;
           backoffMs = 500; // reset and continue to long-poll
@@ -141,6 +155,9 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
           final next = Map<String, UnreadCounts>.from(state);
           next.addAll(updates);
           state = next;
+          if (_userId != null) {
+            unawaited(_persistCounts(userId: _userId!, homeserverUrl: _hs!, counts: state));
+          }
         }
         backoffMs = 500; // reset
       } catch (e) {
@@ -359,6 +376,50 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
 
   String _sinceKey({required String userId, required String homeserverUrl}) =>
       'messie.counts.since.$userId@$homeserverUrl';
+
+  // ---- Counts persistence ----
+  String _countsKey({required String userId, required String homeserverUrl}) =>
+      'messie.counts.snapshot.$userId@$homeserverUrl';
+
+  Future<void> _persistCounts({
+    required String userId,
+    required String homeserverUrl,
+    required Map<String, UnreadCounts> counts,
+  }) async {
+    try {
+      final obj = <String, dynamic>{
+        for (final e in counts.entries)
+          e.key: {'n': e.value.notification, 'h': e.value.highlight}
+      };
+      await _secure.write(
+        key: _countsKey(userId: userId, homeserverUrl: homeserverUrl),
+        value: json.encode(obj),
+      );
+    } catch (_) {}
+  }
+
+  Future<Map<String, UnreadCounts>?> _loadPersistedCounts({
+    required String userId,
+    required String homeserverUrl,
+  }) async {
+    try {
+      final raw = await _secure.read(
+        key: _countsKey(userId: userId, homeserverUrl: homeserverUrl),
+      );
+      if (raw == null || raw.isEmpty) return null;
+      final map = json.decode(raw) as Map<String, dynamic>;
+      final out = <String, UnreadCounts>{};
+      map.forEach((k, v) {
+        final m = v as Map?; if (m == null) return;
+        final n = (m['n'] as num?)?.toInt() ?? 0;
+        final h = (m['h'] as num?)?.toInt() ?? 0;
+        out[k] = UnreadCounts(n, h);
+      });
+      return out;
+    } catch (_) {
+      return null;
+    }
+  }
 }
 
 class _SyncHttpError implements Exception {

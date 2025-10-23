@@ -45,6 +45,9 @@ static RUNTIME: OnceCell<Runtime> = OnceCell::new();
 /// Active Matrix client for the current session. Only a single session is
 /// supported at a time for Phase 1.
 static ACTIVE_CLIENT: Lazy<RwLock<Option<Arc<Client>>>> = Lazy::new(|| RwLock::new(None));
+// Base path used for the current active client. Used by modules to store
+// auxiliary caches (e.g. offline timeline files) alongside the SDK store.
+static ACTIVE_BASE_PATH: Lazy<RwLock<Option<PathBuf>>> = Lazy::new(|| RwLock::new(None));
 /// Ephemeral cache of rooms muted via push rules in this process.
 static MUTED_ROOMS: Lazy<RwLock<HashSet<String>>> = Lazy::new(|| RwLock::new(HashSet::new()));
 
@@ -196,6 +199,14 @@ pub fn client() -> Option<Arc<Client>> {
         .expect("ACTIVE_CLIENT lock poisoned")
         .as_ref()
         .map(Arc::clone)
+}
+
+pub(crate) fn active_base_path() -> Option<PathBuf> {
+    ACTIVE_BASE_PATH
+        .read()
+        .expect("ACTIVE_BASE_PATH lock poisoned")
+        .as_ref()
+        .cloned()
 }
 
 fn client_builder(homeserver_url: &Url, base_path: &Path) -> Result<Client> {
@@ -376,6 +387,11 @@ pub fn init_client(hs_url: &str, base_path: &Path) -> Result<InitClientResponse>
         })
         .context("failed to restore session")?;
 
+    // Remember the base path for auxiliary caches.
+    {
+        let mut g = ACTIVE_BASE_PATH.write().expect("ACTIVE_BASE_PATH lock poisoned");
+        *g = Some(base_path.clone());
+    }
     let arc = store_client(client);
     let meta = arc
         .session_meta()
@@ -425,6 +441,11 @@ pub fn restore_or_login(
             })
             .context("failed to restore existing session")?;
 
+        // Remember the base path for auxiliary caches.
+        {
+            let mut g = ACTIVE_BASE_PATH.write().expect("ACTIVE_BASE_PATH lock poisoned");
+            *g = Some(base_path.clone());
+        }
         let arc = store_client(client);
         let rooms = arc.rooms();
         let known_room_count = rooms.len();
@@ -484,6 +505,11 @@ pub fn restore_or_login(
 
         let session: MatrixSession = (&response).into();
         persist_session(&base_path, &session, &homeserver_url)?;
+        // Remember the base path for auxiliary caches.
+        {
+            let mut g = ACTIVE_BASE_PATH.write().expect("ACTIVE_BASE_PATH lock poisoned");
+            *g = Some(base_path.clone());
+        }
         let arc = store_client(client);
         let rooms = arc.rooms();
         let known_room_count = rooms.len();
@@ -532,6 +558,10 @@ pub fn logout(base_path: &Path) -> Result<()> {
     {
         let mut guard = ACTIVE_CLIENT.write().expect("ACTIVE_CLIENT lock poisoned");
         *guard = None;
+    }
+    {
+        let mut g = ACTIVE_BASE_PATH.write().expect("ACTIVE_BASE_PATH lock poisoned");
+        *g = None;
     }
     wipe_store(base_path)
 }
@@ -1017,7 +1047,7 @@ pub fn room_overview(room_id: &str) -> Result<RoomOverview> {
     })
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoomOverview {
     pub room_id: String,
     pub name: String,

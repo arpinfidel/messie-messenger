@@ -9,14 +9,16 @@ use futures::StreamExt;
 use log::{debug, warn};
 use matrix_sdk::{
     sliding_sync::{SlidingSync, SlidingSyncList, SlidingSyncMode, UpdateSummary, Version},
-    Client, RoomDisplayName,
+    Client, RoomDisplayName, RoomState,
 };
+use matrix_sdk::ruma::api::client::sync::sync_events::v5 as http;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use tokio_util::sync::CancellationToken;
 
-use crate::{client, runtime};
+use crate::{client, runtime, active_base_path};
+use std::path::PathBuf;
 
 static CONTROLLERS: Lazy<AsyncRwLock<HashMap<String, Arc<SlidingSyncController>>>> =
     Lazy::new(|| AsyncRwLock::new(HashMap::new()));
@@ -184,49 +186,43 @@ impl SlidingSyncController {
 
     async fn register_listener(&self, port: i64) -> Result<()> {
         self.listeners.lock().await.insert(port);
-        let ready = serde_json::to_string(&serde_json::json!({ "kind": "sliding_sync_ready" }))?;
-        if !Self::post_to_port(port, ready) {
-            self.listeners.lock().await.remove(&port);
-        }
-        // Also emit a lightweight snapshot so late subscribers don't block
-        // waiting for the next server-side diff.
-        let rooms: Vec<String> = self.room_ids().await;
-        let mut summaries: Vec<crate::RoomOverview> = Vec::new();
-        if let Some(client) = crate::client() {
-            for room_id_str in &rooms {
-                if let Ok(room_id) = room_id_str.parse::<matrix_sdk::ruma::OwnedRoomId>() {
-                    if let Some(room) = client.get_room(&room_id) {
-                        let display_name = match room.display_name().await {
-                            Ok(RoomDisplayName::Named(n))
-                            | Ok(RoomDisplayName::Calculated(n))
-                            | Ok(RoomDisplayName::Aliased(n))
-                            | Ok(RoomDisplayName::EmptyWas(n)) => n,
-                            Ok(RoomDisplayName::Empty) => room_id.as_str().to_owned(),
-                            Err(_) => room_id.as_str().to_owned(),
-                        };
-                        let avatar_url = room.avatar_url().map(|u| u.to_string());
-                        let bump_ts = room.recency_stamp();
-                        let is_marked_unread = room.is_marked_unread();
-                        let is_muted = crate::is_room_muted(room_id.as_str());
-                        summaries.push(crate::RoomOverview {
-                            room_id: room_id.as_str().to_owned(),
-                            name: display_name,
-                            avatar_url,
-                            bump_ts,
-                            notification_count: 0,
-                            highlight_count: 0,
-                            is_marked_unread,
-                            is_muted,
-                        });
-                    }
-                }
+        // If a persisted room-list cache exists, emit it immediately so the UI
+        // can render offline after app restart.
+        if let Some(persisted) = load_persisted_room_list() {
+            let rooms: Vec<String> = persisted.iter().map(|s| s.room_id.clone()).collect();
+            let payload = SlidingSyncUpdate { kind: "sliding_sync_update", lists: vec!["all".to_string()], rooms, summaries: persisted };
+            let json = serde_json::to_string(&payload)?;
+            if !Self::post_to_port(port, json) {
+                self.listeners.lock().await.remove(&port);
+                return Ok(());
             }
         }
-        let snapshot = SlidingSyncUpdate { kind: "sliding_sync_update", lists: vec!["all".to_string()], rooms, summaries };
-        let json = serde_json::to_string(&snapshot)?;
+
+        // Also emit a live snapshot from the SDK cache (works offline if rooms
+        // are hydrated in the store), then mark the stream as ready.
+        // Prefer known rooms from sliding controller; if empty (e.g., first
+        // start offline), build from SDK store so we still render.
+        let mut rooms: Vec<String> = self.room_ids().await;
+        if rooms.is_empty() {
+            if let Some(client) = crate::client() {
+                rooms = client
+                    .rooms()
+                    .into_iter()
+                    .filter(|r| matches!(r.state(), RoomState::Joined))
+                    .map(|r| r.room_id().to_string())
+                    .collect();
+                rooms.sort();
+            }
+        }
+        let live = build_summaries(&rooms).await;
+        if !live.is_empty() { let _ = persist_room_list(&live); }
+        let json = serde_json::to_string(&SlidingSyncUpdate { kind: "sliding_sync_update", lists: vec!["all".to_string()], rooms, summaries: live })?;
         if !Self::post_to_port(port, json) {
             self.listeners.lock().await.remove(&port);
+            return Ok(());
         }
+        let ready = serde_json::to_string(&serde_json::json!({ "kind": "sliding_sync_ready" }))?;
+        if !Self::post_to_port(port, ready) { self.listeners.lock().await.remove(&port); }
         Ok(())
     }
 
@@ -274,37 +270,9 @@ impl SlidingSyncController {
         }
 
         // Build lightweight summaries for updated rooms only.
-        let mut summaries: Vec<crate::RoomOverview> = Vec::new();
-        if let Some(client) = crate::client() {
-            for room_id_str in &rooms {
-                if let Ok(room_id) = room_id_str.parse::<matrix_sdk::ruma::OwnedRoomId>() {
-                    if let Some(room) = client.get_room(&room_id) {
-                        let display_name = match room.display_name().await {
-                            Ok(RoomDisplayName::Named(n))
-                            | Ok(RoomDisplayName::Calculated(n))
-                            | Ok(RoomDisplayName::Aliased(n))
-                            | Ok(RoomDisplayName::EmptyWas(n)) => n,
-                            Ok(RoomDisplayName::Empty) => room_id.as_str().to_owned(),
-                            Err(_) => room_id.as_str().to_owned(),
-                        };
-                        let avatar_url = room.avatar_url().map(|u| u.to_string());
-                        let bump_ts = room.recency_stamp();
-                        let is_marked_unread = room.is_marked_unread();
-                        let is_muted = crate::is_room_muted(room_id.as_str());
-                        summaries.push(crate::RoomOverview {
-                            room_id: room_id.as_str().to_owned(),
-                            name: display_name,
-                            avatar_url,
-                            bump_ts,
-                            notification_count: 0,
-                            highlight_count: 0,
-                            is_marked_unread,
-                            is_muted,
-                        });
-                    }
-                }
-            }
-        }
+        let summaries: Vec<crate::RoomOverview> = build_summaries(&rooms).await;
+        // Merge into persisted cache so restarts show recent data offline.
+        if !summaries.is_empty() { let _ = merge_persisted_room_list(&summaries); }
         let update = SlidingSyncUpdate { kind: "sliding_sync_update", lists, rooms: rooms.clone(), summaries };
         self.broadcast(update).await
     }
@@ -384,6 +352,88 @@ impl SlidingSyncController {
     }
 }
 
+// ---------- Room list persistence helpers ----------
+
+fn room_list_cache_path() -> PathBuf {
+    let base = active_base_path().unwrap_or_else(|| PathBuf::from(".messie_store_v2"));
+    let store_root = base.join("matrix_store");
+    let _ = std::fs::create_dir_all(&store_root);
+    store_root.join("room_list_cache.json")
+}
+
+fn persist_room_list(summaries: &[crate::RoomOverview]) -> anyhow::Result<()> {
+    let path = room_list_cache_path();
+    let payload = serde_json::json!({ "rooms": summaries });
+    let data = serde_json::to_vec_pretty(&payload)?;
+    std::fs::write(path, data)?;
+    Ok(())
+}
+
+fn load_persisted_room_list() -> Option<Vec<crate::RoomOverview>> {
+    let path = room_list_cache_path();
+    if !path.exists() { return None; }
+    let bytes = std::fs::read(path).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let arr = v.get("rooms")?.as_array()?.clone();
+    let mut out = Vec::new();
+    for item in arr.into_iter() {
+        if let Ok(room) = serde_json::from_value::<crate::RoomOverview>(item) { out.push(room); }
+    }
+    Some(out)
+}
+
+fn merge_persisted_room_list(updated: &[crate::RoomOverview]) -> anyhow::Result<()> {
+    let mut map: std::collections::HashMap<String, crate::RoomOverview> = load_persisted_room_list()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|r| (r.room_id.clone(), r))
+        .collect();
+    for r in updated { map.insert(r.room_id.clone(), r.clone()); }
+    let mut all: Vec<_> = map.into_values().collect();
+    // Sort desc by bump_ts; fallback by name for stable output
+    all.sort_by(|a,b| {
+        let at = a.bump_ts.unwrap_or(0); let bt = b.bump_ts.unwrap_or(0);
+        bt.cmp(&at).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    persist_room_list(&all)
+}
+
+async fn build_summaries(room_ids: &[String]) -> Vec<crate::RoomOverview> {
+    let mut summaries: Vec<crate::RoomOverview> = Vec::new();
+    if let Some(client) = crate::client() {
+        for room_id_str in room_ids {
+            if let Ok(room_id) = room_id_str.parse::<matrix_sdk::ruma::OwnedRoomId>() {
+                if let Some(room) = client.get_room(&room_id) {
+                    let display_name = match room.display_name().await {
+                        Ok(RoomDisplayName::Named(n))
+                        | Ok(RoomDisplayName::Calculated(n))
+                        | Ok(RoomDisplayName::Aliased(n))
+                        | Ok(RoomDisplayName::EmptyWas(n)) => n,
+                        Ok(RoomDisplayName::Empty) => room_id.as_str().to_owned(),
+                        Err(_) => room_id.as_str().to_owned(),
+                    };
+                    let avatar_url = room.avatar_url().map(|u| u.to_string());
+                    let bump_ts = room.recency_stamp();
+                    let is_marked_unread = room.is_marked_unread();
+                    let is_muted = crate::is_room_muted(room_id.as_str());
+                    let counts = room.unread_notification_counts();
+                    summaries.push(crate::RoomOverview {
+                        room_id: room_id.as_str().to_owned(),
+                        name: display_name,
+                        avatar_url,
+                        bump_ts,
+                        notification_count: counts.notification_count,
+                        highlight_count: counts.highlight_count,
+                        is_marked_unread,
+                        is_muted,
+                    });
+                }
+            }
+        }
+    }
+    summaries
+}
+
 pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) -> Result<AckResponse> {
     let controllers = CONTROLLERS.read().await;
     let controller = controllers
@@ -424,12 +474,16 @@ pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) 
 
             debug!("calling subscribe_to_rooms with {} valid room ids", room_id_refs.len());
 
-            // Use the subscribe_to_rooms method (plural) which is available
-            controller.sliding_sync.subscribe_to_rooms(
-                &room_id_refs,
-                None, // Use default room subscription settings
-                true, // Cancel in-flight requests
-            );
+            // Provide a RoomSubscription with required_state to satisfy Synapse.
+            let mut sub = http::request::RoomSubscription::default();
+            sub.required_state = vec![
+                ("m.room.name".into(), "".to_string()),
+                ("m.room.avatar".into(), "".to_string()),
+                ("m.room.encryption".into(), "".to_string()),
+            ];
+            controller
+                .sliding_sync
+                .subscribe_to_rooms(&room_id_refs, Some(sub), true);
             debug!("subscribe_to_rooms for {} rooms ok", room_id_refs.len());
         } else {
             debug!("no valid room ids to subscribe to");

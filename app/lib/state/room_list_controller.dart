@@ -4,11 +4,13 @@ import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../bridge/messie_bridge.dart';
 import '../services/counts_sync_service.dart';
 
 const _slidingSyncHandle = 'primary';
+const String _envForceOffline = String.fromEnvironment('MESSIE_FORCE_OFFLINE', defaultValue: '');
 const _defaultHpSize = 12;
 const _defaultLpBatch = 40;
 const _defaultHpTimeline = 5;
@@ -24,12 +26,15 @@ class RoomListController extends StateNotifier<RoomListState> {
   RoomListController(this._ref) : super(RoomListState.initial());
 
   final Ref _ref;
+  final FlutterSecureStorage _secure = const FlutterSecureStorage();
 
   ReceivePort? _receivePort;
   StreamSubscription<dynamic>? _subscription;
   bool _started = false;
   // Legacy throttling flags removed; sliding sync drives updates.
   final Map<String, RoomPreview> _roomCache = <String, RoomPreview>{};
+  // Track last subscription set to avoid redundant FFI calls.
+  Set<String> _lastSubscribed = <String>{};
   ProviderSubscription<Map<String, UnreadCounts>>? _countsSub;
 
   Future<void> start() async => _ensureStarted();
@@ -58,6 +63,16 @@ class RoomListController extends StateNotifier<RoomListState> {
         _ref.listen<Map<String, UnreadCounts>>(countsSyncProvider, (prev, next) {
       if (_started) _rebuildFromCache();
     });
+
+    // Prime from persisted snapshot immediately so UI renders offline.
+    _primeFromPersistedSnapshot();
+
+    // Allow forcing offline in tests via --dart-define=MESSIE_FORCE_OFFLINE=true
+    final forceOffline = _envForceOffline == '1' || _envForceOffline.toLowerCase() == 'true';
+    if (forceOffline) {
+      state = state.copyWith(isLoading: false);
+      return;
+    }
 
     Future<void>(() async {
       final startResult = await rustStartSlidingSync(
@@ -112,7 +127,7 @@ class RoomListController extends StateNotifier<RoomListState> {
     try {
       final decoded = jsonDecode(message) as Map<String, dynamic>;
       final kind = decoded['kind'] as String? ?? '';
-      if (kind == 'sliding_sync_ready' || kind == 'sliding_sync_update') {
+      if (kind == 'sliding_sync_update') {
         // Build room previews directly from sliding sync summaries to avoid N calls.
         final raw = decoded['summaries'];
         List<RoomPreview> previews = <RoomPreview>[];
@@ -147,17 +162,17 @@ class RoomListController extends StateNotifier<RoomListState> {
               .toList();
         }
 
-        // Merge behavior: ready replaces, update upserts.
-        if (kind == 'sliding_sync_ready') {
-          _roomCache
-            ..clear()
-            ..addEntries(previews.map((p) => MapEntry(p.roomId, p)));
-        } else {
-          for (final p in previews) {
-            _roomCache[p.roomId] = p;
-          }
+        // Merge behavior: update upserts.
+        for (final p in previews) {
+          _roomCache[p.roomId] = p;
         }
         _rebuildFromCache();
+        // Persist snapshot so next app start can render immediately offline.
+        unawaited(_persistSnapshot());
+        // Refresh subscriptions based on the latest ordering.
+        unawaited(_refreshRooms());
+      } else if (kind == 'sliding_sync_ready') {
+        // Ignore 'ready' for cache mutation; we already sent/primed a snapshot.
       }
     } catch (err) {
       // Non-fatal: ignore malformed payloads; next update will reconcile.
@@ -165,7 +180,103 @@ class RoomListController extends StateNotifier<RoomListState> {
     }
   }
 
-  Future<void> _refreshRooms() async {}
+  Future<void> _refreshRooms() async {
+    if (!_started) return;
+    // Build the current ordered list using the same sort as _rebuildFromCache
+    final counts = _ref.read(countsSyncProvider);
+    final previews = _roomCache.values.map((p) {
+      final c = counts[p.roomId];
+      if (c == null) return p;
+      return RoomPreview(
+        roomId: p.roomId,
+        name: p.name,
+        avatarUrl: p.avatarUrl,
+        bumpTs: p.bumpTs,
+        notificationCount: c.notification,
+        highlightCount: c.highlight,
+        isMarkedUnread: p.isMarkedUnread,
+        isMuted: p.isMuted,
+      );
+    }).toList();
+
+    previews.sort((a, b) {
+      final aTs = a.bumpTs ?? 0;
+      final bTs = b.bumpTs ?? 0;
+      final cmp = bTs.compareTo(aTs);
+      if (cmp != 0) return cmp;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+
+    // Choose a reasonable subscribe window: all HP + first LP window.
+    final hp = previews.take(_defaultHpSize).toList();
+    // Subscribe to a modest LP window beyond HP to keep timelines warm.
+    final lpWindow = previews.skip(_defaultHpSize).take(_defaultLpBatch).toList();
+
+    final next = <String>{
+      ...hp.map((r) => r.roomId),
+      ...lpWindow.map((r) => r.roomId),
+    };
+
+    if (setEquals(next, _lastSubscribed)) return;
+    _lastSubscribed = next;
+
+    try {
+      // Reset to cancel any in-flight subscriptions for rooms we dropped.
+      final res = await rustSlidingSyncSubscribeRooms(
+        handle: _slidingSyncHandle,
+        roomIds: next.toList(growable: false),
+        reset: true,
+      );
+      if (!res.isOk) {
+        debugPrint('[RoomListController] subscribe_rooms failed: ${res.error}');
+      }
+    } catch (e) {
+      debugPrint('[RoomListController] subscribe_rooms threw: $e');
+    }
+  }
+
+  // ---- Persistence (secure storage) ----
+  String get _snapshotKey => 'messie.room_list.snapshot.v1';
+
+  Future<void> _persistSnapshot() async {
+    try {
+      final list = _roomCache.values
+          .map((p) => {
+                'room_id': p.roomId,
+                'name': p.name,
+                'avatar_url': p.avatarUrl,
+                'bump_ts': p.bumpTs,
+                'notification_count': p.notificationCount,
+                'highlight_count': p.highlightCount,
+                'is_marked_unread': p.isMarkedUnread,
+                'is_muted': p.isMuted,
+              })
+          .toList(growable: false);
+      await _secure.write(key: _snapshotKey, value: jsonEncode({'rooms': list}));
+    } catch (_) {}
+  }
+
+  Future<void> _primeFromPersistedSnapshot() async {
+    try {
+      final raw = await _secure.read(key: _snapshotKey);
+      if (raw == null || raw.isEmpty) return;
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      final arr = (map['rooms'] as List?)?.cast<Map<String, dynamic>>();
+      if (arr == null) return;
+      debugPrint('[RoomListController] loaded ${arr.length} rooms from persisted snapshot');
+      _roomCache
+        ..clear()
+        ..addEntries(arr.map((e) {
+          final p = RoomOverviewData.fromJson(e);
+          return MapEntry(
+              p.roomId,
+              RoomPreview.fromOverview(p));
+        }));
+      _rebuildFromCache();
+    } catch (_) {
+      // ignore
+    }
+  }
 
   void _rebuildFromCache() {
     final counts = _ref.read(countsSyncProvider);

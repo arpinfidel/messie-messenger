@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -17,7 +18,7 @@ use tokio::sync::{Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 
-use crate::{client, runtime};
+use crate::{client, runtime, active_base_path};
 
 static TIMELINES: Lazy<AsyncRwLock<HashMap<String, Arc<TimelineController>>>> =
     Lazy::new(|| AsyncRwLock::new(HashMap::new()));
@@ -135,12 +136,17 @@ struct TimelineController {
     seen_event_ids: AsyncMutex<HashSet<String>>,
     seen_event_hashes: AsyncMutex<HashSet<String>>,
     cancel_token: CancellationToken,
+    // Offline cache
+    cache_file: PathBuf,
+    cache_cursor: AsyncMutex<usize>,
 }
 
 impl TimelineController {
     async fn create(room: MatrixRoom) -> Result<Arc<Self>> {
         let room_id = room.room_id().to_owned();
         let cancel_token = CancellationToken::new();
+        let cache_file = timeline_cache_path(&room_id);
+        let cached_len = read_cached_len(&cache_file).unwrap_or(0);
 
         let controller = Arc::new(Self {
             room_id,
@@ -150,6 +156,8 @@ impl TimelineController {
             seen_event_ids: AsyncMutex::new(HashSet::new()),
             seen_event_hashes: AsyncMutex::new(HashSet::new()),
             cancel_token: cancel_token.clone(),
+            cache_file,
+            cache_cursor: AsyncMutex::new(cached_len),
         });
 
         controller.spawn_background(cancel_token);
@@ -178,34 +186,36 @@ impl TimelineController {
 
     async fn register_listener(&self, port: i64) -> Result<()> {
         self.listeners.lock().await.insert(port);
-        let events = self.collect_latest(DEFAULT_PAGE_SIZE, true).await?;
+        // Try online first; on failure, use offline cache snapshot
+        let events = match self.collect_latest(DEFAULT_PAGE_SIZE, true).await {
+            Ok(e) => {
+                // Adjust offline cursor to latest window
+                let cached_len = read_cached_len(&self.cache_file).unwrap_or(0);
+                let start_idx = cached_len.saturating_sub(e.len());
+                *self.cache_cursor.lock().await = start_idx;
+                e
+            }
+            Err(_) => {
+                let e = load_recent_from_cache(&self.cache_file, DEFAULT_PAGE_SIZE as usize).unwrap_or_default();
+                let cached_len = read_cached_len(&self.cache_file).unwrap_or(0);
+                let start_idx = cached_len.saturating_sub(e.len());
+                *self.cache_cursor.lock().await = start_idx;
+                parse_cached_events(e)
+            }
+        };
         self.record_seen(&events).await;
         self.send_to(port, "timeline_snapshot", events).await
     }
 
     async fn load_backward(&self, limit: u32) -> Result<LoadBackwardResponse> {
-        let token = { self.backward_token.lock().await.clone() };
-        let options = match token.as_deref() {
-            Some(token) => MessagesOptions::backward().from(token).with_limit(limit),
-            None => MessagesOptions::backward().with_limit(limit),
-        };
-        let messages = self
-            .room
-            .messages(options)
-            .await
-            .context("failed to load older messages")?;
-
-        *self.backward_token.lock().await = messages.end.clone();
-
-        let mut events = Self::extract_events(&messages)?;
-        self.maybe_decrypt_events(&mut events).await;
-        let reached_start = messages.end.is_none();
-        self.record_seen(&events).await;
-
-        Ok(LoadBackwardResponse {
-            reached_start,
-            events: events.into_iter().map(|event| event.raw).collect(),
-        })
+        // Try network; on error, serve from offline cache
+        match self.paginate_backward_online(limit).await {
+            Ok((events, reached_start)) => Ok(LoadBackwardResponse { reached_start, events }),
+            Err(_) => {
+                let events = self.paginate_backward_from_cache(limit).await.unwrap_or_default();
+                Ok(LoadBackwardResponse { reached_start: events.is_empty() || *self.cache_cursor.lock().await == 0, events })
+            }
+        }
     }
 
     async fn poll_latest(&self) -> Result<()> {
@@ -237,6 +247,8 @@ impl TimelineController {
 
         let mut events = Self::extract_events(&messages)?;
         self.maybe_decrypt_events(&mut events).await;
+        // Update offline cache with latest events
+        if let Err(e) = update_cache(&self.cache_file, &events.iter().map(|e| e.raw.clone()).collect::<Vec<_>>()) { let _ = e; }
         Ok(events)
     }
 
@@ -376,6 +388,100 @@ impl TimelineController {
     }
 }
 
+// ---------- Offline cache helpers ----------
+
+fn timeline_cache_path(room_id: &OwnedRoomId) -> PathBuf {
+    let base = active_base_path().unwrap_or_else(|| PathBuf::from(".messie_store_v2"));
+    let store_root = base.join("matrix_store");
+    let cache_dir = store_root.join("timeline_cache");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let fname = sanitize_room_id(room_id.as_str()) + ".json";
+    cache_dir.join(fname)
+}
+
+fn sanitize_room_id(id: &str) -> String {
+    id.chars()
+        .map(|c| match c {
+            ':' | '!' | '$' | '/' | '\\' | '?' | '#' | '*' | ' ' => '_',
+            _ => c,
+        })
+        .collect()
+}
+
+fn read_cached_len(path: &Path) -> Result<usize> { Ok(load_cache(path)?.map(|v| v.len()).unwrap_or(0)) }
+
+fn load_recent_from_cache(path: &Path, limit: usize) -> Result<Vec<String>> {
+    let Some(mut all) = load_cache(path)? else { return Ok(Vec::new()) };
+    if all.len() > limit { all.drain(0..all.len() - limit); }
+    Ok(all)
+}
+
+fn load_cache(path: &Path) -> Result<Option<Vec<String>>> {
+    use anyhow::Context;
+    if !path.exists() { return Ok(None); }
+    let bytes = std::fs::read(path).with_context(|| format!("failed to read cache at {}", path.display()))?;
+    let value: serde_json::Value = serde_json::from_slice(&bytes).context("failed to parse cache JSON")?;
+    let events = if let Some(arr) = value.as_array() {
+        arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+    } else if let Some(arr) = value.get("events").and_then(|v| v.as_array()) {
+        arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+    } else { Vec::new() };
+    Ok(Some(events))
+}
+
+const MAX_CACHED_EVENTS: usize = 500;
+
+fn update_cache(path: &Path, newest: &[String]) -> Result<()> {
+    use anyhow::Context;
+    let mut merged: Vec<String> = load_cache(path)?.unwrap_or_default();
+    for ev in newest { if !merged.contains(ev) { merged.push(ev.clone()); } }
+    if merged.len() > MAX_CACHED_EVENTS { let drop = merged.len() - MAX_CACHED_EVENTS; merged.drain(0..drop); }
+    let parent = path.parent(); if let Some(dir) = parent { let _ = std::fs::create_dir_all(dir); }
+    let out = serde_json::json!({"events": merged});
+    std::fs::write(path, serde_json::to_vec_pretty(&out).context("serialize cache")?).with_context(|| format!("failed to write cache at {}", path.display()))?;
+    Ok(())
+}
+
+impl TimelineController {
+    async fn paginate_backward_online(&self, limit: u32) -> Result<(Vec<String>, bool)> {
+        let token = { self.backward_token.lock().await.clone() };
+        let options = match token.as_deref() {
+            Some(token) => MessagesOptions::backward().from(token).with_limit(limit),
+            None => MessagesOptions::backward().with_limit(limit),
+        };
+        let messages = self
+            .room
+            .messages(options)
+            .await
+            .context("failed to load older messages")?;
+
+        *self.backward_token.lock().await = messages.end.clone();
+
+        let mut events = Self::extract_events(&messages)?;
+        self.maybe_decrypt_events(&mut events).await;
+        // Prepend to cache since these are older events
+        if let Ok(Some(existing)) = load_cache(&self.cache_file) {
+            let mut merged = Vec::new();
+            for e in &events { if !existing.contains(&e.raw) { merged.push(e.raw.clone()); } }
+            merged.extend(existing.into_iter());
+            if merged.len() > MAX_CACHED_EVENTS { let drop = merged.len() - MAX_CACHED_EVENTS; let _ = merged.drain(0..drop); }
+            let _ = std::fs::write(&self.cache_file, serde_json::to_vec_pretty(&serde_json::json!({"events": merged})).unwrap_or_default());
+        }
+        let reached_start = messages.end.is_none();
+        Ok((events.into_iter().map(|e| e.raw).collect(), reached_start))
+    }
+
+    async fn paginate_backward_from_cache(&self, limit: u32) -> Result<Vec<String>> {
+        let events = load_cache(&self.cache_file)?.unwrap_or_default();
+        let mut cursor = self.cache_cursor.lock().await;
+        let end = *cursor;
+        let start = end.saturating_sub(limit as usize);
+        let slice = if start < end { events[start..end].to_vec() } else { Vec::new() };
+        *cursor = start;
+        Ok(slice)
+    }
+}
+
 struct CollectedEvent {
     id: Option<String>,
     raw: String,
@@ -390,4 +496,19 @@ impl MessagesOptionsExt for MessagesOptions {
         self.limit = UInt::from(limit);
         self
     }
+}
+
+fn parse_cached_events(raws: Vec<String>) -> Vec<CollectedEvent> {
+    raws
+        .into_iter()
+        .map(|raw| {
+            let id = extract_event_id(&raw);
+            CollectedEvent { id, raw }
+        })
+        .collect()
+}
+
+fn extract_event_id(raw: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(raw).ok()?;
+    v.get("event_id").and_then(|x| x.as_str()).map(|s| s.to_string())
 }
