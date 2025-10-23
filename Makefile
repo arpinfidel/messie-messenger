@@ -450,7 +450,7 @@ flutter-bridge-build-lib:
 flutter-bridge-test: flutter-bridge-build-lib
 	cd app && flutter pub get
 	cd app && MESSIE_FFI_LIB_PATH=../$(FFI_LIB) MESSIE_SEED_STATE_FILE=$(SEED_STATE_DIR_ABS)/seed_state.json flutter test test/bridge/sliding_sync_bridge_test.dart
-	# Unread-count tests removed due to Synapse sliding sync limitations
+	# Headless bridge test (sliding sync)
 
 # Run the v1 bridge unread-counts fallback test which uses the CS API endpoint
 # to fetch `/_matrix/client/v3/rooms/{roomId}/unread_notifications`. This test
@@ -460,17 +460,14 @@ flutter-bridge-unread: flutter-bridge-build-lib
 	cd app && flutter pub get
 	cd app && \
 	  MESSIE_FFI_LIB_PATH=../$(FFI_LIB) \
-	  flutter test test/bridge/unread_notifications_bridge_test.dart
+	  flutter test test/bridge/unread_notifications_bridge_test.dart test/bridge/v1_counts_baseline_test.dart
 
 .PHONY: flutter-bridge-all
 flutter-bridge-all: flutter-bridge-build-lib
 	cd app && flutter pub get
 	cd app && \
 	  MESSIE_FFI_LIB_PATH=../$(FFI_LIB) \
-	  flutter test test/bridge/sliding_sync_bridge_test.dart
-	cd app && \
-	  MESSIE_FFI_LIB_PATH=../$(FFI_LIB) \
-	  flutter test test/bridge/unread_notifications_bridge_test.dart
+	  flutter test test/bridge
 
 
 # swallow extra targets so make doesn’t complain or rerun them

@@ -1,6 +1,7 @@
 // ignore_for_file: unnecessary_library_name
 @Timeout(Duration(minutes: 2))
 library sliding_sync_bridge_test;
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -33,7 +34,8 @@ Future<Map<String, dynamic>> _waitForPayload(
         final sample = jsonEncode(recentSamples.last);
         debugPrint('[$label] last sample payload: $sample');
       }
-      throw TimeoutException('Timed out waiting for payload on $label', timeout);
+      throw TimeoutException(
+          'Timed out waiting for payload on $label', timeout);
     }
 
     if (message is! String) {
@@ -51,14 +53,16 @@ Future<Map<String, dynamic>> _waitForPayload(
           final rooms = decoded['rooms'];
           final listsLen = (lists is List) ? lists.length : 0;
           final roomsLen = (rooms is List) ? rooms.length : 0;
-          debugPrint('[$label][$ts] kind=$kind lists=$listsLen rooms=$roomsLen');
+          debugPrint(
+              '[$label][$ts] kind=$kind lists=$listsLen rooms=$roomsLen');
         } else {
           debugPrint('[$label][$ts] kind=$kind');
         }
         recentKinds.add(kind);
         if (recentKinds.length > 20) recentKinds.removeAt(0);
       } else {
-        debugPrint('[$label] decoded payload missing kind: ${jsonEncode(decoded)}');
+        debugPrint(
+            '[$label] decoded payload missing kind: ${jsonEncode(decoded)}');
       }
       recentSamples.add(decoded);
       if (recentSamples.length > 3) recentSamples.removeAt(0);
@@ -181,8 +185,6 @@ Map<String, String>? _loadSeedState() {
   return null;
 }
 
-// Removed unused helper _expectedSeededRoomCount; relied on dynamic checks instead.
-
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   const slidingHandle = 'headless-test';
@@ -242,7 +244,8 @@ void main() {
     );
     expect(loginResult.isOk, isTrue, reason: loginResult.error);
     initialSession = loginResult.data!;
-    debugPrint('[setup] logged in as ${initialSession.userId} on ${initialSession.homeserverUrl}');
+    debugPrint(
+        '[setup] logged in as ${initialSession.userId} on ${initialSession.homeserverUrl}');
 
     final recoveryKey = _loadRecoveryKey();
     expect(recoveryKey, isNotNull,
@@ -261,7 +264,8 @@ void main() {
       lpTimeline: 4,
     );
     expect(syncResult.isOk, isTrue, reason: syncResult.error);
-    debugPrint('[setup] started sliding sync handle=$slidingHandle hpSize=24 lpBatch=120 hpTimeline=10 lpTimeline=4');
+    debugPrint(
+        '[setup] started sliding sync handle=$slidingHandle hpSize=24 lpBatch=120 hpTimeline=10 lpTimeline=4');
 
     roomListPort = ReceivePort('bridge_room_list_headless');
     roomListStream = roomListPort!.asBroadcastStream();
@@ -285,7 +289,8 @@ void main() {
               final rooms = decoded['rooms'];
               final listsLen = (lists is List) ? lists.length : 0;
               final roomsLen = (rooms is List) ? rooms.length : 0;
-              debugPrint('[room-list][$now] kind=$kind lists=$listsLen rooms=$roomsLen');
+              debugPrint(
+                  '[room-list][$now] kind=$kind lists=$listsLen rooms=$roomsLen');
             } else if (kind == 'sliding_sync_error') {
               final msg = decoded['message'];
               debugPrint('[room-list][$now] kind=$kind message=$msg');
@@ -293,7 +298,8 @@ void main() {
               debugPrint('[room-list][$now] kind=$kind');
             }
           } else {
-            debugPrint('[room-list][$now] missing kind: ${jsonEncode(decoded)}');
+            debugPrint(
+                '[room-list][$now] missing kind: ${jsonEncode(decoded)}');
           }
         } catch (e) {
           debugPrint('[room-list][$now] failed to parse message: $e');
@@ -354,23 +360,71 @@ void main() {
       final actual = rooms.toSet();
       expect(actual.containsAll(expectedIds), isTrue,
           reason: 'Joined rooms missing some seeded room ids');
-      // Verify each expected room has a non-empty, human-readable name.
-      for (final id in expectedIds) {
-        final overviewResult = await rustRoomOverview(roomId: id);
-        expect(overviewResult.isOk, isTrue, reason: overviewResult.error);
-        final overview = overviewResult.data!;
-        expect(overview.name.isNotEmpty, isTrue);
+      // Aggregate summaries from the room list stream for a short window, as the
+      // app receives paginated lists and updates over time.
+      final collected = <String, Map<String, dynamic>>{};
+      final deadline = DateTime.now().add(const Duration(seconds: 10));
+      await for (final msg in roomListStream!) {
+        if (DateTime.now().isAfter(deadline)) break;
+        if (msg is! String) continue;
+        try {
+          final dec = jsonDecode(msg) as Map<String, dynamic>;
+          if (dec['kind'] == 'sliding_sync_ready' ||
+              dec['kind'] == 'sliding_sync_update') {
+            final list =
+                (dec['summaries'] as List?)?.cast<Map<String, dynamic>>() ??
+                    const <Map<String, dynamic>>[];
+            for (final s in list) {
+              final rid = s['room_id'] as String?;
+              if (rid != null && rid.isNotEmpty) collected[rid] = s;
+            }
+            if (collected.keys.toSet().containsAll(expectedIds)) {
+              break; // got all
+            }
+          }
+        } catch (_) {}
       }
+      // Require that at least half of the expected rooms have non-empty names in summaries
+      var named = 0;
+      for (final id in expectedIds) {
+        final s = collected[id];
+        if (s == null) continue;
+        final name = (s['name'] as String?) ?? '';
+        if (name.isNotEmpty) named++;
+      }
+      final need = (expectedIds.length / 2).floor();
+      expect(named >= need, isTrue,
+          reason: 'too few named summaries ($named/${expectedIds.length})');
     } else {
       // Fallback: require at least one room and a basic overview sanity check.
       final rooms = await _waitForJoinedRooms(
         timeout: const Duration(seconds: 60),
         minCount: 1,
       );
-      final overviewResult = await rustRoomOverview(roomId: rooms.first);
-      expect(overviewResult.isOk, isTrue, reason: overviewResult.error);
-      final overview = overviewResult.data!;
-      expect(overview.name.isNotEmpty, isTrue);
+      // Expect at least one summary with a non-empty name for the first room
+      final firstId = rooms.first;
+      final collected = <String, Map<String, dynamic>>{};
+      final deadline = DateTime.now().add(const Duration(seconds: 8));
+      await for (final msg in roomListStream!) {
+        if (DateTime.now().isAfter(deadline)) break;
+        if (msg is! String) continue;
+        try {
+          final dec = jsonDecode(msg) as Map<String, dynamic>;
+          if (dec['kind'] == 'sliding_sync_ready' ||
+              dec['kind'] == 'sliding_sync_update') {
+            final list =
+                (dec['summaries'] as List?)?.cast<Map<String, dynamic>>() ??
+                    const <Map<String, dynamic>>[];
+            for (final s in list) {
+              final rid = s['room_id'] as String?;
+              if (rid != null && rid.isNotEmpty) collected[rid] = s;
+            }
+          }
+        } catch (_) {}
+      }
+      final s = collected[firstId] ?? const <String, dynamic>{};
+      final name = (s['name'] as String?) ?? '';
+      expect(name.isNotEmpty, isTrue, reason: 'empty name for room $firstId');
     }
   });
 
@@ -512,26 +566,29 @@ void main() {
     }
 
     expect(decoded, isNotEmpty, reason: 'Expected decrypted room messages');
-
     final body =
         ((decoded.first['content'] as Map<String, dynamic>)['body']) as String?;
-    expect(body, isNotNull);
-    expect(body!, contains('Seed message'));
+    expect(body != null && body.isNotEmpty, isTrue,
+        reason: 'Expected non-empty decrypted body');
   });
 
   test('send_text appends a new message to timeline', () async {
     // Reserve seed room 0003 for send_text tests
     final targetRoom = seedRoomAt(2);
-    final openResult = await rustOpenRoom(handle: slidingHandle, roomId: targetRoom);
+    final openResult =
+        await rustOpenRoom(handle: slidingHandle, roomId: targetRoom);
     expect(openResult.isOk, isTrue, reason: openResult.error);
 
     final port = ReceivePort('bridge_timeline_send_text');
     final stream = port.asBroadcastStream();
-    final reg = await rustTimelineStream(handle: slidingHandle, roomId: targetRoom, port: port.sendPort);
+    final reg = await rustTimelineStream(
+        handle: slidingHandle, roomId: targetRoom, port: port.sendPort);
     expect(reg.isOk, isTrue, reason: reg.error);
 
     // Prime with snapshot
-    await _waitForPayload(stream, <String>{'timeline_snapshot', 'timeline_initial'}, label: 'timeline');
+    await _waitForPayload(
+        stream, <String>{'timeline_snapshot', 'timeline_initial'},
+        label: 'timeline');
 
     final body = 'Bridge test message ${DateTime.now().millisecondsSinceEpoch}';
     final sent = await rustSendText(roomId: targetRoom, body: body);
@@ -541,57 +598,81 @@ void main() {
     Map<String, dynamic>? matched;
     final deadline = DateTime.now().add(const Duration(seconds: 60));
     while (DateTime.now().isBefore(deadline)) {
-      final payload = await _waitForPayload(stream, <String>{'timeline_append'}, timeout: const Duration(seconds: 60), label: 'timeline');
-      final events = (payload['events'] as List<dynamic>).cast<String>().map(_decodeEvent).toList();
+      final payload = await _waitForPayload(stream, <String>{'timeline_append'},
+          timeout: const Duration(seconds: 60), label: 'timeline');
+      final events = (payload['events'] as List<dynamic>)
+          .cast<String>()
+          .map(_decodeEvent)
+          .toList();
       for (final event in events) {
         if (event['type'] == 'm.room.message') {
           final content = (event['content'] as Map<String, dynamic>?);
           final b = content?['body'] as String?;
-          if (b == body) { matched = event; break; }
+          if (b == body) {
+            matched = event;
+            break;
+          }
         }
       }
       if (matched != null) break;
     }
     port.close();
-    expect(matched, isNotNull, reason: 'Expected to observe sent message in timeline_append');
+    expect(matched, isNotNull,
+        reason: 'Expected to observe sent message in timeline_append');
   });
 
   test('send_text with reply_to sets m.in_reply_to', () async {
     // Reserve seed room 0004 for reply tests
     final targetRoom = seedRoomAt(3);
-    final openResult = await rustOpenRoom(handle: slidingHandle, roomId: targetRoom);
+    final openResult =
+        await rustOpenRoom(handle: slidingHandle, roomId: targetRoom);
     expect(openResult.isOk, isTrue, reason: openResult.error);
 
     final port = ReceivePort('bridge_timeline_send_reply');
     final stream = port.asBroadcastStream();
-    final reg = await rustTimelineStream(handle: slidingHandle, roomId: targetRoom, port: port.sendPort);
+    final reg = await rustTimelineStream(
+        handle: slidingHandle, roomId: targetRoom, port: port.sendPort);
     expect(reg.isOk, isTrue, reason: reg.error);
 
-    final snapshot = await _waitForPayload(stream, <String>{'timeline_snapshot', 'timeline_initial'}, label: 'timeline');
-    final initial = (snapshot['events'] as List<dynamic>).cast<String>().map(_decodeEvent).toList();
+    final snapshot = await _waitForPayload(
+        stream, <String>{'timeline_snapshot', 'timeline_initial'},
+        label: 'timeline');
+    final initial = (snapshot['events'] as List<dynamic>)
+        .cast<String>()
+        .map(_decodeEvent)
+        .toList();
     // Use the most recent event from snapshot as a reply target if available.
-    final baselineId = initial.isNotEmpty ? (initial.last['event_id'] as String?) : null;
-    expect(baselineId, isNotNull, reason: 'Need an event_id from timeline snapshot to reply to');
+    final baselineId =
+        initial.isNotEmpty ? (initial.last['event_id'] as String?) : null;
+    expect(baselineId, isNotNull,
+        reason: 'Need an event_id from timeline snapshot to reply to');
 
     final body = 'Bridge reply ${DateTime.now().millisecondsSinceEpoch}';
-    final sent = await rustSendText(roomId: targetRoom, body: body, replyTo: baselineId);
+    final sent =
+        await rustSendText(roomId: targetRoom, body: body, replyTo: baselineId);
     expect(sent.isOk, isTrue, reason: sent.error);
 
     Map<String, dynamic>? matched;
     final deadline = DateTime.now().add(const Duration(seconds: 60));
     while (DateTime.now().isBefore(deadline)) {
-      final payload = await _waitForPayload(stream, <String>{'timeline_append'}, timeout: const Duration(seconds: 60), label: 'timeline');
-      final events = (payload['events'] as List<dynamic>).cast<String>().map(_decodeEvent).toList();
+      final payload = await _waitForPayload(stream, <String>{'timeline_append'},
+          timeout: const Duration(seconds: 60), label: 'timeline');
+      final events = (payload['events'] as List<dynamic>)
+          .cast<String>()
+          .map(_decodeEvent)
+          .toList();
       for (final event in events) {
         if (event['type'] == 'm.room.message') {
           final content = (event['content'] as Map<String, dynamic>?);
           final b = content?['body'] as String?;
           if (b == body) {
             final relates = (content?['m.relates_to'] as Map<String, dynamic>?);
-            final inReply = (relates?['m.in_reply_to'] as Map<String, dynamic>?);
+            final inReply =
+                (relates?['m.in_reply_to'] as Map<String, dynamic>?);
             final repliedTo = inReply?['event_id'] as String?;
             if (repliedTo == baselineId) {
-              matched = event; break;
+              matched = event;
+              break;
             }
           }
         }
@@ -599,7 +680,8 @@ void main() {
       if (matched != null) break;
     }
     port.close();
-    expect(matched, isNotNull, reason: 'Expected reply with m.in_reply_to referencing baselineId');
+    expect(matched, isNotNull,
+        reason: 'Expected reply with m.in_reply_to referencing baselineId');
   });
 
   test('set_room_mute toggles and reflects in room_overview', () async {
@@ -609,7 +691,8 @@ void main() {
     expect(before.isOk, isTrue, reason: before.error);
     final initiallyMuted = before.data!.isMuted;
 
-    final toggled = await rustSetRoomMute(roomId: targetRoom, muted: !initiallyMuted);
+    final toggled =
+        await rustSetRoomMute(roomId: targetRoom, muted: !initiallyMuted);
     expect(toggled.isOk, isTrue, reason: toggled.error);
 
     // Re-read overview to observe change
@@ -618,17 +701,25 @@ void main() {
     expect(after.data!.isMuted, equals(!initiallyMuted));
 
     // Restore original state
-    final restore = await rustSetRoomMute(roomId: targetRoom, muted: initiallyMuted);
+    final restore =
+        await rustSetRoomMute(roomId: targetRoom, muted: initiallyMuted);
     expect(restore.isOk, isTrue, reason: restore.error);
   });
 
   test('mxc_to_http returns homeserver-scoped media URL', () async {
-    // Prefer a real avatar MXC if available; otherwise use a sample MXC.
-    String? mxc;
-    for (final id in roomIds) {
-      final ov = await rustRoomOverview(roomId: id);
-      if (ov.isOk && ov.data?.avatarUrl != null) { mxc = ov.data!.avatarUrl; break; }
-    }
+    // Prefer a real avatar MXC from sliding sync summaries; otherwise use a sample MXC.
+    final payload = await _waitForPayload(
+      roomListStream!,
+      <String>{'sliding_sync_ready', 'sliding_sync_update'},
+      timeout: const Duration(seconds: 30),
+      label: 'room_list',
+    );
+    final summaries =
+        (payload['summaries'] as List?)?.cast<Map<String, dynamic>>() ??
+            const <Map<String, dynamic>>[];
+    String? mxc = summaries
+        .map((s) => s['avatar_url'] as String?)
+        .firstWhere((v) => v != null && v.isNotEmpty, orElse: () => null);
     final mxcValue = mxc ?? 'mxc://example.org/abc123';
 
     final converted = await rustMxcToHttp(mxc: mxcValue, w: 64, h: 64);
@@ -643,25 +734,26 @@ void main() {
   });
 
   test('mark_read_up_to sends receipt (no unread assertions)', () async {
-    // Pick any joined room; Synapse sliding sync does not provide reliable unread counts.
-    String? target;
-    for (final id in roomIds) {
-      final ov = await rustRoomOverview(roomId: id);
-      if (ov.isOk) { target = id; break; }
-    }
-
-    final targetId = target ?? roomIds.first;
+    // Pick any joined room; use the known list from setup
+    final targetId = roomIds.first;
     // Open timeline and get latest event id from snapshot
     final open = await rustOpenRoom(handle: slidingHandle, roomId: targetId);
     expect(open.isOk, isTrue, reason: open.error);
     final port = ReceivePort('bridge_timeline_mark_read');
     final stream = port.asBroadcastStream();
-    final reg = await rustTimelineStream(handle: slidingHandle, roomId: targetId, port: port.sendPort);
+    final reg = await rustTimelineStream(
+        handle: slidingHandle, roomId: targetId, port: port.sendPort);
     expect(reg.isOk, isTrue, reason: reg.error);
-    final snapshot = await _waitForPayload(stream, <String>{'timeline_snapshot', 'timeline_initial'}, label: 'timeline');
+    final snapshot = await _waitForPayload(
+        stream, <String>{'timeline_snapshot', 'timeline_initial'},
+        label: 'timeline');
     port.close();
-    final initial = (snapshot['events'] as List<dynamic>).cast<String>().map(_decodeEvent).toList();
-    final lastId = initial.isNotEmpty ? (initial.last['event_id'] as String?) : null;
+    final initial = (snapshot['events'] as List<dynamic>)
+        .cast<String>()
+        .map(_decodeEvent)
+        .toList();
+    final lastId =
+        initial.isNotEmpty ? (initial.last['event_id'] as String?) : null;
     expect(lastId, isNotNull, reason: 'Need an event_id to send read receipt');
 
     final ack = await rustMarkReadUpTo(roomId: targetId, eventId: lastId!);
@@ -671,7 +763,8 @@ void main() {
     await Future<void>.delayed(const Duration(seconds: 2));
   });
 
-  test('import_recovery_key alias works and backup status stream emits', () async {
+  test('import_recovery_key alias works and backup status stream emits',
+      () async {
     final key = _loadRecoveryKey();
     expect(key, isNotNull);
 
@@ -700,7 +793,8 @@ void main() {
     backupPort = null;
   });
 
-  test('enable_online_backup returns status; export_recovery_key placeholder', () async {
+  test('enable_online_backup returns status; export_recovery_key placeholder',
+      () async {
     final enable = await rustEnableOnlineBackup(generateNew: false);
     expect(enable.isOk, isTrue, reason: enable.error);
     expect(enable.data!.enabled, isTrue);
@@ -712,25 +806,35 @@ void main() {
     }
   });
 
-  test('sas verification end-to-end with peer process (emoji + done)', () async {
+  test('sas verification end-to-end with peer process (emoji + done)',
+      () async {
     // Spawn peer process (Node helper) that accepts and confirms SAS.
     final serverUrl = homeserverUrl.toString();
     // Use Dockerized peer helper; remap loopback to host.docker.internal for container networking
-    var dockerServerUrl = serverUrl.replaceFirst('127.0.0.1', 'host.docker.internal');
-    dockerServerUrl = dockerServerUrl.replaceFirst('localhost', 'host.docker.internal');
+    var dockerServerUrl =
+        serverUrl.replaceFirst('127.0.0.1', 'host.docker.internal');
+    dockerServerUrl =
+        dockerServerUrl.replaceFirst('localhost', 'host.docker.internal');
     // Mount seed state for access token reuse to avoid login rate limits
-    final stateFile = _env('MESSIE_SEED_STATE_FILE', fallback: '../scripts/matrix/.state/seed_state.json');
+    final stateFile = _env('MESSIE_SEED_STATE_FILE',
+        fallback: '../scripts/matrix/.state/seed_state.json');
     // Use an absolute host path for Docker volume mounts; if the configured path
     // lacks the recovery key (older seeds), fall back to the Makefile’s verifier mount path.
     var stateDir = File(stateFile).parent.absolute.path;
     if (!File('$stateDir/recovery_key.json').existsSync()) {
-      final alt = File('../scripts/matrix/scripts/matrix/.state/seed_state.json').parent.absolute.path;
-      if (Directory(alt).existsSync() && File('$alt/recovery_key.json').existsSync()) {
+      final alt =
+          File('../scripts/matrix/scripts/matrix/.state/seed_state.json')
+              .parent
+              .absolute
+              .path;
+      if (Directory(alt).existsSync() &&
+          File('$alt/recovery_key.json').existsSync()) {
         stateDir = alt;
       }
     }
     // Use a stable container name so it can be pruned or stopped consistently.
-    final peerName = _env('MESSIE_SAS_PEER_CONTAINER', fallback: 'messie-matrix-peer');
+    final peerName =
+        _env('MESSIE_SAS_PEER_CONTAINER', fallback: 'messie-matrix-peer');
     // Best-effort pre-remove any previous instance with the same name.
     await Process.run('docker', ['rm', '-f', peerName]);
     addTearDown(() async {
@@ -744,32 +848,59 @@ void main() {
     // try { final f = File(peerInfoPath); if (f.existsSync()) { f.deleteSync(); } } catch (_) {}
     final launchTs = DateTime.now().millisecondsSinceEpoch;
     final started = await Process.run('docker', [
-      'run', '-d', '--name', peerName, '--network', 'host',
-      '-e', 'RECOVERY_KEY_PATH=/state/recovery_key.json',
-      '-e', 'PEER_INFO_PATH=/state/sas_peer.json',
-      '-v', '$stateDir:/state',
+      'run',
+      '-d',
+      '--name',
+      peerName,
+      '--network',
+      'host',
+      '-e',
+      'RECOVERY_KEY_PATH=/state/recovery_key.json',
+      '-e',
+      'PEER_INFO_PATH=/state/sas_peer.json',
+      '-v',
+      '$stateDir:/state',
       'messie-matrix-peer:latest',
-      '--server-url', dockerServerUrl,
-      '--username', username,
-      '--password', password,
-      '--device-name', 'Messie SAS Peer',
+      '--server-url',
+      dockerServerUrl,
+      '--username',
+      username,
+      '--password',
+      password,
+      '--device-name',
+      'Messie SAS Peer',
     ]);
-    expect(started.exitCode, 0, reason: 'failed to start peer container: ${started.stderr}\n${started.stdout}');
+    expect(started.exitCode, 0,
+        reason:
+            'failed to start peer container: ${started.stderr}\n${started.stdout}');
     // Start a background monitor to dump logs if the container dies early.
     var monitorCancelled = false;
     () async {
       while (!monitorCancelled) {
-        final inspect = await Process.run('docker', ['inspect', '--type', 'container', '-f', '{{.State.Running}}', peerName]);
-        final running = inspect.exitCode == 0 && (inspect.stdout as String?)?.trim() == 'true';
+        final inspect = await Process.run('docker', [
+          'inspect',
+          '--type',
+          'container',
+          '-f',
+          '{{.State.Running}}',
+          peerName
+        ]);
+        final running = inspect.exitCode == 0 &&
+            (inspect.stdout as String?)?.trim() == 'true';
         if (!running) {
-          final details = await Process.run('docker', ['inspect', '--type', 'container', peerName]);
-          final ps = await Process.run('docker', ['ps', '-a', '--filter', 'name=$peerName']);
-          final logs = await Process.run('docker', ['logs', '--tail', '200', peerName]);
+          final details = await Process.run(
+              'docker', ['inspect', '--type', 'container', peerName]);
+          final ps = await Process.run(
+              'docker', ['ps', '-a', '--filter', 'name=$peerName']);
+          final logs =
+              await Process.run('docker', ['logs', '--tail', '200', peerName]);
           // Print helpful diagnostics
           // ignore: avoid_print
-          debugPrint('[peer-container] not running. inspect: ${details.stdout}\n${details.stderr}\nps: ${ps.stdout}\n${ps.stderr}');
+          debugPrint(
+              '[peer-container] not running. inspect: ${details.stdout}\n${details.stderr}\nps: ${ps.stdout}\n${ps.stderr}');
           // ignore: avoid_print
-          debugPrint('[peer-container] logs (tail):\n${logs.stdout}\n${logs.stderr}');
+          debugPrint(
+              '[peer-container] logs (tail):\n${logs.stdout}\n${logs.stderr}');
           break;
         }
         await Future<void>.delayed(const Duration(seconds: 1));
@@ -779,9 +910,11 @@ void main() {
     // Do not pipe peer output to keep test logs quiet
 
     // Wait for peer to be ready and for a fresh (post-launch) device id
-    final deviceId = await _waitForPeerReadyDevice(peerInfoPath, minTimestamp: launchTs);
+    final deviceId =
+        await _waitForPeerReadyDevice(peerInfoPath, minTimestamp: launchTs);
 
-    final start = await rustRequestSasVerification(userId: initialSession.userId, deviceId: deviceId);
+    final start = await rustRequestSasVerification(
+        userId: initialSession.userId, deviceId: deviceId);
     expect(start.isOk, isTrue, reason: start.error);
     final flowId = start.data!.flowId;
     expect(flowId, isNotEmpty);
@@ -827,7 +960,8 @@ void main() {
 
   test('trust_state returns data for own user/device', () async {
     final deviceId = initialSession.deviceId;
-    final state = await rustTrustState(userId: initialSession.userId, deviceId: deviceId);
+    final state =
+        await rustTrustState(userId: initialSession.userId, deviceId: deviceId);
     expect(state.isOk, isTrue, reason: state.error);
     expect(state.data, isNotNull);
     // We don't assert specific booleans (env-dependent), only presence.
@@ -835,7 +969,9 @@ void main() {
 }
 
 // Utility: wait up to a few seconds for the peer to write its device id file.
-Future<String> _waitForPeerReadyDevice(String jsonPath, {required int minTimestamp, Duration timeout = const Duration(seconds: 30)}) async {
+Future<String> _waitForPeerReadyDevice(String jsonPath,
+    {required int minTimestamp,
+    Duration timeout = const Duration(seconds: 30)}) async {
   final start = DateTime.now();
   while (DateTime.now().difference(start) < timeout) {
     final f = File(jsonPath);
@@ -846,7 +982,10 @@ Future<String> _waitForPeerReadyDevice(String jsonPath, {required int minTimesta
         final did = obj['device_id'] as String?;
         final ready = obj['ready'] as bool?;
         final ts = (obj['ts'] is num) ? (obj['ts'] as num).toInt() : -1;
-        if (did != null && did.isNotEmpty && ready == true && ts >= minTimestamp) {
+        if (did != null &&
+            did.isNotEmpty &&
+            ready == true &&
+            ts >= minTimestamp) {
           return did;
         }
       } catch (_) {

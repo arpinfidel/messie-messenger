@@ -104,37 +104,7 @@ Future<String?> _sendWithCurl(
   return null;
 }
 
-Future<bool> _joinWithCurl(
-    {required String hs,
-    required String roomId,
-    required String accessToken}) async {
-  final url = Uri.parse(
-          '$hs/_matrix/client/v3/rooms/${Uri.encodeComponent(roomId)}/join')
-      .toString();
-  final result = await Process.run('curl', [
-    '-sS',
-    '-X',
-    'POST',
-    '-H',
-    'Authorization: Bearer $accessToken',
-    '-H',
-    'Content-Type: application/json',
-    '--data',
-    '{}',
-    url,
-  ]);
-  if (result.exitCode == 0) {
-    try {
-      final obj = json.decode(result.stdout as String) as Map<String, dynamic>;
-      final rid = obj['room_id'] as String?;
-      return rid != null && rid.isNotEmpty;
-    } catch (_) {
-      return false;
-    }
-  }
-  print('curl join failed: ${result.exitCode} ${result.stderr}');
-  return false;
-}
+// Sender assumed already joined; skip explicit join
 
 class _SyncCounts {
   final int n;
@@ -243,9 +213,6 @@ void main() {
       }
       final st = senderToken;
       expect(st.isNotEmpty, isTrue, reason: 'sender token missing');
-
-      // Ensure sender is joined to the target room (best effort)
-      await _joinWithCurl(hs: env.hs, roomId: env.groupRoom, accessToken: st);
 
       // Send a mention to try to trigger default push rules in a group.
       // Include both full user id and localpart forms to maximize matches.

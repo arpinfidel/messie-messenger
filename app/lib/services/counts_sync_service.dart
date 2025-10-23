@@ -28,12 +28,14 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
   bool _running = false;
   Future<void>? _task;
   final FlutterSecureStorage _secure = const FlutterSecureStorage();
+  bool _didBaseline = false;
 
   void start({required String homeserverUrl, required String accessToken, required String userId}) {
     final credsChanged = _hs != homeserverUrl || _token != accessToken || _userId != userId;
     if (credsChanged) {
       _since = null; // reset since on credential change
       _filterId = null; // recreate filter for new user/session
+      _didBaseline = false;
     }
     if (_running && !credsChanged) return;
     _hs = homeserverUrl;
@@ -52,6 +54,49 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
     var backoffMs = 500;
     while (_running) {
       try {
+        // Always perform a baseline snapshot first to align unread counters at startup.
+        // Ignore any persisted since for the first request.
+        if (!_didBaseline) {
+          // Ensure filter exists first to keep payload minimal
+          if (_filterId == null && _userId != null) {
+            _filterId = await _loadPersistedFilter(userId: _userId!, homeserverUrl: _hs!);
+            _filterId ??=
+                await _ensureFilter(hs: _hs!, token: _token!, userId: _userId!);
+            if (_filterId != null && _filterId!.isNotEmpty) {
+              await _persistFilter(
+                userId: _userId!,
+                homeserverUrl: _hs!,
+                filterId: _filterId!,
+              );
+            }
+          }
+          final snap = await _syncOnce(
+            hs: _hs!,
+            token: _token!,
+            since: null,
+            timeoutMs: 0,
+            filterId: _filterId,
+            fullState: true,
+          );
+          _since = snap.$3;
+          if (_since != null && _userId != null) {
+            await _persistSince(userId: _userId!, homeserverUrl: _hs!, since: _since!);
+          }
+          final baseline = snap.$1;
+          if (baseline.isNotEmpty) {
+            final next = Map<String, UnreadCounts>.from(state);
+            next.addAll(baseline);
+            state = next;
+          }
+          _didBaseline = true;
+          backoffMs = 500; // reset and continue to long-poll
+          continue;
+        }
+
+        // Load persisted since after baseline if not already set
+        if (_since == null && _userId != null) {
+          _since = await _loadPersistedSince(userId: _userId!, homeserverUrl: _hs!);
+        }
         // Load or create a lightweight filter to minimize payload.
         if (_filterId == null && _userId != null) {
           _filterId = await _loadPersistedFilter(userId: _userId!, homeserverUrl: _hs!);
@@ -73,6 +118,9 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
           filterId: _filterId,
         );
         _since = res.$3;
+        if (_since != null && _userId != null) {
+          await _persistSince(userId: _userId!, homeserverUrl: _hs!, since: _since!);
+        }
         final updates = res.$1;
         if (updates.isNotEmpty) {
           final next = Map<String, UnreadCounts>.from(state);
@@ -81,7 +129,21 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
         }
         backoffMs = 500; // reset
       } catch (e) {
-        debugPrint('[CountsSync] error: $e');
+        if (e is _SyncHttpError) {
+          debugPrint('[CountsSync] http ${e.statusCode}: ${e.body}');
+          if (e.statusCode == 401) {
+            // Token invalid; pause briefly and retry. Auth controller will refresh if needed.
+          } else if (e.statusCode == 400) {
+            // Possibly invalid filter; clear and recreate next loop.
+            if (_filterId != null && _userId != null) {
+              await _persistFilter(userId: _userId!, homeserverUrl: _hs!, filterId: '');
+            }
+            _filterId = null;
+            _didBaseline = false; // force baseline again after recreating filter
+          }
+        } else {
+          debugPrint('[CountsSync] error: $e');
+        }
         await Future<void>.delayed(Duration(milliseconds: backoffMs));
         backoffMs = (backoffMs * 2).clamp(500, 8000);
       }
@@ -95,11 +157,13 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
     String? since,
     int timeoutMs = 0,
     String? filterId,
+    bool fullState = false,
   }) async {
     final qp = <String, String>{};
     if (since != null && since.isNotEmpty) qp['since'] = since;
     if (timeoutMs > 0) qp['timeout'] = '$timeoutMs';
     if (filterId != null && filterId.isNotEmpty) qp['filter'] = filterId;
+    if (fullState) qp['full_state'] = 'true';
     final uri = Uri.parse(hs).replace(
       path: '/_matrix/client/v3/sync',
       queryParameters: qp.isEmpty ? null : qp,
@@ -112,7 +176,7 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
       final resp = await req.close();
       final text = await utf8.decoder.bind(resp).join();
       if (resp.statusCode != 200) {
-        throw Exception('sync GET failed: ${resp.statusCode} $text');
+        throw _SyncHttpError(resp.statusCode, text);
       }
       final body = json.decode(text) as Map<String, dynamic>;
       final next = (body['next_batch'] as String?) ?? '';
@@ -209,4 +273,41 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
       return null;
     }
   }
+
+  Future<void> _persistSince({
+    required String userId,
+    required String homeserverUrl,
+    required String since,
+  }) async {
+    try {
+      await _secure.write(
+        key: _sinceKey(userId: userId, homeserverUrl: homeserverUrl),
+        value: since,
+      );
+    } catch (_) {}
+  }
+
+  Future<String?> _loadPersistedSince({
+    required String userId,
+    required String homeserverUrl,
+  }) async {
+    try {
+      return await _secure.read(
+        key: _sinceKey(userId: userId, homeserverUrl: homeserverUrl),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _sinceKey({required String userId, required String homeserverUrl}) =>
+      'messie.counts.since.$userId@$homeserverUrl';
+}
+
+class _SyncHttpError implements Exception {
+  _SyncHttpError(this.statusCode, this.body);
+  final int statusCode;
+  final String body;
+  @override
+  String toString() => 'SyncHttpError($statusCode): $body';
 }
