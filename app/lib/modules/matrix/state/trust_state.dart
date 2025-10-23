@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../bridge/messie_bridge.dart';
-import 'auth_controller.dart';
+import '../../../bridge/messie_bridge.dart';
+import 'auth_view_model.dart';
 
 final selfTrustProvider = FutureProvider<TrustStateData?>((ref) async {
   final auth = ref.watch(authControllerProvider);
@@ -11,4 +11,3 @@ final selfTrustProvider = FutureProvider<TrustStateData?>((ref) async {
   if (!res.isOk) return null;
   return res.data;
 });
-

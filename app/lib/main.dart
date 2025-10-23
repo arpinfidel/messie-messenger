@@ -13,13 +13,13 @@ import 'package:path_provider/path_provider.dart';
 
 import 'bridge/messie_bridge.dart';
 // Backend API
-import 'state/auth_controller.dart';
-import 'state/room_list_controller.dart';
-import 'state/timeline_controller.dart';
-import 'state/backup_controller.dart';
-import 'state/verification_controller.dart';
-import 'state/session_coordinator.dart';
-import 'state/selection.dart';
+import 'modules/matrix/state/auth_view_model.dart';
+import 'modules/matrix/state/room_list_view_model.dart';
+import 'modules/matrix/state/timeline_view_model.dart';
+import 'modules/matrix/state/backup_view_model.dart';
+import 'modules/matrix/state/verification_view_model.dart';
+import 'modules/matrix/state/session_coordinator.dart';
+import 'modules/matrix/state/selection.dart';
 import 'services/migrations.dart';
 import 'services/counts_sync_service.dart';
 // Legacy theme remains for reference, but global theme now uses OKLCH builder.
@@ -36,9 +36,9 @@ import 'ui/theme/theme.dart' as messie_theme;
 import 'ui/theme/colors.dart' show MessieAccent;
 import 'ui/theme/accent_controller.dart';
 import 'ui/components/segmented_control.dart';
-export 'state/auth_controller.dart';
-export 'state/ping.dart';
-export 'state/trust_state.dart';
+export 'modules/matrix/state/auth_view_model.dart';
+export 'modules/matrix/state/ping.dart';
+export 'modules/matrix/state/trust_state.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

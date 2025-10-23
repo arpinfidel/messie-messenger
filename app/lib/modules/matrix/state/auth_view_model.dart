@@ -9,9 +9,9 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:dio/dio.dart' as dio;
 
-import '../api/env.dart' as env;
+import '../../../api/env.dart' as env;
 import 'package:messie_api/messie_api.dart' as api;
-import '../bridge/messie_bridge.dart';
+import '../../../bridge/messie_bridge.dart';
 
 class MatrixSession {
   const MatrixSession({

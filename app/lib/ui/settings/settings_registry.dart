@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'matrix_sections.dart';
+import 'package:messie_app/modules/matrix/ui/settings/sections.dart';
 import 'email_sections.dart';
 import 'todo_sections.dart';
 

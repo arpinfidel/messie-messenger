@@ -6,8 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import '../bridge/messie_bridge.dart';
-import '../services/counts_sync_service.dart';
+import '../../../bridge/messie_bridge.dart';
+import '../../../services/counts_sync_service.dart';
 
 const _slidingSyncHandle = 'primary';
 const String _envForceOffline = String.fromEnvironment('MESSIE_FORCE_OFFLINE', defaultValue: '');

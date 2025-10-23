@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../bridge/messie_bridge.dart';
-import '../../../state/auth_controller.dart';
-import '../../../state/backup_controller.dart';
-import '../../../state/verification_controller.dart';
-import '../../../state/ping.dart';
-import '../../../state/trust_state.dart';
-import '../../../state/secure_secrets.dart';
-import '../../../theme/messie_tokens.dart';
-import 'settings_registry.dart';
+import 'package:messie_app/bridge/messie_bridge.dart';
+import 'package:messie_app/modules/matrix/state/auth_view_model.dart';
+import 'package:messie_app/modules/matrix/state/backup_view_model.dart';
+import 'package:messie_app/modules/matrix/state/verification_view_model.dart';
+import 'package:messie_app/modules/matrix/state/ping.dart';
+import 'package:messie_app/modules/matrix/state/trust_state.dart';
+import 'package:messie_app/state/secure_secrets.dart';
+import 'package:messie_app/theme/messie_tokens.dart';
+import 'package:messie_app/ui/settings/settings_registry.dart';
 
 // Contribute Matrix sections to the registry
 final matrixModuleSettingsProvider = Provider<List<SettingsSection>>((ref) {

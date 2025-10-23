@@ -4,7 +4,7 @@ import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../bridge/messie_bridge.dart';
+import '../../../bridge/messie_bridge.dart';
 
 final verificationControllerProvider =
     StateNotifierProvider<VerificationViewModel, VerificationState>(

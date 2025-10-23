@@ -6,7 +6,7 @@ import 'package:dio/dio.dart' show DioException;
 // Display layer uses raw maps for now to avoid base URL issues in generated client.
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../state/auth_controller.dart';
+import '../modules/matrix/state/auth_view_model.dart';
 
 class ConnectionsScreen extends ConsumerStatefulWidget {
   const ConnectionsScreen({super.key});

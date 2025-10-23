@@ -1,11 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'auth_controller.dart';
-import '../services/counts_sync_service.dart';
-import '../state/room_list_controller.dart';
-import '../state/timeline_controller.dart';
-import '../state/backup_controller.dart';
-import '../state/verification_controller.dart';
+import 'auth_view_model.dart';
+import '../../../services/counts_sync_service.dart';
+import 'room_list_view_model.dart';
+import 'timeline_view_model.dart';
+import 'backup_view_model.dart';
+import 'verification_view_model.dart';
 import 'selection.dart';
 
 /// Central coordinator for session-driven service lifecycles.

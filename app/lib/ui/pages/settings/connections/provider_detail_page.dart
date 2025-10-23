@@ -7,7 +7,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../../../components/card.dart';
 import '../../../components/button.dart';
 import '../../../components/chip.dart';
-import 'package:messie_app/state/auth_controller.dart';
+import 'package:messie_app/modules/matrix/state/auth_view_model.dart';
 import 'package:messie_app/services/bridges_service.dart';
 
 enum ConnectMethod { qr, pairing }
