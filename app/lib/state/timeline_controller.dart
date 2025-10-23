@@ -178,6 +178,10 @@ class TimelineViewModel extends StateNotifier<TimelineState> {
     return res.isOk;
   }
 
+  // UI policies (centralized for consistency/testing)
+  bool shouldShowJumpToLatest(double distanceFromBottom) => distanceFromBottom > 200;
+  bool shouldAutoScrollToLatest(double distanceFromBottom) => distanceFromBottom < 120;
+
   void _handleMessage(dynamic message) {
     if (_roomId == null || message is! String) {
       return;

@@ -1618,7 +1618,9 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
     // Show "Jump to latest" when user is scrolled away from bottom.
     final distanceFromBottom =
         _controller.position.maxScrollExtent - _controller.offset;
-    final shouldShow = distanceFromBottom > 200;
+    final shouldShow = ref
+        .read(timelineControllerProvider.notifier)
+        .shouldShowJumpToLatest(distanceFromBottom);
     if (shouldShow != _showJumpToLatest) {
       setState(() {
         _showJumpToLatest = shouldShow;
@@ -1658,7 +1660,9 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
           _controller.position.maxScrollExtent - _controller.offset;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!_controller.hasClients) return;
-        if (distanceFromBottom < 120) {
+        if (ref
+            .read(timelineControllerProvider.notifier)
+            .shouldAutoScrollToLatest(distanceFromBottom)) {
           _controller.animateTo(
             _controller.position.maxScrollExtent,
             duration: const Duration(milliseconds: 180),
