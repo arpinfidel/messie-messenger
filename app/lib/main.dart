@@ -1119,46 +1119,15 @@ class _RoomListSection extends StatelessWidget {
       );
     }
 
-    if (state.hpRooms.isNotEmpty) {
+    // Single unified list (HP first, then LP); subscription windows still driven by VM
+    final allRooms = <RoomPreview>[...state.hpRooms, ...state.lpRooms];
+    if (allRooms.isEmpty) {
       children.add(Text(
-        'Priority rooms',
-        style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-      ));
-      children.add(SizedBox(height: spacing.gap.sm));
-      children.addAll(state.hpRooms.map(
-        (room) => _RoomTile(
-          room: room,
-          isActive: selectedRoomId == room.roomId,
-          onTap: () => onSelectRoom(room.roomId),
-          onToggleMute: () async {
-            final res = await rustSetRoomMute(
-                roomId: room.roomId, muted: !room.isMuted);
-            if (!res.isOk && context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                    content: Text(res.error ?? 'Failed to update mute state')),
-              );
-            } else {
-              onResubscribe();
-            }
-          },
-        ),
-      ));
-      children.add(SizedBox(height: spacing.gap.lg));
-    }
-
-    children.add(Text(
-      'All rooms',
-      style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-    ));
-    children.add(SizedBox(height: spacing.gap.sm));
-    if (state.lpRooms.isEmpty) {
-      children.add(Text(
-        'No additional rooms yet.',
+        'No rooms yet.',
         style: textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
       ));
     } else {
-      children.addAll(state.lpRooms.map(
+      children.addAll(allRooms.map(
         (room) => _RoomTile(
           room: room,
           isActive: selectedRoomId == room.roomId,

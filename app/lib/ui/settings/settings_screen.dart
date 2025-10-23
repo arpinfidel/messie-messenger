@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../main.dart';
+import '../../../state/auth_controller.dart';
+import '../../../state/trust_state.dart';
+import '../../../state/ping.dart';
 import '../../../bridge/messie_bridge.dart';
 import '../../../state/backup_controller.dart';
 import '../../../state/verification_controller.dart';
