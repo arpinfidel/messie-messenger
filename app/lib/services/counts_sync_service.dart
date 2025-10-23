@@ -59,15 +59,30 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
         if (!_didBaseline) {
           // Ensure filter exists first to keep payload minimal
           if (_filterId == null && _userId != null) {
-            _filterId = await _loadPersistedFilter(userId: _userId!, homeserverUrl: _hs!);
-            _filterId ??=
-                await _ensureFilter(hs: _hs!, token: _token!, userId: _userId!);
-            if (_filterId != null && _filterId!.isNotEmpty) {
-              await _persistFilter(
-                userId: _userId!,
-                homeserverUrl: _hs!,
-                filterId: _filterId!,
-              );
+            // Load any persisted filter and its spec; recreate if spec changed
+            final persistedId =
+                await _loadPersistedFilter(userId: _userId!, homeserverUrl: _hs!);
+            final persistedSpec = await _loadPersistedFilterSpec(
+                userId: _userId!, homeserverUrl: _hs!);
+            final currentSpec = _filterSpecString();
+            if (persistedId != null && persistedId.isNotEmpty &&
+                persistedSpec == currentSpec) {
+              _filterId = persistedId;
+            } else {
+              _filterId = await _ensureFilter(
+                  hs: _hs!, token: _token!, userId: _userId!);
+              if (_filterId != null && _filterId!.isNotEmpty) {
+                await _persistFilter(
+                  userId: _userId!,
+                  homeserverUrl: _hs!,
+                  filterId: _filterId!,
+                );
+                await _persistFilterSpec(
+                  userId: _userId!,
+                  homeserverUrl: _hs!,
+                  spec: currentSpec,
+                );
+              }
             }
           }
           final snap = await _syncOnce(
@@ -137,6 +152,7 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
             // Possibly invalid filter; clear and recreate next loop.
             if (_filterId != null && _userId != null) {
               await _persistFilter(userId: _userId!, homeserverUrl: _hs!, filterId: '');
+              await _persistFilterSpec(userId: _userId!, homeserverUrl: _hs!, spec: '');
             }
             _filterId = null;
             _didBaseline = false; // force baseline again after recreating filter
@@ -210,21 +226,7 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
         final req = await client.postUrl(uri);
         req.headers.set(HttpHeaders.authorizationHeader, 'Bearer $token');
         req.headers.set(HttpHeaders.contentTypeHeader, 'application/json');
-        // Lightweight filter: no presence, no account data, no ephemeral, no timeline, lazy-load members.
-        final filter = {
-          'event_fields': <String>[],
-          'account_data': {'types': <String>[]},
-          'presence': {'types': <String>[]},
-          'room': {
-            'timeline': {'limit': 0},
-            'ephemeral': {'types': <String>[]},
-            'account_data': {'types': <String>[]},
-            'state': {
-              'lazy_load_members': true,
-              'types': <String>[],
-            },
-          },
-        };
+        final filter = _filterSpec();
         req.add(utf8.encode(json.encode(filter)));
         final resp = await req.close();
         final text = await utf8.decoder.bind(resp).join();
@@ -243,6 +245,32 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
       return null;
     }
   }
+
+  Map<String, dynamic> _filterSpec() {
+    // Lightweight filter: include just enough to trigger unread changes across devices.
+    return {
+      'event_fields': <String>[],
+      'account_data': {'types': <String>[]},
+      'presence': {'types': <String>[]},
+      'room': {
+        'timeline': {'limit': 0},
+        // Include read receipts so the server sends updates when reads happen elsewhere
+        'ephemeral': {
+          'types': <String>['m.receipt']
+        },
+        // Include fully_read changes which also reflect read progress
+        'account_data': {
+          'types': <String>['m.fully_read']
+        },
+        'state': {
+          'lazy_load_members': true,
+          'types': <String>[],
+        },
+      },
+    };
+  }
+
+  String _filterSpecString() => json.encode(_filterSpec());
 
   String _filterKey({required String userId, required String homeserverUrl}) {
     return 'messie.counts.filter.$userId@$homeserverUrl';
@@ -273,6 +301,35 @@ class CountsSyncService extends StateNotifier<Map<String, UnreadCounts>> {
       return null;
     }
   }
+
+  Future<void> _persistFilterSpec({
+    required String userId,
+    required String homeserverUrl,
+    required String spec,
+  }) async {
+    try {
+      await _secure.write(
+        key: _filterSpecKey(userId: userId, homeserverUrl: homeserverUrl),
+        value: spec,
+      );
+    } catch (_) {}
+  }
+
+  Future<String?> _loadPersistedFilterSpec({
+    required String userId,
+    required String homeserverUrl,
+  }) async {
+    try {
+      return await _secure.read(
+        key: _filterSpecKey(userId: userId, homeserverUrl: homeserverUrl),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String _filterSpecKey({required String userId, required String homeserverUrl}) =>
+      'messie.counts.filter.spec.$userId@$homeserverUrl';
 
   Future<void> _persistSince({
     required String userId,

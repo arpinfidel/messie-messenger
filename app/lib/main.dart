@@ -19,6 +19,7 @@ import 'state/room_list_controller.dart';
 import 'state/timeline_controller.dart';
 import 'state/backup_controller.dart';
 import 'state/verification_controller.dart';
+import 'services/migrations.dart';
 import 'services/counts_sync_service.dart';
 // Legacy theme remains for reference, but global theme now uses OKLCH builder.
 // import 'theme/app_theme.dart';
@@ -37,6 +38,8 @@ import 'ui/components/segmented_control.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Run storage migrations before any session-dependent services start.
+  await MigrationManager().run();
   runApp(const ProviderScope(child: MessieApp()));
 }
 
