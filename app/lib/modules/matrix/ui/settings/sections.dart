@@ -10,6 +10,7 @@ import 'package:messie_app/modules/matrix/state/trust_state.dart';
 import 'package:messie_app/state/secure_secrets.dart';
 import 'package:messie_app/theme/messie_tokens.dart';
 import 'package:messie_app/ui/settings/settings_registry.dart';
+import 'package:messie_app/modules/matrix/services/security_repository.dart';
 
 // Contribute Matrix sections to the registry
 final matrixModuleSettingsProvider = Provider<List<SettingsSection>>((ref) {
@@ -147,14 +148,14 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
   Future<void> enableBackupFlow() async {
     final messenger = ScaffoldMessenger.of(context);
     final secrets = SecureSecrets();
-    final bootstrap = await rustSsssBootstrap(generateNewKey: true);
-    if (!bootstrap.isOk || bootstrap.data?.generatedRecoveryKey == null) {
+    final security = ref.read(securityRepositoryProvider);
+    final recoveryKey = await security.generateRecoveryKey();
+    if (recoveryKey == null || recoveryKey.isEmpty) {
       messenger.showSnackBar(
-        SnackBar(content: Text(bootstrap.error ?? 'Failed to create recovery key')),
+        const SnackBar(content: Text('Failed to create recovery key')),
       );
       return;
     }
-    final recoveryKey = bootstrap.data!.generatedRecoveryKey!;
     if (context.mounted) {
       await showDialog<void>(
         context: context,
@@ -225,10 +226,10 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
         },
       );
     }
-    final enable = await rustEnableOnlineBackup(generateNew: true);
-    if (!enable.isOk) {
+    final ok = await security.enableOnlineBackup(generateNew: true);
+    if (!ok) {
       messenger.showSnackBar(
-        SnackBar(content: Text(enable.error ?? 'Failed to enable backup')),
+        const SnackBar(content: Text('Failed to enable backup')),
       );
       return;
     }
@@ -392,13 +393,11 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
                                       if (raw.isEmpty) {
                                         return;
                                       }
-                                      var ok = await rustRecoverWithKey(recoveryKey: raw);
-                                      if (!ok.isOk && raw.contains(' ')) {
-                                        final compact = raw.replaceAll(RegExp('\\s+'), '');
-                                        ok = await rustRecoverWithKey(recoveryKey: compact);
-                                      }
+                                      final ok = await ref
+                                          .read(securityRepositoryProvider)
+                                          .recoverWithKey(raw);
                                       if (context.mounted) {
-                                        Navigator.of(context).pop(ok.isOk);
+                                        Navigator.of(context).pop(ok);
                                       }
                                     },
                                     child: const Text('Restore'),

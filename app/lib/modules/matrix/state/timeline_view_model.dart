@@ -274,6 +274,17 @@ class TimelineViewModel extends StateNotifier<TimelineState> {
     );
   }
 
+  // Centralize read-receipt behavior from UI.
+  Future<void> maybeMarkReadAtBottom(double distanceFromBottom) async {
+    if (!shouldAutoScrollToLatest(distanceFromBottom)) return;
+    final last = state.events.isNotEmpty ? state.events.last : null;
+    final lastEventId = last?.key.eventId;
+    final roomId = state.roomId;
+    if (lastEventId != null && roomId != null) {
+      await rustMarkReadUpTo(roomId: roomId, eventId: lastEventId);
+    }
+  }
+
   TimelineItem? _parseTimelineEvent(String raw) {
     try {
       final map = jsonDecode(raw) as Map<String, dynamic>;

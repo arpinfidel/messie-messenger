@@ -1,15 +1,11 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
+import 'dart:io' show File, Platform;
 
 import 'package:characters/characters.dart';
-import 'package:flutter/foundation.dart' show consolidateHttpClientResponseBytes;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import 'package:messie_app/bridge/messie_bridge.dart';
 import 'package:messie_app/l10n/app_localizations.dart';
@@ -20,6 +16,9 @@ import 'package:messie_app/modules/matrix/state/timeline_view_model.dart';
 import 'package:messie_app/theme/messie_tokens.dart';
 import 'package:messie_app/ui/components/segmented_control.dart';
 import 'package:messie_app/ui/core/back_esc/back_esc_policy.dart';
+import 'package:messie_app/modules/matrix/services/profile_repository.dart';
+import 'package:messie_app/modules/matrix/services/media_repository.dart';
+import 'package:messie_app/modules/matrix/services/room_repository.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -80,7 +79,10 @@ class HomeScreen extends ConsumerWidget {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, result) async {
-        final handled = await BackEscPolicy.of(context).handleBack();
+        // Avoid using BuildContext across the await boundary
+        final policy = BackEscPolicy.of(context);
+        final messenger = ScaffoldMessenger.maybeOf(context);
+        final handled = await policy.handleBack();
         if (handled) return;
 
         final now = DateTime.now();
@@ -92,7 +94,6 @@ class HomeScreen extends ConsumerWidget {
           return;
         }
         _lastBackPress = now;
-        final messenger = ScaffoldMessenger.maybeOf(context);
         messenger?.clearSnackBars();
         messenger?.showSnackBar(
           const SnackBar(
@@ -593,7 +594,7 @@ class LoggedInView extends ConsumerWidget {
   }
 }
 
-class _RoomListSection extends StatelessWidget {
+class _RoomListSection extends ConsumerWidget {
   const _RoomListSection({
     required this.state,
     required this.onLoadMore,
@@ -609,7 +610,7 @@ class _RoomListSection extends StatelessWidget {
   final String? selectedRoomId;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final textTheme = Theme.of(context).textTheme;
     final colors = Theme.of(context).colorScheme;
     final spacing = MessieSpacing.of(context);
@@ -694,12 +695,13 @@ class _RoomListSection extends StatelessWidget {
           isActive: selectedRoomId == room.roomId,
           onTap: () => onSelectRoom(room.roomId),
           onToggleMute: () async {
-            final res = await rustSetRoomMute(
-                roomId: room.roomId, muted: !room.isMuted);
-            if (!res.isOk && context.mounted) {
+            final ok = await ref.read(roomRepositoryProvider).setMute(
+                  room.roomId,
+                  !room.isMuted,
+                );
+            if (!ok && context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                    content: Text(res.error ?? 'Failed to update mute state')),
+                const SnackBar(content: Text('Failed to update mute state')),
               );
             } else {
               onResubscribe();
@@ -877,18 +879,13 @@ class _SenderNameState extends ConsumerState<_SenderName> {
   }
 
   Future<void> _load() async {
-    final res =
-        await rustMemberProfile(roomId: widget.roomId, userId: widget.userId);
+    final repo = ref.read(profileRepositoryProvider);
+    final data = await repo.memberProfile(
+        roomId: widget.roomId, userId: widget.userId);
     if (!mounted) return;
-    if (res.isOk && res.data != null) {
-      setState(() {
-        _profile = res.data;
-      });
-    } else {
-      setState(() {
-        _profile = null;
-      });
-    }
+    setState(() {
+      _profile = data;
+    });
   }
 
   @override
@@ -910,8 +907,6 @@ class _SenderNameState extends ConsumerState<_SenderName> {
 }
 
 class _SenderAvatarState extends ConsumerState<_SenderAvatar> {
-  static final Map<String, MemberProfileData> _cache =
-      <String, MemberProfileData>{};
   MemberProfileData? _profile;
 
   @override
@@ -930,28 +925,13 @@ class _SenderAvatarState extends ConsumerState<_SenderAvatar> {
   }
 
   Future<void> _load() async {
-    final key = '${widget.roomId}::${widget.userId}';
-    final cached = _cache[key];
-    if (cached != null) {
-      setState(() {
-        _profile = cached;
-      });
-      return;
-    }
-    final res =
-        await rustMemberProfile(roomId: widget.roomId, userId: widget.userId);
+    final repo = ref.read(profileRepositoryProvider);
+    final data = await repo.memberProfile(
+        roomId: widget.roomId, userId: widget.userId);
     if (!mounted) return;
-    if (res.isOk && res.data != null) {
-      _cache[key] = res.data!;
-      setState(() {
-        _profile = res.data;
-      });
-    } else {
-      // Keep null; fallback to initials from user id
-      setState(() {
-        _profile = null;
-      });
-    }
+    setState(() {
+      _profile = data;
+    });
   }
 
   @override
@@ -981,50 +961,13 @@ class _AvatarPlaceholderState extends ConsumerState<_AvatarPlaceholder> {
   }
 
   Future<void> _resolve() async {
-    final mxc = widget.avatarUrl;
-    if (mxc == null || mxc.isEmpty || !mxc.startsWith('mxc://')) {
-      if (mounted) setState(() { _httpUrl = null; _filePath = null; });
-      return;
-    }
-    final res = await rustMxcToHttp(mxc: mxc, w: 96, h: 96);
-    if (!res.isOk || res.data == null) {
-      if (mounted) setState(() { _httpUrl = null; _filePath = null; });
-      return;
-    }
-    final httpUrl = res.data!;
-
-    // Check persistent cache first
-    final dir = await getApplicationSupportDirectory();
-    final cacheDir = Directory(p.join(dir.path, 'messie', 'media', 'avatars'));
-    try { await cacheDir.create(recursive: true); } catch (_) {}
-    final key = _avatarCacheKey(mxc, w: 96, h: 96);
-    final target = File(p.join(cacheDir.path, '$key'));
-    if (await target.exists()) {
-      if (mounted) setState(() { _filePath = target.path; _httpUrl = null; });
-      return;
-    }
-
-    // Download and persist
-    final session = ref.read(authControllerProvider).asData?.value;
-    try {
-      final client = HttpClient();
-      final uri = Uri.parse(httpUrl);
-      final req = await client.getUrl(uri);
-      if (session != null) {
-        req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${session.accessToken}');
-      }
-      final resp = await req.close();
-      if (resp.statusCode == 200) {
-        final bytes = await consolidateHttpClientResponseBytes(resp);
-        await target.writeAsBytes(bytes, flush: true);
-        if (mounted) setState(() { _filePath = target.path; _httpUrl = null; });
-      } else {
-        if (mounted) setState(() => _httpUrl = httpUrl);
-      }
-      client.close(force: true);
-    } catch (_) {
-      if (mounted) setState(() => _httpUrl = httpUrl);
-    }
+    final repo = ref.read(mediaRepositoryProvider);
+    final source = await repo.resolveAvatar(mxc: widget.avatarUrl, w: 96, h: 96);
+    if (!mounted) return;
+    setState(() {
+      _filePath = source.filePath;
+      _httpUrl = source.httpUrl;
+    });
   }
 
   @override
@@ -1095,14 +1038,6 @@ class _AvatarPlaceholderState extends ConsumerState<_AvatarPlaceholder> {
             ?.copyWith(color: colors.onSecondaryContainer),
       ),
     );
-  }
-
-  String _avatarCacheKey(String mxc, {required int w, required int h}) {
-    // Stable filename: sanitize mxc and include size
-    final base = mxc.replaceAll('mxc://', '');
-    final size = 'w${w}h$h';
-    final sanitized = base.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-    return '${sanitized}_$size';
   }
 
   String _initials(String value) {
@@ -1229,16 +1164,11 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
             duration: const Duration(milliseconds: 180),
             curve: Curves.easeOut,
           );
-          // Mark read up to latest event when we are at the bottom.
-          final last =
-              widget.state.events.isNotEmpty ? widget.state.events.last : null;
-          final lastEventId = last?.key.eventId;
-          final roomId = widget.selectedRoomId;
-          if (lastEventId != null && roomId != null) {
-            // Fire-and-forget; UI does not block on this.
-            unawaited(rustMarkReadUpTo(roomId: roomId, eventId: lastEventId));
-          }
         }
+        // Delegate read receipt behavior to ViewModel
+        unawaited(ref
+            .read(timelineControllerProvider.notifier)
+            .maybeMarkReadAtBottom(distanceFromBottom));
         ref.read(timelineControllerProvider.notifier).acknowledgeChange();
       });
       return;
@@ -1453,6 +1383,9 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
             ),
           );
         }
+
+        // Surface timeline errors above the list
+        children.add(buildErrorBanner());
 
         children.add(Expanded(
           child: DecoratedBox(
