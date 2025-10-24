@@ -1,0 +1,22 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../matrix/state/room_list_view_model.dart';
+import '../../../core/feed/module_types.dart';
+
+/// Matrix-backed threads adapter
+final matrixHomeThreadsProvider = Provider<List<HomeThread>>((ref) {
+  final state = ref.watch(roomListControllerProvider);
+  final rooms = <RoomPreview>[...state.hpRooms, ...state.lpRooms];
+  return rooms
+      .map((r) => HomeThread(
+            module: 'matrix',
+            threadId: r.roomId,
+            name: r.name,
+            avatarUrl: r.avatarUrl,
+            bumpTs: r.bumpTs,
+            notificationCount: r.notificationCount,
+            highlightCount: r.highlightCount,
+            isMuted: r.isMuted,
+          ))
+      .toList(growable: false);
+});

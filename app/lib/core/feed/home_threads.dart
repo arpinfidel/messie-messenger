@@ -1,44 +1,25 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../modules/matrix/state/room_list_view_model.dart';
+import 'module_registry.dart';
+import 'module_types.dart';
 
-class HomeThread {
-  const HomeThread({
-    required this.module,
-    required this.roomId,
-    required this.name,
-    this.avatarUrl,
-    this.bumpTs,
-    this.notificationCount = 0,
-    this.highlightCount = 0,
-    this.isMuted = false,
-  });
+// HomeThread model moved to module_types.dart for reuse by modules
 
-  final String module; // 'matrix' | future modules
-  final String roomId; // thread identifier for module
-  final String name;
-  final String? avatarUrl;
-  final int? bumpTs;
-  final int notificationCount;
-  final int highlightCount;
-  final bool isMuted;
-}
+// ---- Module thread adapters ----
 
-/// Matrix-backed threads for Home list (MVP). Later: merge with other modules.
+/// Aggregated Home threads from all registered modules, sorted by bumpTs desc then name.
 final homeThreadsProvider = Provider<List<HomeThread>>((ref) {
-  final state = ref.watch(roomListControllerProvider);
-  final rooms = <RoomPreview>[...state.hpRooms, ...state.lpRooms];
-  return rooms
-      .map((r) => HomeThread(
-            module: 'matrix',
-            roomId: r.roomId,
-            name: r.name,
-            avatarUrl: r.avatarUrl,
-            bumpTs: r.bumpTs,
-            notificationCount: r.notificationCount,
-            highlightCount: r.highlightCount,
-            isMuted: r.isMuted,
-          ))
-      .toList(growable: false);
+  final modules = ref.watch(moduleRegistryProvider);
+  final all = <HomeThread>[];
+  for (final m in modules) {
+    all.addAll(m.provideThreads(ref));
+  }
+  all.sort((a, b) {
+    final at = a.bumpTs ?? 0;
+    final bt = b.bumpTs ?? 0;
+    final cmp = bt.compareTo(at);
+    if (cmp != 0) return cmp;
+    return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+  });
+  return all;
 });
-

@@ -20,6 +20,8 @@ import 'package:messie_app/modules/matrix/services/profile_repository.dart';
 import 'package:messie_app/modules/matrix/services/media_repository.dart';
 import 'package:messie_app/modules/matrix/services/room_repository.dart';
 import 'package:messie_app/core/feed/home_threads.dart';
+import 'package:messie_app/core/feed/module_types.dart';
+import 'package:messie_app/core/feed/module_registry.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -682,7 +684,7 @@ class _RoomListSection extends ConsumerWidget {
       );
     }
 
-    // Source list comes from feed abstraction (Matrix-backed today)
+    // Source list comes from feed abstraction (multi‑module ready)
     final threads = ref.watch(homeThreadsProvider);
     if (threads.isEmpty) {
       children.add(Text(
@@ -690,25 +692,26 @@ class _RoomListSection extends ConsumerWidget {
         style: textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
       ));
     } else {
-      children.addAll(threads.map(
-        (thread) => _RoomTile(
+      final registry = ref.read(threadActionsRegistryProvider);
+      final nav = ref.read(threadNavigatorRegistryProvider);
+      children.addAll(threads.map((thread) {
+        final actions = registry.forModule(thread.module);
+        return _RoomTile(
           room: thread,
-          isActive: selectedRoomId == thread.roomId,
-          onTap: () => onSelectRoom(thread.roomId),
-          onToggleMute: () async {
-            final ok = await ref
-                .read(roomRepositoryProvider)
-                .setMute(thread.roomId, !thread.isMuted);
-            if (!ok && context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Failed to update mute state')),
-              );
-            } else {
-              onResubscribe();
-            }
-          },
-        ),
-      ));
+          isActive: selectedRoomId == thread.threadId,
+          onTap: () async => nav.navigate(context, ref, thread),
+          onToggleMute: actions.supportsMute
+              ? () async {
+                  final ok = await actions.toggleMute(context, ref, thread);
+                  if (!ok && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Failed to update mute state')),
+                    );
+                  }
+                }
+              : null,
+        );
+      }));
     }
 
     final canLoadMore = state.lpRooms.length < state.lpTotal;
@@ -778,21 +781,22 @@ class _RoomTile extends StatelessWidget {
                 isHighlight: room.highlightCount > 0,
               ),
             SizedBox(width: room.highlightCount > 0 || room.notificationCount > 0 ? spacing.gap.sm : 0),
-            IconButton(
-              visualDensity: VisualDensity.compact,
-              splashRadius: 18,
-              icon: Icon(
-                isMuted
-                    ? Icons.notifications_off_rounded
-                    : Icons.notifications_none_rounded,
+            if (onToggleMute != null)
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                splashRadius: 18,
+                icon: Icon(
+                  isMuted
+                      ? Icons.notifications_off_rounded
+                      : Icons.notifications_none_rounded,
+                ),
+                tooltip: isMuted ? 'Unmute notifications' : 'Mute notifications',
+                onPressed: onToggleMute,
+                color: Theme.of(context)
+                    .colorScheme
+                    .onSurfaceVariant
+                    .withValues(alpha: 0.45),
               ),
-              tooltip: isMuted ? 'Unmute notifications' : 'Mute notifications',
-              onPressed: onToggleMute,
-              color: Theme.of(context)
-                  .colorScheme
-                  .onSurfaceVariant
-                  .withValues(alpha: 0.45),
-            ),
           ],
         ),
       ),
