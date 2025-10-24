@@ -1,6 +1,6 @@
 import 'package:go_router/go_router.dart';
 
-import 'package:messie_app/modules/matrix/ui/home_screen.dart' show HomeScreen;
+import 'package:messie_app/ui/pages/feed/home_screen.dart' show HomeScreen;
 import '../settings/settings_screen.dart';
 import '../pages/chats/chats_page.dart';
 import '../pages/settings/connections/connections_list_page.dart';
