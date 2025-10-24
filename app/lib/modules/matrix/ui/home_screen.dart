@@ -19,6 +19,7 @@ import 'package:messie_app/ui/core/back_esc/back_esc_policy.dart';
 import 'package:messie_app/modules/matrix/services/profile_repository.dart';
 import 'package:messie_app/modules/matrix/services/media_repository.dart';
 import 'package:messie_app/modules/matrix/services/room_repository.dart';
+import 'package:messie_app/core/feed/home_threads.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -681,24 +682,23 @@ class _RoomListSection extends ConsumerWidget {
       );
     }
 
-    // Single unified list (HP first, then LP); subscription windows still driven by VM
-    final allRooms = <RoomPreview>[...state.hpRooms, ...state.lpRooms];
-    if (allRooms.isEmpty) {
+    // Source list comes from feed abstraction (Matrix-backed today)
+    final threads = ref.watch(homeThreadsProvider);
+    if (threads.isEmpty) {
       children.add(Text(
         'No rooms yet.',
         style: textTheme.bodyMedium?.copyWith(color: colors.onSurfaceVariant),
       ));
     } else {
-      children.addAll(allRooms.map(
-        (room) => _RoomTile(
-          room: room,
-          isActive: selectedRoomId == room.roomId,
-          onTap: () => onSelectRoom(room.roomId),
+      children.addAll(threads.map(
+        (thread) => _RoomTile(
+          room: thread,
+          isActive: selectedRoomId == thread.roomId,
+          onTap: () => onSelectRoom(thread.roomId),
           onToggleMute: () async {
-            final ok = await ref.read(roomRepositoryProvider).setMute(
-                  room.roomId,
-                  !room.isMuted,
-                );
+            final ok = await ref
+                .read(roomRepositoryProvider)
+                .setMute(thread.roomId, !thread.isMuted);
             if (!ok && context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('Failed to update mute state')),
@@ -741,7 +741,7 @@ class _RoomTile extends StatelessWidget {
     this.onToggleMute,
   });
 
-  final RoomPreview room;
+  final HomeThread room;
   final VoidCallback onTap;
   final bool isActive;
   final VoidCallback? onToggleMute;
