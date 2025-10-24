@@ -6,6 +6,7 @@ import '../pages/chats/chats_page.dart';
 import '../pages/settings/connections/connections_list_page.dart';
 import '../pages/settings/connections/provider_detail_page.dart';
 import '../pages/settings/theme_demo_page.dart';
+import '../pages/feed/unified_feed_screen.dart';
 
 GoRouter buildAppRouter() {
   return GoRouter(
@@ -43,6 +44,11 @@ GoRouter buildAppRouter() {
         path: '/settings/theme-demo',
         name: 'theme_demo',
         builder: (context, state) => const ThemeDemoPage(),
+      ),
+      GoRoute(
+        path: '/feed',
+        name: 'feed',
+        builder: (context, state) => const UnifiedFeedScreen(),
       ),
     ],
     // Reserved for deep links and state restoration later
