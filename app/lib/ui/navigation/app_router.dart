@@ -36,10 +36,17 @@ GoRouter buildAppRouter() {
         path: '/settings/connections/provider',
         name: 'provider_detail',
         builder: (context, state) {
-          final provider = state.extra as String? ?? 'provider';
+          String provider = 'whatsapp';
+          final extra = state.extra;
+          if (extra is String) {
+            provider = extra;
+          } else if (extra is Map) {
+            provider = (extra['provider'] as String?) ?? provider;
+          }
           return ProviderDetailPage(provider: provider);
         },
       ),
+      
       GoRoute(
         path: '/settings/theme-demo',
         name: 'theme_demo',

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:messie_app/modules/matrix/state/auth_view_model.dart';
@@ -19,6 +20,12 @@ final matrixModuleSettingsProvider = Provider<List<SettingsSection>>((ref) {
       title: 'Account',
       order: 10,
       builder: _buildAccountSection,
+    ),
+    SettingsSection(
+      id: 'matrix.connections',
+      title: 'Connections',
+      order: 15,
+      builder: _buildConnectionsSection,
     ),
     SettingsSection(
       id: 'matrix.security',
@@ -129,6 +136,38 @@ Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
               ],
             ),
           ],
+        ],
+      ),
+    ),
+  );
+}
+
+Widget _buildConnectionsSection(BuildContext context, WidgetRef ref) {
+  final spacing = MessieSpacing.of(context);
+  final textTheme = Theme.of(context).textTheme;
+  final colors = Theme.of(context).colorScheme;
+  return Card(
+    child: Padding(
+      padding: EdgeInsets.all(spacing.gap.xl),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Connections', style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+          SizedBox(height: spacing.gap.sm),
+          Text(
+            'Link external services. WhatsApp is available; more coming soon.',
+            style: textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+          ),
+          SizedBox(height: spacing.gap.md),
+          Row(
+            children: [
+              FilledButton.icon(
+                onPressed: () => context.push('/settings/connections'),
+                icon: const Icon(Icons.hub_rounded),
+                label: const Text('Manage Connections'),
+              ),
+            ],
+          ),
         ],
       ),
     ),
