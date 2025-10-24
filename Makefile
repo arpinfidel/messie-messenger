@@ -104,10 +104,17 @@ flutter-run-ios:
 	cd app && RUST_LOG="$(RUST_LOG)" flutter run -d ios --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
 
 # -------- Flutter profiling helpers --------
-.PHONY: profile-help flutter-profile-android flutter-profile-android-trace flutter-profile-android-sksl flutter-build-android-sksl flutter-profile-ios flutter-profile-ios-trace flutter-profile-ios-sksl flutter-build-ios-sksl
+.PHONY: profile-help \
+        flutter-profile-android flutter-profile-android-trace flutter-profile-android-sksl \
+        flutter-build-android-sksl \
+        flutter-profile-ios flutter-profile-ios-trace flutter-profile-ios-sksl \
+        flutter-build-ios-sksl \
+        flutter-build-android flutter-build-android-split flutter-install-android flutter-install-android-abi flutter-run-android-release
 
 # Default devices (override: make flutter-profile-android DEVICE=<id>)
 DEVICE ?= emulator-5554
+# Default ABI for split APK install (most devices): arm64-v8a
+ABI ?= arm64-v8a
 IOS_DEVICE ?= ios
 # Path to a saved SkSL warmup file exported from DevTools Performance (override as needed)
 SKSL_PATH ?= app/flutter_sksl.json
@@ -153,6 +160,36 @@ flutter-profile-android-sksl:
 flutter-build-android-sksl:
 	@echo "Building Android APK with SkSL warmup from $(SKSL_PATH)"
 	cd app && flutter build apk --bundle-sksl-path ../$(SKSL_PATH)
+
+# -------- Android release builds (APK) --------
+flutter-build-android:
+	# Ensure Rust Android FFI is built and copied into app/android
+	make bridge-build-android
+	cd app && flutter pub get
+	cd app && flutter gen-l10n
+	cd app && RUST_LOG="$(RUST_LOG)" flutter build apk --release --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+
+flutter-build-android-split:
+	# Split per ABI (smaller APKs). Use flutter-install-android-abi to install.
+	make bridge-build-android
+	cd app && flutter pub get
+	cd app && flutter gen-l10n
+	cd app && RUST_LOG="$(RUST_LOG)" flutter build apk --release --split-per-abi --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+
+flutter-run-android-release:
+	# Directly run on a connected device in --release
+	make bridge-build-android
+	cd app && flutter pub get
+	cd app && flutter gen-l10n
+	cd app && RUST_LOG="$(RUST_LOG)" flutter run -d $(DEVICE) --release --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL)
+
+flutter-install-android:
+	# Install the universal release APK built by flutter-build-android
+	adb install -r build/app/outputs/flutter-apk/app-release.apk
+
+flutter-install-android-abi:
+	# Install a split APK for a specific ABI (default: $(ABI))
+	adb install -r build/app/outputs/flutter-apk/app-$(ABI)-release.apk
 
 flutter-profile-ios:
 	make bridge-build-ios

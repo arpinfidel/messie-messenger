@@ -636,7 +636,7 @@ pub fn recover_with_key(recovery_key: &str) -> Result<()> {
 
             for room_id in joined_rooms {
                 match backups.download_room_keys_for_room(&room_id).await {
-                    Ok(()) => { info!("[backup] downloaded backup for {room_id}"); }
+                    Ok(()) => { trace!("[backup] downloaded backup for {room_id}"); }
                     Err(err) => { warn!("[backup] download failed for {room_id}: {err:?}"); }
                 }
             }

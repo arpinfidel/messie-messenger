@@ -131,23 +131,36 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
         // Build room previews directly from sliding sync summaries to avoid N calls.
         final raw = decoded['summaries'];
         List<RoomPreview> previews = <RoomPreview>[];
-        if (raw is List) {
-          try {
+        try {
+          if (raw is List) {
             previews = raw
                 .whereType<Map>()
                 .map((e) => RoomOverviewData.fromJson(e.cast<String, dynamic>()))
                 .map(RoomPreview.fromOverview)
                 .toList();
-          } catch (_) {
-            // If server payload shape differs, fall back below.
+          } else if (raw is Map) {
+            // Some builds may send a map of roomId -> summary
+            previews = raw.values
+                .whereType<Map>()
+                .map((e) => RoomOverviewData.fromJson(e.cast<String, dynamic>()))
+                .map(RoomPreview.fromOverview)
+                .toList();
           }
+        } catch (_) {
+          // fall through to fallback below
         }
 
         // Fallback: if summaries are missing/empty, derive minimal previews from room IDs.
         if (previews.isEmpty) {
-          final roomIds = (decoded['rooms'] as List<dynamic>? ?? const <dynamic>[])
-              .map((e) => e.toString())
-              .toList();
+          final roomsRaw = decoded['rooms'];
+          final List<String> roomIds;
+          if (roomsRaw is List) {
+            roomIds = roomsRaw.map((e) => e.toString()).toList();
+          } else if (roomsRaw is Map) {
+            roomIds = roomsRaw.keys.map((e) => e.toString()).toList();
+          } else {
+            roomIds = const <String>[];
+          }
           previews = roomIds
               .map((id) => RoomPreview(
                     roomId: id,

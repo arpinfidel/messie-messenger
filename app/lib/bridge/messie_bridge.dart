@@ -901,15 +901,41 @@ class RoomOverviewData {
   });
 
   factory RoomOverviewData.fromJson(Map<String, dynamic> json) {
+    int? _asInt(dynamic v) {
+      if (v == null) return null;
+      if (v is num) return v.toInt();
+      if (v is String) {
+        final s = v.trim();
+        if (s.isEmpty) return null;
+        final parsed = int.tryParse(s);
+        return parsed;
+      }
+      return null;
+    }
+
+    bool _asBool(dynamic v) {
+      if (v is bool) return v;
+      if (v is num) return v != 0;
+      if (v is String) {
+        final s = v.toLowerCase();
+        return s == 'true' || s == '1' || s == 'yes';
+      }
+      return false;
+    }
+
+    final bump = _asInt(json['bump_ts'] ?? json['bumpTs'] ?? json['ts'] ?? json['last_ts']);
+    final notif = _asInt(json['notification_count'] ?? json['notificationCount']) ?? 0;
+    final highlight = _asInt(json['highlight_count'] ?? json['highlightCount']) ?? 0;
+
     return RoomOverviewData(
-      roomId: json['room_id'] as String? ?? '',
+      roomId: json['room_id'] as String? ?? json['roomId'] as String? ?? '',
       name: json['name'] as String? ?? '',
-      avatarUrl: json['avatar_url'] as String?,
-      bumpTs: (json['bump_ts'] as num?)?.toInt(),
-      notificationCount: (json['notification_count'] as num?)?.toInt() ?? 0,
-      highlightCount: (json['highlight_count'] as num?)?.toInt() ?? 0,
-      isMarkedUnread: json['is_marked_unread'] == true,
-      isMuted: json['is_muted'] == true,
+      avatarUrl: json['avatar_url'] as String? ?? json['avatarUrl'] as String?,
+      bumpTs: bump,
+      notificationCount: notif,
+      highlightCount: highlight,
+      isMarkedUnread: _asBool(json['is_marked_unread'] ?? json['isMarkedUnread']),
+      isMuted: _asBool(json['is_muted'] ?? json['isMuted']),
     );
   }
 

@@ -966,6 +966,56 @@ void main() {
     expect(state.data, isNotNull);
     // We don't assert specific booleans (env-dependent), only presence.
   });
+
+  test('sliding sync payload schema is stable', () async {
+    // Use the existing roomListStream registered during setUpAll.
+    final payload = await _waitForPayload(
+      roomListStream!,
+      <String>{'sliding_sync_update'},
+      timeout: const Duration(seconds: 60),
+      label: 'schema',
+    );
+
+    // lists is a List
+    expect(payload['lists'], isA<List>(),
+        reason: 'lists should be a List, got: ${payload['lists']?.runtimeType}');
+
+    // rooms is a List<String>
+    final rooms = payload['rooms'];
+    expect(rooms, isA<List>(),
+        reason: 'rooms should be a List, got: ${rooms?.runtimeType}');
+    for (final r in (rooms as List)) {
+      expect(r, isA<String>(), reason: 'room id must be String');
+    }
+
+    // summaries is a List<Map>
+    final summaries = payload['summaries'];
+    expect(summaries, isA<List>(),
+        reason:
+            'summaries should be a List, got: ${summaries?.runtimeType} (map not allowed)');
+
+    // Spot-check first few summaries for field types
+    final list = (summaries as List).cast<Map?>();
+    final sampleCount = list.length.clamp(0, 5);
+    for (var i = 0; i < sampleCount; i++) {
+      final s = (list[i] ?? const <String, dynamic>{}) as Map<String, dynamic>;
+      expect(s['room_id'], isA<String>(), reason: 'room_id must be String');
+      // bump_ts is numeric when present
+      if (s.containsKey('bump_ts') && s['bump_ts'] != null) {
+        expect(s['bump_ts'], isA<num>(),
+            reason: 'bump_ts must be numeric if present');
+      }
+      // counts are numeric
+      expect(s['notification_count'], isA<num>(),
+          reason: 'notification_count must be numeric');
+      expect(s['highlight_count'], isA<num>(),
+          reason: 'highlight_count must be numeric');
+      // flags are boolean
+      expect(s['is_marked_unread'], isA<bool>(),
+          reason: 'is_marked_unread must be bool');
+      expect(s['is_muted'], isA<bool>(), reason: 'is_muted must be bool');
+    }
+  });
 }
 
 // Utility: wait up to a few seconds for the peer to write its device id file.
