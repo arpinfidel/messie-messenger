@@ -31,7 +31,8 @@ typedef _NativeBackupStatus = _PointerUtf8 Function();
 typedef _DartBackupStatus = _PointerUtf8 Function();
 typedef _NativeImportRecoveryKey = _PointerUtf8 Function(_PointerUtf8);
 typedef _DartImportRecoveryKey = _PointerUtf8 Function(_PointerUtf8);
-typedef _NativeBackupStatusStream = _PointerUtf8 Function(_PointerUtf8, ffi.Int64);
+typedef _NativeBackupStatusStream = _PointerUtf8 Function(
+    _PointerUtf8, ffi.Int64);
 typedef _DartBackupStatusStream = _PointerUtf8 Function(_PointerUtf8, int);
 typedef _NativeEnableOnlineBackup = _PointerUtf8 Function(ffi.Uint8);
 typedef _DartEnableOnlineBackup = _PointerUtf8 Function(int);
@@ -44,8 +45,10 @@ typedef _DartSsssBootstrap = _PointerUtf8 Function(int, _PointerUtf8);
 typedef _NativeSsssExportRecoveryKey = _PointerUtf8 Function();
 typedef _DartSsssExportRecoveryKey = _PointerUtf8 Function();
 
-typedef _NativeRequestSasVerification = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
-typedef _DartRequestSasVerification = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+typedef _NativeRequestSasVerification = _PointerUtf8 Function(
+    _PointerUtf8, _PointerUtf8);
+typedef _DartRequestSasVerification = _PointerUtf8 Function(
+    _PointerUtf8, _PointerUtf8);
 typedef _NativeObserveSas = _PointerUtf8 Function(_PointerUtf8, ffi.Int64);
 typedef _DartObserveSas = _PointerUtf8 Function(_PointerUtf8, int);
 typedef _NativeConfirmSas = _PointerUtf8 Function(_PointerUtf8);
@@ -94,10 +97,12 @@ typedef _NativeMarkReadUpTo = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
 typedef _DartMarkReadUpTo = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
 typedef _NativeSetRoomMute = _PointerUtf8 Function(_PointerUtf8, ffi.Uint8);
 typedef _DartSetRoomMute = _PointerUtf8 Function(_PointerUtf8, int);
-typedef _NativeMxcToHttp = _PointerUtf8 Function(_PointerUtf8, ffi.Uint32, ffi.Uint32);
+typedef _NativeMxcToHttp = _PointerUtf8 Function(
+    _PointerUtf8, ffi.Uint32, ffi.Uint32);
 typedef _DartMxcToHttp = _PointerUtf8 Function(_PointerUtf8, int, int);
 
-typedef _NativeMemberProfile = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
+typedef _NativeMemberProfile = _PointerUtf8 Function(
+    _PointerUtf8, _PointerUtf8);
 typedef _DartMemberProfile = _PointerUtf8 Function(_PointerUtf8, _PointerUtf8);
 
 typedef _NativeFreeString = ffi.Void Function(_PointerUtf8);
@@ -215,7 +220,8 @@ Future<RustResult<AckData>> rustBackupStatusStream({
   return Isolate.run(() => _backupStatusStreamIsolate(args));
 }
 
-Future<RustResult<EnableBackupData>> rustEnableOnlineBackup({required bool generateNew}) {
+Future<RustResult<EnableBackupData>> rustEnableOnlineBackup(
+    {required bool generateNew}) {
   final config = _LibraryConfig.detect();
   _ensurePostCObjectRegistered(config);
   final args = _EnableBackupArgs(config, generateNew);
@@ -238,14 +244,16 @@ Future<RustResult<MemberProfileData>> rustMemberProfile({
   return Isolate.run(() => _memberProfileIsolate(args));
 }
 
-Future<RustResult<Unit>> rustSsssImportRecoveryKey({required String recoveryKeyBech32}) {
+Future<RustResult<Unit>> rustSsssImportRecoveryKey(
+    {required String recoveryKeyBech32}) {
   final config = _LibraryConfig.detect();
   _ensurePostCObjectRegistered(config);
   final args = _RecoverArgs(config, recoveryKeyBech32);
   return Isolate.run(() => _ssssImportRecoveryKeyIsolate(args));
 }
 
-Future<RustResult<SsssBootstrapData>> rustSsssBootstrap({required bool generateNewKey, String? passphrase}) {
+Future<RustResult<SsssBootstrapData>> rustSsssBootstrap(
+    {required bool generateNewKey, String? passphrase}) {
   final config = _LibraryConfig.detect();
   _ensurePostCObjectRegistered(config);
   final args = _SsssBootstrapArgs(config, generateNewKey, passphrase ?? '');
@@ -496,12 +504,14 @@ RustResult<AckData> _backupStatusStreamIsolate(_RoomListStreamArgs args) {
   return bindings.backupStatusStream(args.handle, args.nativePort);
 }
 
-RustResult<EnableBackupData> _enableOnlineBackupIsolate(_EnableBackupArgs args) {
+RustResult<EnableBackupData> _enableOnlineBackupIsolate(
+    _EnableBackupArgs args) {
   final bindings = _RustBindings(_loadLibrary(args.config));
   return bindings.enableOnlineBackup(args.generateNew);
 }
 
-RustResult<ExportRecoveryKeyData> _exportRecoveryKeyIsolate(_LibraryConfig config) {
+RustResult<ExportRecoveryKeyData> _exportRecoveryKeyIsolate(
+    _LibraryConfig config) {
   final bindings = _RustBindings(_loadLibrary(config));
   return bindings.exportRecoveryKey();
 }
@@ -516,7 +526,8 @@ RustResult<SsssBootstrapData> _ssssBootstrapIsolate(_SsssBootstrapArgs args) {
   return bindings.ssssBootstrap(args.generateNewKey, args.passphrase);
 }
 
-RustResult<ExportRecoveryKeyData> _ssssExportRecoveryKeyIsolate(_LibraryConfig config) {
+RustResult<ExportRecoveryKeyData> _ssssExportRecoveryKeyIsolate(
+    _LibraryConfig config) {
   final bindings = _RustBindings(_loadLibrary(config));
   return bindings.ssssExportRecoveryKey();
 }
@@ -901,7 +912,7 @@ class RoomOverviewData {
   });
 
   factory RoomOverviewData.fromJson(Map<String, dynamic> json) {
-    int? _asInt(dynamic v) {
+    int? asInt(dynamic v) {
       if (v == null) return null;
       if (v is num) return v.toInt();
       if (v is String) {
@@ -913,7 +924,7 @@ class RoomOverviewData {
       return null;
     }
 
-    bool _asBool(dynamic v) {
+    bool asBool(dynamic v) {
       if (v is bool) return v;
       if (v is num) return v != 0;
       if (v is String) {
@@ -923,9 +934,12 @@ class RoomOverviewData {
       return false;
     }
 
-    final bump = _asInt(json['bump_ts'] ?? json['bumpTs'] ?? json['ts'] ?? json['last_ts']);
-    final notif = _asInt(json['notification_count'] ?? json['notificationCount']) ?? 0;
-    final highlight = _asInt(json['highlight_count'] ?? json['highlightCount']) ?? 0;
+    final bump = asInt(
+        json['bump_ts'] ?? json['bumpTs'] ?? json['ts'] ?? json['last_ts']);
+    final notif =
+        asInt(json['notification_count'] ?? json['notificationCount']) ?? 0;
+    final highlight =
+        asInt(json['highlight_count'] ?? json['highlightCount']) ?? 0;
 
     return RoomOverviewData(
       roomId: json['room_id'] as String? ?? json['roomId'] as String? ?? '',
@@ -934,8 +948,9 @@ class RoomOverviewData {
       bumpTs: bump,
       notificationCount: notif,
       highlightCount: highlight,
-      isMarkedUnread: _asBool(json['is_marked_unread'] ?? json['isMarkedUnread']),
-      isMuted: _asBool(json['is_muted'] ?? json['isMuted']),
+      isMarkedUnread:
+          asBool(json['is_marked_unread'] ?? json['isMarkedUnread']),
+      isMuted: asBool(json['is_muted'] ?? json['isMuted']),
     );
   }
 
@@ -1107,10 +1122,14 @@ class _RustBindings {
 
   RustResult<Unit> importRecoveryKey(String recoveryKey) {
     try {
-      _importRecoveryKeyOpt ??= _library.lookupFunction<_NativeImportRecoveryKey, _DartImportRecoveryKey>(
-          'messie_ffi_import_recovery_key');
+      _importRecoveryKeyOpt ??= _library.lookupFunction<
+          _NativeImportRecoveryKey,
+          _DartImportRecoveryKey>('messie_ffi_import_recovery_key');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'import_recovery_key not available in FFI');
+      return const RustResult(
+          ok: false,
+          data: null,
+          error: 'import_recovery_key not available in FFI');
     }
     final keyPtr = recoveryKey.toNativeUtf8();
     try {
@@ -1143,27 +1162,35 @@ class _RustBindings {
 
   RustResult<BackupStatusData> backupStatus() {
     try {
-      _backupStatusOpt ??= _library.lookupFunction<_NativeBackupStatus, _DartBackupStatus>(
-          'messie_ffi_backup_status');
+      _backupStatusOpt ??=
+          _library.lookupFunction<_NativeBackupStatus, _DartBackupStatus>(
+              'messie_ffi_backup_status');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'backup_status not available in FFI');
+      return const RustResult(
+          ok: false, data: null, error: 'backup_status not available in FFI');
     }
     final result = _stringFromPointer(_backupStatusOpt!());
-    return _parse(
-        result, (json) => BackupStatusData.fromJson(json as Map<String, dynamic>));
+    return _parse(result,
+        (json) => BackupStatusData.fromJson(json as Map<String, dynamic>));
   }
 
   RustResult<AckData> backupStatusStream(String handle, int nativePort) {
     try {
-      _backupStatusStreamOpt ??= _library.lookupFunction<_NativeBackupStatusStream, _DartBackupStatusStream>(
-          'messie_ffi_backup_status_stream');
+      _backupStatusStreamOpt ??= _library.lookupFunction<
+          _NativeBackupStatusStream,
+          _DartBackupStatusStream>('messie_ffi_backup_status_stream');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'backup_status_stream not available in FFI');
+      return const RustResult(
+          ok: false,
+          data: null,
+          error: 'backup_status_stream not available in FFI');
     }
     final handlePtr = handle.toNativeUtf8();
     try {
-      final result = _stringFromPointer(_backupStatusStreamOpt!(handlePtr, nativePort));
-      return _parse(result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+      final result =
+          _stringFromPointer(_backupStatusStreamOpt!(handlePtr, nativePort));
+      return _parse(
+          result, (json) => AckData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(handlePtr);
     }
@@ -1171,33 +1198,47 @@ class _RustBindings {
 
   RustResult<EnableBackupData> enableOnlineBackup(bool generateNew) {
     try {
-      _enableOnlineBackupOpt ??= _library.lookupFunction<_NativeEnableOnlineBackup, _DartEnableOnlineBackup>(
-          'messie_ffi_enable_online_backup');
+      _enableOnlineBackupOpt ??= _library.lookupFunction<
+          _NativeEnableOnlineBackup,
+          _DartEnableOnlineBackup>('messie_ffi_enable_online_backup');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'enable_online_backup not available in FFI');
+      return const RustResult(
+          ok: false,
+          data: null,
+          error: 'enable_online_backup not available in FFI');
     }
     final flag = generateNew ? 1 : 0;
     final result = _stringFromPointer(_enableOnlineBackupOpt!(flag));
-    return _parse(result, (json) => EnableBackupData.fromJson(json as Map<String, dynamic>));
+    return _parse(result,
+        (json) => EnableBackupData.fromJson(json as Map<String, dynamic>));
   }
 
   RustResult<ExportRecoveryKeyData> exportRecoveryKey() {
     try {
-      _exportRecoveryKeyOpt ??= _library.lookupFunction<_NativeExportRecoveryKey, _DartExportRecoveryKey>(
-          'messie_ffi_export_recovery_key');
+      _exportRecoveryKeyOpt ??= _library.lookupFunction<
+          _NativeExportRecoveryKey,
+          _DartExportRecoveryKey>('messie_ffi_export_recovery_key');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'export_recovery_key not available in FFI');
+      return const RustResult(
+          ok: false,
+          data: null,
+          error: 'export_recovery_key not available in FFI');
     }
     final result = _stringFromPointer(_exportRecoveryKeyOpt!());
-    return _parse(result, (json) => ExportRecoveryKeyData.fromJson(json as Map<String, dynamic>));
+    return _parse(result,
+        (json) => ExportRecoveryKeyData.fromJson(json as Map<String, dynamic>));
   }
 
   RustResult<Unit> ssssImportRecoveryKey(String recoveryKeyBech32) {
     try {
-      _ssssImportRecoveryKeyOpt ??= _library.lookupFunction<_NativeSsssImportRecoveryKey, _DartSsssImportRecoveryKey>(
-          'messie_ffi_ssss_import_recovery_key');
+      _ssssImportRecoveryKeyOpt ??= _library.lookupFunction<
+          _NativeSsssImportRecoveryKey,
+          _DartSsssImportRecoveryKey>('messie_ffi_ssss_import_recovery_key');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'ssss_import_recovery_key not available in FFI');
+      return const RustResult(
+          ok: false,
+          data: null,
+          error: 'ssss_import_recovery_key not available in FFI');
     }
     final keyPtr = recoveryKeyBech32.toNativeUtf8();
     try {
@@ -1208,18 +1249,22 @@ class _RustBindings {
     }
   }
 
-  RustResult<SsssBootstrapData> ssssBootstrap(bool generateNewKey, String? passphrase) {
+  RustResult<SsssBootstrapData> ssssBootstrap(
+      bool generateNewKey, String? passphrase) {
     try {
-      _ssssBootstrapOpt ??= _library.lookupFunction<_NativeSsssBootstrap, _DartSsssBootstrap>(
-          'messie_ffi_ssss_bootstrap');
+      _ssssBootstrapOpt ??=
+          _library.lookupFunction<_NativeSsssBootstrap, _DartSsssBootstrap>(
+              'messie_ffi_ssss_bootstrap');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'ssss_bootstrap not available in FFI');
+      return const RustResult(
+          ok: false, data: null, error: 'ssss_bootstrap not available in FFI');
     }
     final passPtr = (passphrase ?? '').toNativeUtf8();
     try {
       final flag = generateNewKey ? 1 : 0;
       final result = _stringFromPointer(_ssssBootstrapOpt!(flag, passPtr));
-      return _parse(result, (json) => SsssBootstrapData.fromJson(json as Map<String, dynamic>));
+      return _parse(result,
+          (json) => SsssBootstrapData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(passPtr);
     }
@@ -1227,27 +1272,37 @@ class _RustBindings {
 
   RustResult<ExportRecoveryKeyData> ssssExportRecoveryKey() {
     try {
-      _ssssExportRecoveryKeyOpt ??= _library.lookupFunction<_NativeSsssExportRecoveryKey, _DartSsssExportRecoveryKey>(
-          'messie_ffi_ssss_export_recovery_key');
+      _ssssExportRecoveryKeyOpt ??= _library.lookupFunction<
+          _NativeSsssExportRecoveryKey,
+          _DartSsssExportRecoveryKey>('messie_ffi_ssss_export_recovery_key');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'ssss_export_recovery_key not available in FFI');
+      return const RustResult(
+          ok: false,
+          data: null,
+          error: 'ssss_export_recovery_key not available in FFI');
     }
     final result = _stringFromPointer(_ssssExportRecoveryKeyOpt!());
-    return _parse(result, (json) => ExportRecoveryKeyData.fromJson(json as Map<String, dynamic>));
+    return _parse(result,
+        (json) => ExportRecoveryKeyData.fromJson(json as Map<String, dynamic>));
   }
 
-  RustResult<StartSasData> requestSasVerification(String userId, {String? deviceId}) {
+  RustResult<StartSasData> requestSasVerification(String userId,
+      {String? deviceId}) {
     try {
-      _requestSasOpt ??= _library.lookupFunction<_NativeRequestSasVerification, _DartRequestSasVerification>(
-          'messie_ffi_request_sas_verification');
+      _requestSasOpt ??= _library.lookupFunction<_NativeRequestSasVerification,
+          _DartRequestSasVerification>('messie_ffi_request_sas_verification');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'request_sas_verification not available in FFI');
+      return const RustResult(
+          ok: false,
+          data: null,
+          error: 'request_sas_verification not available in FFI');
     }
     final userPtr = userId.toNativeUtf8();
     final devicePtr = (deviceId ?? '').toNativeUtf8();
     try {
       final result = _stringFromPointer(_requestSasOpt!(userPtr, devicePtr));
-      return _parse(result, (json) => StartSasData.fromJson(json as Map<String, dynamic>));
+      return _parse(result,
+          (json) => StartSasData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(userPtr);
       calloc.free(devicePtr);
@@ -1256,15 +1311,18 @@ class _RustBindings {
 
   RustResult<AckData> observeSas(String flowId, int nativePort) {
     try {
-      _observeSasOpt ??= _library.lookupFunction<_NativeObserveSas, _DartObserveSas>(
-          'messie_ffi_observe_sas');
+      _observeSasOpt ??=
+          _library.lookupFunction<_NativeObserveSas, _DartObserveSas>(
+              'messie_ffi_observe_sas');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'observe_sas not available in FFI');
+      return const RustResult(
+          ok: false, data: null, error: 'observe_sas not available in FFI');
     }
     final flowPtr = flowId.toNativeUtf8();
     try {
       final result = _stringFromPointer(_observeSasOpt!(flowPtr, nativePort));
-      return _parse(result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+      return _parse(
+          result, (json) => AckData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(flowPtr);
     }
@@ -1272,10 +1330,12 @@ class _RustBindings {
 
   RustResult<Unit> confirmSas(String flowId) {
     try {
-      _confirmSasOpt ??= _library.lookupFunction<_NativeConfirmSas, _DartConfirmSas>(
-          'messie_ffi_confirm_sas');
+      _confirmSasOpt ??=
+          _library.lookupFunction<_NativeConfirmSas, _DartConfirmSas>(
+              'messie_ffi_confirm_sas');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'confirm_sas not available in FFI');
+      return const RustResult(
+          ok: false, data: null, error: 'confirm_sas not available in FFI');
     }
     final flowPtr = flowId.toNativeUtf8();
     try {
@@ -1288,10 +1348,12 @@ class _RustBindings {
 
   RustResult<Unit> cancelSas(String flowId) {
     try {
-      _cancelSasOpt ??= _library.lookupFunction<_NativeCancelSas, _DartCancelSas>(
-          'messie_ffi_cancel_sas');
+      _cancelSasOpt ??=
+          _library.lookupFunction<_NativeCancelSas, _DartCancelSas>(
+              'messie_ffi_cancel_sas');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'cancel_sas not available in FFI');
+      return const RustResult(
+          ok: false, data: null, error: 'cancel_sas not available in FFI');
     }
     final flowPtr = flowId.toNativeUtf8();
     try {
@@ -1302,20 +1364,21 @@ class _RustBindings {
     }
   }
 
-  
-
   RustResult<TrustStateData> trustState(String userId, {String? deviceId}) {
     try {
-      _trustStateOpt ??= _library.lookupFunction<_NativeTrustState, _DartTrustState>(
-          'messie_ffi_trust_state');
+      _trustStateOpt ??=
+          _library.lookupFunction<_NativeTrustState, _DartTrustState>(
+              'messie_ffi_trust_state');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'trust_state not available in FFI');
+      return const RustResult(
+          ok: false, data: null, error: 'trust_state not available in FFI');
     }
     final userPtr = userId.toNativeUtf8();
     final devicePtr = (deviceId ?? '').toNativeUtf8();
     try {
       final result = _stringFromPointer(_trustStateOpt!(userPtr, devicePtr));
-      return _parse(result, (json) => TrustStateData.fromJson(json as Map<String, dynamic>));
+      return _parse(result,
+          (json) => TrustStateData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(userPtr);
       calloc.free(devicePtr);
@@ -1427,10 +1490,14 @@ class _RustBindings {
     bool reset,
   ) {
     try {
-      _slidingSubscribeRoomsOpt ??= _library.lookupFunction<_NativeSlidingSubscribeRooms, _DartSlidingSubscribeRooms>(
-          'messie_ffi_sliding_subscribe_rooms');
+      _slidingSubscribeRoomsOpt ??= _library.lookupFunction<
+          _NativeSlidingSubscribeRooms,
+          _DartSlidingSubscribeRooms>('messie_ffi_sliding_subscribe_rooms');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'sliding_subscribe_rooms not available in FFI');
+      return const RustResult(
+          ok: false,
+          data: null,
+          error: 'sliding_subscribe_rooms not available in FFI');
     }
     final handlePtr = handle.toNativeUtf8();
     final jsonStr = jsonEncode(roomIds);
@@ -1439,7 +1506,8 @@ class _RustBindings {
       final result = _stringFromPointer(
         _slidingSubscribeRoomsOpt!(handlePtr, jsonPtr, reset ? 1 : 0),
       );
-      return _parse(result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+      return _parse(
+          result, (json) => AckData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(handlePtr);
       calloc.free(jsonPtr);
@@ -1448,17 +1516,20 @@ class _RustBindings {
 
   RustResult<AckData> sendText(String roomId, String body, {String? replyTo}) {
     try {
-      _sendTextOpt ??=
-          _library.lookupFunction<_NativeSendText, _DartSendText>('messie_ffi_send_text');
+      _sendTextOpt ??= _library.lookupFunction<_NativeSendText, _DartSendText>(
+          'messie_ffi_send_text');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'send_text not available in FFI');
+      return const RustResult(
+          ok: false, data: null, error: 'send_text not available in FFI');
     }
     final roomPtr = roomId.toNativeUtf8();
     final bodyPtr = body.toNativeUtf8();
     final replyPtr = (replyTo ?? '').toNativeUtf8();
     try {
-      final result = _stringFromPointer(_sendTextOpt!(roomPtr, bodyPtr, replyPtr));
-      return _parse(result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+      final result =
+          _stringFromPointer(_sendTextOpt!(roomPtr, bodyPtr, replyPtr));
+      return _parse(
+          result, (json) => AckData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(roomPtr);
       calloc.free(bodyPtr);
@@ -1468,15 +1539,19 @@ class _RustBindings {
 
   RustResult<AckData> markReadUpTo(String roomId, String eventId) {
     try {
-      _markReadUpToOpt ??= _library.lookupFunction<_NativeMarkReadUpTo, _DartMarkReadUpTo>('messie_ffi_mark_read_up_to');
+      _markReadUpToOpt ??=
+          _library.lookupFunction<_NativeMarkReadUpTo, _DartMarkReadUpTo>(
+              'messie_ffi_mark_read_up_to');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'mark_read_up_to not available in FFI');
+      return const RustResult(
+          ok: false, data: null, error: 'mark_read_up_to not available in FFI');
     }
     final roomPtr = roomId.toNativeUtf8();
     final eventPtr = eventId.toNativeUtf8();
     try {
       final result = _stringFromPointer(_markReadUpToOpt!(roomPtr, eventPtr));
-      return _parse(result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+      return _parse(
+          result, (json) => AckData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(roomPtr);
       calloc.free(eventPtr);
@@ -1485,14 +1560,19 @@ class _RustBindings {
 
   RustResult<AckData> setRoomMute(String roomId, bool muted) {
     try {
-      _setRoomMuteOpt ??= _library.lookupFunction<_NativeSetRoomMute, _DartSetRoomMute>('messie_ffi_set_room_mute');
+      _setRoomMuteOpt ??=
+          _library.lookupFunction<_NativeSetRoomMute, _DartSetRoomMute>(
+              'messie_ffi_set_room_mute');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'set_room_mute not available in FFI');
+      return const RustResult(
+          ok: false, data: null, error: 'set_room_mute not available in FFI');
     }
     final roomPtr = roomId.toNativeUtf8();
     try {
-      final result = _stringFromPointer(_setRoomMuteOpt!(roomPtr, muted ? 1 : 0));
-      return _parse(result, (json) => AckData.fromJson(json as Map<String, dynamic>));
+      final result =
+          _stringFromPointer(_setRoomMuteOpt!(roomPtr, muted ? 1 : 0));
+      return _parse(
+          result, (json) => AckData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(roomPtr);
     }
@@ -1500,13 +1580,17 @@ class _RustBindings {
 
   RustResult<String> mxcToHttp(String mxc, {int? w, int? h}) {
     try {
-      _mxcToHttpOpt ??= _library.lookupFunction<_NativeMxcToHttp, _DartMxcToHttp>('messie_ffi_mxc_to_http');
+      _mxcToHttpOpt ??=
+          _library.lookupFunction<_NativeMxcToHttp, _DartMxcToHttp>(
+              'messie_ffi_mxc_to_http');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'mxc_to_http not available in FFI');
+      return const RustResult(
+          ok: false, data: null, error: 'mxc_to_http not available in FFI');
     }
     final mxcPtr = mxc.toNativeUtf8();
     try {
-      final result = _stringFromPointer(_mxcToHttpOpt!(mxcPtr, (w ?? 0), (h ?? 0)));
+      final result =
+          _stringFromPointer(_mxcToHttpOpt!(mxcPtr, (w ?? 0), (h ?? 0)));
       return _parse(result, (json) => json as String?);
     } finally {
       calloc.free(mxcPtr);
@@ -1515,16 +1599,19 @@ class _RustBindings {
 
   RustResult<MemberProfileData> memberProfile(String roomId, String userId) {
     try {
-      _memberProfileOpt ??= _library.lookupFunction<_NativeMemberProfile, _DartMemberProfile>(
-          'messie_ffi_member_profile');
+      _memberProfileOpt ??=
+          _library.lookupFunction<_NativeMemberProfile, _DartMemberProfile>(
+              'messie_ffi_member_profile');
     } catch (e) {
-      return const RustResult(ok: false, data: null, error: 'member_profile not available in FFI');
+      return const RustResult(
+          ok: false, data: null, error: 'member_profile not available in FFI');
     }
     final roomPtr = roomId.toNativeUtf8();
     final userPtr = userId.toNativeUtf8();
     try {
       final result = _stringFromPointer(_memberProfileOpt!(roomPtr, userPtr));
-      return _parse(result, (json) => MemberProfileData.fromJson(json as Map<String, dynamic>));
+      return _parse(result,
+          (json) => MemberProfileData.fromJson(json as Map<String, dynamic>));
     } finally {
       calloc.free(roomPtr);
       calloc.free(userPtr);

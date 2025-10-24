@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'package:messie_app/bridge/messie_bridge.dart';
 import 'package:messie_app/modules/matrix/state/auth_view_model.dart';
 import 'package:messie_app/modules/matrix/state/backup_view_model.dart';
 import 'package:messie_app/modules/matrix/state/verification_view_model.dart';
@@ -66,7 +65,8 @@ Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
                   children: [
                     Text(
                       session?.userId ?? 'Signed out',
-                      style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+                      style: textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
                     ),
                     SizedBox(height: spacing.gap.xs),
                     Text(
@@ -87,7 +87,8 @@ Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
                 Icon(Icons.devices_rounded, color: colorScheme.primary),
                 SizedBox(width: spacing.gap.sm),
                 Expanded(
-                  child: Text('Device ID: ${session!.deviceId}', style: textTheme.bodyMedium),
+                  child: Text('Device ID: ${session!.deviceId}',
+                      style: textTheme.bodyMedium),
                 ),
               ],
             ),
@@ -99,7 +100,9 @@ Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
               runSpacing: spacing.gap.sm,
               children: [
                 Chip(
-                  label: Text(trustState.value!.userVerified ? 'User verified' : 'User unverified'),
+                  label: Text(trustState.value!.userVerified
+                      ? 'User verified'
+                      : 'User unverified'),
                   backgroundColor: trustState.value!.userVerified
                       ? colorScheme.primaryContainer
                       : colorScheme.surfaceContainerHighest,
@@ -111,7 +114,9 @@ Widget _buildAccountSection(BuildContext context, WidgetRef ref) {
                 ),
                 if (trustState.value!.deviceVerified != null)
                   Chip(
-                    label: Text(trustState.value!.deviceVerified == true ? 'Device trusted' : 'Device unverified'),
+                    label: Text(trustState.value!.deviceVerified == true
+                        ? 'Device trusted'
+                        : 'Device unverified'),
                     backgroundColor: trustState.value!.deviceVerified == true
                         ? colorScheme.tertiaryContainer
                         : colorScheme.surfaceContainerHighest,
@@ -135,7 +140,8 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
   final backupState = ref.watch(backupControllerProvider);
   final verifyState = ref.watch(verificationControllerProvider);
   // Keep trust state fresh after successful verification
-  ref.listen<VerificationState>(verificationControllerProvider, (previous, next) {
+  ref.listen<VerificationState>(verificationControllerProvider,
+      (previous, next) {
     if (next.status == 'done' && !next.active) {
       ref.invalidate(selfTrustProvider);
     }
@@ -171,13 +177,15 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
               children: [
                 Text(
                   'Save this key somewhere safe. It can decrypt your message history on new devices. Do not share it with anyone.',
-                  style: textTheme.bodySmall?.copyWith(color: colors.onSurfaceVariant),
+                  style: textTheme.bodySmall
+                      ?.copyWith(color: colors.onSurfaceVariant),
                 ),
                 SizedBox(height: spacing.gap.md),
                 DecoratedBox(
                   decoration: BoxDecoration(
                     color: colors.surfaceContainerHighest,
-                    borderRadius: BorderRadius.circular(MessieRadii.of(context).md),
+                    borderRadius:
+                        BorderRadius.circular(MessieRadii.of(context).md),
                   ),
                   child: Padding(
                     padding: EdgeInsets.all(spacing.gap.md),
@@ -214,7 +222,9 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
                   final ok = await secrets.saveRecoveryKey(recoveryKey);
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text(ok ? 'Saved securely' : 'Failed to save')),
+                      SnackBar(
+                          content:
+                              Text(ok ? 'Saved securely' : 'Failed to save')),
                     );
                   }
                 },
@@ -238,7 +248,8 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
   }
 
   final showVerifyRestore =
-      ((backupState.enabled != true) || (backupState.needsRecovery == true)) && (verifyState.status != 'done');
+      ((backupState.enabled != true) || (backupState.needsRecovery == true)) &&
+          (verifyState.status != 'done');
 
   return Card(
     child: Padding(
@@ -252,11 +263,14 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Device verification', style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                    Text('Device verification',
+                        style: textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700)),
                     SizedBox(height: spacing.gap.xs),
                     Text(
                       'Verify this device using SAS to protect against imposters.',
-                      style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+                      style: textTheme.bodySmall
+                          ?.copyWith(color: colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -268,10 +282,15 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
                     : () async {
                         await ref
                             .read(verificationControllerProvider.notifier)
-                            .start(userId: session.userId, deviceId: session.deviceId);
+                            .start(
+                                userId: session.userId,
+                                deviceId: session.deviceId);
                       },
                 icon: verifyState.active
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.verified_user_rounded),
                 label: Text(verifyState.active ? 'Verifying…' : 'Verify now'),
               ),
@@ -279,7 +298,8 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
           ),
           if (verifyState.error != null) ...[
             SizedBox(height: spacing.gap.sm),
-            Text(verifyState.error!, style: textTheme.bodySmall?.copyWith(color: colorScheme.error)),
+            Text(verifyState.error!,
+                style: textTheme.bodySmall?.copyWith(color: colorScheme.error)),
           ],
           if (verifyState.emoji.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -287,7 +307,8 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
               spacing: 8,
               runSpacing: 8,
               children: verifyState.emoji
-                  .map((e) => Chip(label: Text(e), visualDensity: VisualDensity.compact))
+                  .map((e) => Chip(
+                      label: Text(e), visualDensity: VisualDensity.compact))
                   .toList(),
             ),
           ],
@@ -304,11 +325,14 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Key backup & recovery', style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                    Text('Key backup & recovery',
+                        style: textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w700)),
                     SizedBox(height: spacing.gap.xs),
                     Text(
                       'Keep your encrypted messages safe. Generate and store a recovery key, then enable backup.',
-                      style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+                      style: textTheme.bodySmall
+                          ?.copyWith(color: colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -333,7 +357,8 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
                     SizedBox(height: spacing.gap.xs),
                     Text(
                       'Recovery state: ${backupState.recoveryState ?? '(unknown)'}',
-                      style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+                      style: textTheme.bodySmall
+                          ?.copyWith(color: colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -358,7 +383,8 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
                       SizedBox(height: spacing.gap.xs),
                       Text(
                         'If you previously saved your recovery key, you can restore access to encrypted messages.',
-                        style: textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
+                        style: textTheme.bodySmall
+                            ?.copyWith(color: colorScheme.onSurfaceVariant),
                       ),
                     ],
                   ),
@@ -384,7 +410,8 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
                                 ),
                                 actions: [
                                   TextButton(
-                                    onPressed: () => Navigator.of(context).pop(false),
+                                    onPressed: () =>
+                                        Navigator.of(context).pop(false),
                                     child: const Text('Cancel'),
                                   ),
                                   FilledButton(
@@ -408,9 +435,12 @@ Widget _buildSecuritySection(BuildContext context, WidgetRef ref) {
                           );
                           if (result == true && context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Recovery attempted')),
+                              const SnackBar(
+                                  content: Text('Recovery attempted')),
                             );
-                            await ref.read(backupControllerProvider.notifier).refresh();
+                            await ref
+                                .read(backupControllerProvider.notifier)
+                                .refresh();
                           }
                         },
                   icon: const Icon(Icons.download_rounded),
@@ -435,7 +465,9 @@ Widget _buildDeveloperSection(BuildContext context, WidgetRef ref) {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Developer', style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+          Text('Developer',
+              style:
+                  textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
           SizedBox(height: spacing.gap.sm),
           Row(
             children: [

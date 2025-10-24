@@ -20,6 +20,7 @@ class MatrixSession {
     required this.accessToken,
     this.deviceId,
     this.backendJwt,
+    this.backendUserId,
   });
 
   final String homeserverUrl;
@@ -27,11 +28,13 @@ class MatrixSession {
   final String accessToken;
   final String? deviceId;
   final String? backendJwt; // JWT from backend via Matrix OpenID
+  final String? backendUserId; // User id in backend service (todo/email)
 
   MatrixSession copyWith({
     String? accessToken,
     String? deviceId,
     String? backendJwt,
+    String? backendUserId,
   }) {
     return MatrixSession(
       homeserverUrl: homeserverUrl,
@@ -39,6 +42,7 @@ class MatrixSession {
       accessToken: accessToken ?? this.accessToken,
       deviceId: deviceId ?? this.deviceId,
       backendJwt: backendJwt ?? this.backendJwt,
+      backendUserId: backendUserId ?? this.backendUserId,
     );
   }
 }
@@ -57,6 +61,7 @@ const _kUserIdKey = 'messie.user_id';
 const _kAccessTokenKey = 'messie.access_token';
 const _kDeviceIdKey = 'messie.device_id';
 const _kBackendJwtKey = 'messie.backend_jwt';
+const _kBackendUserIdKey = 'messie.backend_user_id';
 
 final authControllerProvider =
     AsyncNotifierProvider<AuthController, MatrixSession?>(AuthController.new);
@@ -76,7 +81,9 @@ class AuthController extends AsyncNotifier<MatrixSession?> {
   Future<void> ensureBackendJwt() async {
     final current = state.asData?.value;
     if (current == null) return;
-    if (current.backendJwt != null && current.backendJwt!.isNotEmpty) return;
+    final hasJwt = current.backendJwt != null && current.backendJwt!.isNotEmpty;
+    final hasBackendUserId = current.backendUserId != null && current.backendUserId!.isNotEmpty;
+    if (hasJwt && hasBackendUserId) return;
     try {
       var updated = await _fetchAndAttachBackendJwt(current);
       await _persistSession(updated);
@@ -139,6 +146,7 @@ class AuthController extends AsyncNotifier<MatrixSession?> {
     final accessToken = await _secureStorage.read(key: _kAccessTokenKey);
     final deviceId = await _secureStorage.read(key: _kDeviceIdKey);
     final backendJwt = await _secureStorage.read(key: _kBackendJwtKey);
+    final backendUserId = await _secureStorage.read(key: _kBackendUserIdKey);
 
     if (userId == null || accessToken == null) {
       await _clearStoredSession();
@@ -162,6 +170,7 @@ class AuthController extends AsyncNotifier<MatrixSession?> {
       accessToken: accessToken,
       deviceId: data.deviceId ?? deviceId,
       backendJwt: backendJwt,
+      backendUserId: backendUserId,
     );
     // If store has a fresher access token than secure storage, prefer it.
     final fromStore = await _readStoreAccessToken(_basePath);
@@ -191,6 +200,10 @@ class AuthController extends AsyncNotifier<MatrixSession?> {
       await _secureStorage.write(
           key: _kBackendJwtKey, value: session.backendJwt);
     }
+    if (session.backendUserId != null && session.backendUserId!.isNotEmpty) {
+      await _secureStorage.write(
+          key: _kBackendUserIdKey, value: session.backendUserId);
+    }
   }
 
   Future<String?> _readStoreAccessToken(String basePath) async {
@@ -211,6 +224,7 @@ class AuthController extends AsyncNotifier<MatrixSession?> {
     await _secureStorage.delete(key: _kAccessTokenKey);
     await _secureStorage.delete(key: _kDeviceIdKey);
     await _secureStorage.delete(key: _kBackendJwtKey);
+    await _secureStorage.delete(key: _kBackendUserIdKey);
   }
 
   Future<String> _resolveBasePath() async {
@@ -244,12 +258,11 @@ extension on AuthController {
       final req = api.MatrixOpenIDRequest((b) => b
         ..accessToken = openId
         ..matrixServerName = serverName);
-      final res = await backend
-          .getDefaultApi()
-          .postMatrixAuth(matrixOpenIDRequest: req);
+      final res = await backend.getDefaultApi().postMatrixAuth(matrixOpenIDRequest: req);
       final jwt = res.data?.token;
+      final backendUserId = res.data?.userId;
       if (jwt == null || jwt.isEmpty) return session;
-      return session.copyWith(backendJwt: jwt);
+      return session.copyWith(backendJwt: jwt, backendUserId: backendUserId);
     } catch (e) {
       debugPrint('OpenID->backend JWT exchange failed: $e');
       return session;

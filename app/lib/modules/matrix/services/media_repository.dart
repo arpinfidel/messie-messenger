@@ -1,7 +1,7 @@
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show consolidateHttpClientResponseBytes, debugPrint;
+import 'package:flutter/foundation.dart'
+    show consolidateHttpClientResponseBytes, debugPrint;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -40,7 +40,8 @@ class MediaRepository {
       }
       final httpUrl = httpRes.data!;
       final dir = await getApplicationSupportDirectory();
-      final cacheDir = Directory(p.join(dir.path, 'messie', 'media', 'avatars'));
+      final cacheDir =
+          Directory(p.join(dir.path, 'messie', 'media', 'avatars'));
       try {
         await cacheDir.create(recursive: true);
       } catch (_) {}
@@ -56,7 +57,8 @@ class MediaRepository {
         final uri = Uri.parse(httpUrl);
         final req = await client.getUrl(uri);
         if (session != null) {
-          req.headers.set(HttpHeaders.authorizationHeader, 'Bearer ${session.accessToken}');
+          req.headers.set(
+              HttpHeaders.authorizationHeader, 'Bearer ${session.accessToken}');
         }
         final resp = await req.close();
         if (resp.statusCode == 200) {
@@ -84,4 +86,3 @@ class MediaRepository {
     return '${sanitized}_$size';
   }
 }
-

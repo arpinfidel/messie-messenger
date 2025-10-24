@@ -4,12 +4,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'module_types.dart';
 import 'thread_actions.dart';
 import '../../modules/matrix/feed/module_registration.dart';
+import '../../modules/todo/feed/module_registration.dart';
 
 // All module registrations in one place. Add new modules here.
 final moduleRegistryProvider = Provider<List<ModuleRegistration>>((ref) {
   return <ModuleRegistration>[
     ref.watch(matrixModuleRegistrationProvider),
-    // Future: emailModuleRegistrationProvider, todoModuleRegistrationProvider, …
+    ref.watch(todoModuleRegistrationProvider),
+    // Future: emailModuleRegistrationProvider, …
   ];
 });
 

@@ -22,6 +22,8 @@ import 'package:messie_app/modules/matrix/services/room_repository.dart';
 import 'package:messie_app/core/feed/home_threads.dart';
 import 'package:messie_app/core/feed/module_types.dart';
 import 'package:messie_app/core/feed/module_registry.dart';
+import 'package:messie_app/modules/todo/services/todo_repository.dart';
+import 'package:messie_app/modules/todo/state/todo_threads_controller.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
@@ -591,9 +593,99 @@ class LoggedInView extends ConsumerWidget {
                 )
               : null,
           body: SafeArea(child: content),
+          floatingActionButton: FloatingActionButton(
+            onPressed: () => _showCreateMenu(context, ref),
+            tooltip: 'Create',
+            child: const Icon(Icons.add_rounded),
+          ),
         );
       },
     );
+  }
+
+  Future<void> _showCreateMenu(BuildContext context, WidgetRef ref) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.checklist_rounded),
+                title: const Text('Create To‑Do List'),
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  await _createTodoListFlow(context, ref);
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _createTodoListFlow(BuildContext context, WidgetRef ref) async {
+    final titleController = TextEditingController();
+    final descController = TextEditingController();
+    final spacing = MessieSpacing.of(context);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('New To‑Do List'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: titleController,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Title'),
+              textInputAction: TextInputAction.next,
+            ),
+            SizedBox(height: spacing.gap.md),
+            TextField(
+              controller: descController,
+              decoration: const InputDecoration(labelText: 'Description (optional)'),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final title = titleController.text.trim();
+    if (title.isEmpty) return;
+    final desc = descController.text;
+
+    final repo = ref.read(todoRepositoryProvider);
+    final created = await repo.createList(title: title, description: desc);
+    if (created == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to create to‑do list')),
+        );
+      }
+      return;
+    }
+
+    // Refresh lists and navigate to the detail page of the new list
+    ref.invalidate(todoListsStreamProvider);
+    if (!context.mounted) return;
+    context.pushNamed('todo_detail', pathParameters: {'listId': created.id});
   }
 }
 
@@ -677,6 +769,35 @@ class _RoomListSection extends ConsumerWidget {
                 onPressed: onResubscribe,
                 icon: const Icon(Icons.refresh_rounded),
                 tooltip: 'Retry sync',
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final todoError = ref.watch(todoLastErrorProvider);
+    if (todoError != null && todoError.isNotEmpty) {
+      children.add(
+        Container(
+          padding: EdgeInsets.all(spacing.gap.md),
+          margin: EdgeInsets.only(bottom: spacing.gap.md),
+          decoration: BoxDecoration(
+            color: colors.errorContainer,
+            borderRadius: BorderRadius.circular(MessieRadii.of(context).md),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.warning_amber_rounded, color: colors.onErrorContainer),
+              SizedBox(width: spacing.gap.sm),
+              Expanded(
+                child: Text(
+                  'Todo sync issue: $todoError',
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: colors.onErrorContainer,
+                  ),
+                ),
               ),
             ],
           ),

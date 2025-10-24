@@ -6,6 +6,7 @@ import '../pages/chats/chats_page.dart';
 import '../pages/settings/connections/connections_list_page.dart';
 import '../pages/settings/connections/provider_detail_page.dart';
 import '../pages/settings/theme_demo_page.dart';
+import '../pages/todo/todo_detail_page.dart';
 
 GoRouter buildAppRouter() {
   return GoRouter(
@@ -43,6 +44,14 @@ GoRouter buildAppRouter() {
         path: '/settings/theme-demo',
         name: 'theme_demo',
         builder: (context, state) => const ThemeDemoPage(),
+      ),
+      GoRoute(
+        path: '/todo/:listId',
+        name: 'todo_detail',
+        builder: (context, state) {
+          final listId = state.pathParameters['listId'] ?? '';
+          return TodoDetailPage(listId: listId);
+        },
       ),
       // no separate feed route; feed abstraction is integrated into Home
     ],
