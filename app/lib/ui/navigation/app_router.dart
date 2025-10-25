@@ -7,6 +7,10 @@ import '../pages/settings/connections/connections_list_page.dart';
 import '../pages/settings/connections/provider_detail_page.dart';
 import '../pages/settings/theme_demo_page.dart';
 import '../pages/todo/todo_detail_page.dart';
+import '../pages/email/email_detail_page.dart';
+import '../pages/settings/connections/email_setup_page.dart';
+import '../pages/settings/connections/email_gmail_connect_page.dart';
+import '../pages/settings/connections/email_imap_oauth_connect_page.dart';
 
 GoRouter buildAppRouter() {
   return GoRouter(
@@ -31,6 +35,24 @@ GoRouter buildAppRouter() {
         path: '/settings/connections',
         name: 'connections_list',
         builder: (context, state) => const ConnectionsListPage(),
+      ),
+      GoRoute(
+        path: '/settings/connections/email-setup',
+        name: 'email_setup',
+        builder: (context, state) => const EmailSetupPage(),
+      ),
+      GoRoute(
+        path: '/settings/connections/email-gmail',
+        name: 'email_gmail',
+        builder: (context, state) => const EmailGmailConnectPage(),
+      ),
+      GoRoute(
+        path: '/settings/connections/email-imap-oauth/:providerId',
+        name: 'email_imap_oauth',
+        builder: (context, state) {
+          final providerId = state.pathParameters['providerId'] ?? '';
+          return EmailImapOAuthConnectPage(providerId: providerId);
+        },
       ),
       GoRoute(
         path: '/settings/connections/provider',
@@ -58,6 +80,14 @@ GoRouter buildAppRouter() {
         builder: (context, state) {
           final listId = state.pathParameters['listId'] ?? '';
           return TodoDetailPage(listId: listId);
+        },
+      ),
+      GoRoute(
+        path: '/email/:threadId',
+        name: 'email_detail',
+        builder: (context, state) {
+          final threadId = state.pathParameters['threadId'] ?? '';
+          return EmailDetailPage(threadId: threadId);
         },
       ),
       // no separate feed route; feed abstraction is integrated into Home

@@ -1,0 +1,27 @@
+providers:
+  - id: gmail
+    label: Gmail
+    issuer: https://accounts.google.com
+    # Use a Desktop (Installed app) client ID for loopback + PKCE
+    androidClientId: 462453160552-2gj9aasfbtpgtc8mp7rlv84cpu9bhbup.apps.googleusercontent.com
+    iosClientId: ""
+    # Some Google projects may still require a client_secret at the token
+    # endpoint. Set for dev only so our code can retry when the server demands it.
+    clientSecret: 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
+    # Loopback redirect handled by the app's local HTTP server
+    useLoopback: true
+    loopbackHost: 127.0.0.1
+    loopbackPath: /oauth2redirect
+    loopbackPort: 53219
+    scopes:
+      - openid
+      - email
+      - https://mail.google.com/
+    imap:
+      host: imap.gmail.com
+      port: 993
+      secure: true
+    smtp:
+      host: smtp.gmail.com
+      port: 587
+      secure: true

@@ -1,7 +1,6 @@
 import 'dart:async'; // moved to neutral feed UI
 import 'dart:io' show File, Platform;
 
-import 'package:characters/characters.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,7 +17,6 @@ import 'package:messie_app/ui/components/segmented_control.dart';
 import 'package:messie_app/ui/core/back_esc/back_esc_policy.dart';
 import 'package:messie_app/modules/matrix/services/profile_repository.dart';
 import 'package:messie_app/modules/matrix/services/media_repository.dart';
-import 'package:messie_app/modules/matrix/services/room_repository.dart';
 import 'package:messie_app/core/feed/home_threads.dart';
 import 'package:messie_app/core/feed/module_types.dart';
 import 'package:messie_app/core/feed/module_registry.dart';
@@ -649,7 +647,8 @@ class LoggedInView extends ConsumerWidget {
             SizedBox(height: spacing.gap.md),
             TextField(
               controller: descController,
-              decoration: const InputDecoration(labelText: 'Description (optional)'),
+              decoration:
+                  const InputDecoration(labelText: 'Description (optional)'),
               maxLines: 2,
             ),
           ],
@@ -826,7 +825,8 @@ class _RoomListSection extends ConsumerWidget {
                   final ok = await actions.toggleMute(context, ref, thread);
                   if (!ok && context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Failed to update mute state')),
+                      const SnackBar(
+                          content: Text('Failed to update mute state')),
                     );
                   }
                 }
@@ -901,7 +901,10 @@ class _RoomTile extends StatelessWidget {
                     : room.notificationCount,
                 isHighlight: room.highlightCount > 0,
               ),
-            SizedBox(width: room.highlightCount > 0 || room.notificationCount > 0 ? spacing.gap.sm : 0),
+            SizedBox(
+                width: room.highlightCount > 0 || room.notificationCount > 0
+                    ? spacing.gap.sm
+                    : 0),
             if (onToggleMute != null)
               IconButton(
                 visualDensity: VisualDensity.compact,
@@ -911,7 +914,8 @@ class _RoomTile extends StatelessWidget {
                       ? Icons.notifications_off_rounded
                       : Icons.notifications_none_rounded,
                 ),
-                tooltip: isMuted ? 'Unmute notifications' : 'Mute notifications',
+                tooltip:
+                    isMuted ? 'Unmute notifications' : 'Mute notifications',
                 onPressed: onToggleMute,
                 color: Theme.of(context)
                     .colorScheme
@@ -1005,8 +1009,8 @@ class _SenderNameState extends ConsumerState<_SenderName> {
 
   Future<void> _load() async {
     final repo = ref.read(profileRepositoryProvider);
-    final data = await repo.memberProfile(
-        roomId: widget.roomId, userId: widget.userId);
+    final data =
+        await repo.memberProfile(roomId: widget.roomId, userId: widget.userId);
     if (!mounted) return;
     setState(() {
       _profile = data;
@@ -1051,8 +1055,8 @@ class _SenderAvatarState extends ConsumerState<_SenderAvatar> {
 
   Future<void> _load() async {
     final repo = ref.read(profileRepositoryProvider);
-    final data = await repo.memberProfile(
-        roomId: widget.roomId, userId: widget.userId);
+    final data =
+        await repo.memberProfile(roomId: widget.roomId, userId: widget.userId);
     if (!mounted) return;
     setState(() {
       _profile = data;
@@ -1087,7 +1091,8 @@ class _AvatarPlaceholderState extends ConsumerState<_AvatarPlaceholder> {
 
   Future<void> _resolve() async {
     final repo = ref.read(mediaRepositoryProvider);
-    final source = await repo.resolveAvatar(mxc: widget.avatarUrl, w: 96, h: 96);
+    final source =
+        await repo.resolveAvatar(mxc: widget.avatarUrl, w: 96, h: 96);
     if (!mounted) return;
     setState(() {
       _filePath = source.filePath;
@@ -1106,7 +1111,9 @@ class _AvatarPlaceholderState extends ConsumerState<_AvatarPlaceholder> {
         ? <String, String>{'Authorization': 'Bearer ${session.accessToken}'}
         : null;
 
-    if (filePath != null && filePath.isNotEmpty && File(filePath).existsSync()) {
+    if (filePath != null &&
+        filePath.isNotEmpty &&
+        File(filePath).existsSync()) {
       return CircleAvatar(
         backgroundColor: colors.secondaryContainer,
         child: ClipOval(
@@ -1351,7 +1358,8 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
       if (roomId == null || text.isEmpty) return;
       final replyTo = _replyTo?.key.eventId;
       final messenger = ScaffoldMessenger.of(context);
-      final ok = await ref.read(timelineControllerProvider.notifier)
+      final ok = await ref
+          .read(timelineControllerProvider.notifier)
           .sendText(roomId: roomId, body: text, replyTo: replyTo);
       if (!ok && mounted) {
         messenger.showSnackBar(
@@ -1516,7 +1524,8 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: Theme.of(context).colorScheme.surface,
-              border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+              border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant),
               borderRadius: BorderRadius.circular(MessieRadii.of(context).md),
             ),
             child: ClipRRect(
@@ -1564,8 +1573,10 @@ class _TimelinePaneState extends ConsumerState<_TimelinePane> {
                   child: Material(
                     elevation: 0,
                     shape: RoundedRectangleBorder(
-                      side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
-                      borderRadius: BorderRadius.circular(MessieRadii.of(context).md),
+                      side: BorderSide(
+                          color: Theme.of(context).colorScheme.outlineVariant),
+                      borderRadius:
+                          BorderRadius.circular(MessieRadii.of(context).md),
                     ),
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
@@ -1688,8 +1699,8 @@ class _TimelineBubble extends StatelessWidget {
                       alignment: Alignment.bottomRight,
                       child: Text(
                         timestamp.format(context),
-                        style: textTheme.labelSmall
-                            ?.copyWith(color: foreground.withValues(alpha: 0.7)),
+                        style: textTheme.labelSmall?.copyWith(
+                            color: foreground.withValues(alpha: 0.7)),
                       ),
                     ),
                 ],

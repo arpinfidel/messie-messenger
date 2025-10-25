@@ -56,9 +56,13 @@ func (h *WAHandler) GetConnections(w http.ResponseWriter, r *http.Request) {
     mxid := ""; if u != nil { mxid = u.MatrixID }
     status := generated.NotConnected
     var account *generated.BridgeAccount
+    connectedCount := 0
     if mxid != "" {
-        if ids, err := h.provider.ListLogins(r.Context(), mxid); err == nil && len(ids) > 0 {
-            status = generated.Connected
+        if ids, err := h.provider.ListLogins(r.Context(), mxid); err == nil {
+            connectedCount = len(ids)
+            if connectedCount > 0 {
+                status = generated.Connected
+            }
         }
     }
     // include effective limit for transparency
@@ -66,7 +70,8 @@ func (h *WAHandler) GetConnections(w http.ResponseWriter, r *http.Request) {
     if err != nil {
         log.Printf("[connections] failed to read limit: %v", err)
     }
-    limits := map[string]any{"max_accounts": maxAcc}
+    // Surface counts so clients don’t have to guess
+    limits := map[string]any{"max_accounts": maxAcc, "connected_count": connectedCount}
     resp := []generated.BridgeConnection{{
         Provider: "whatsapp",
         Status:   status,

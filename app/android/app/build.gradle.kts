@@ -28,6 +28,8 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Placeholder required by flutter_appauth; set a safe default so builds don't fail
+        manifestPlaceholders["appAuthRedirectScheme"] = "com.example.temp_flutter_template"
     }
 
     buildTypes {
