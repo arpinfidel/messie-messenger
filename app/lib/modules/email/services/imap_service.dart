@@ -102,7 +102,7 @@ class EmailImapService {
     final SearchImapResult sr =
         await imapClient.searchMessages(searchCriteria: searchCriteria);
     final List<int> ids = _extractSequenceIds(sr);
-    debugPrint('[imap] important: search "${searchCriteria}" -> ids=${ids.length}');
+    debugPrint('[imap] important: search "$searchCriteria" -> ids=${ids.length}');
     if (ids.isEmpty) {
       await imapClient.logout();
       return const <MimeMessage>[];
@@ -320,25 +320,93 @@ class EmailImapService {
     final client = await _connect(account);
     try {
       final boxes = await client.listMailboxes();
+      // Debug: list all mailboxes discovered
+      for (final m in boxes) {
+        try {
+          debugPrint('[imap] prefetch: discovered mailbox name=${m.name} path=${m.encodedPath} flags=${m.flags}');
+        } catch (_) {}
+      }
       Mailbox? inbox;
       Mailbox? allMail;
       final List<Mailbox> sentCandidates = [];
+
+      // Helper: resolve by exact known names ignoring case
+      Mailbox? byName(String wanted) {
+        final w = wanted.toLowerCase();
+        for (final m in boxes) {
+          if (m.name.toLowerCase() == w) return m;
+        }
+        return null;
+      }
+
+      inbox = byName('INBOX');
+      if (inbox == null) {
+        for (final m in boxes) {
+          if (m.name.toLowerCase() == 'inbox') { inbox = m; break; }
+        }
+      }
+      allMail = byName('[Gmail]/All Mail');
+      if (allMail == null) {
+        for (final m in boxes) {
+          final n = m.name.toLowerCase();
+          final flagsStr = m.flags.toString().toLowerCase();
+          final hasAllFlag = flagsStr.contains('\\all') || flagsStr.contains('specialuse=all') || flagsStr.contains('allmail');
+          if (n.contains('all mail') || (n.contains('[gmail]') && n.contains('all mail')) || hasAllFlag) { allMail = m; break; }
+        }
+      }
+
+      final knownSentNames = <String>{
+        '[Gmail]/Sent Mail'.toLowerCase(),
+        'Sent'.toLowerCase(),
+        'Sent Items'.toLowerCase(),
+        'Sent Mail'.toLowerCase(),
+        'Sent Messages'.toLowerCase(),
+      };
       for (final m in boxes) {
         final n = m.name.toLowerCase();
-        if (n == 'inbox') inbox = m;
-        if (n.contains('all mail') || (n.contains('[gmail]') && n.contains('all mail')) || m.isArchive) {
-          allMail ??= m;
-        }
-        if (n.contains('sent')) {
+        final flagsStr = m.flags.toString().toLowerCase();
+        final hasSentFlag = flagsStr.contains('\\sent') || flagsStr.contains('specialuse=sent');
+        if (knownSentNames.contains(n) || n.contains('sent') || hasSentFlag) {
           sentCandidates.add(m);
         }
       }
 
       final targets = <Mailbox>[
-        if (allMail != null) allMail!,
-        if (inbox != null) inbox!,
+        if (allMail != null) allMail,
+        if (inbox != null) inbox,
         ...sentCandidates,
       ];
+
+      // Gmail fallback: if children under [Gmail] weren't listed (e.g., server returns only
+      // top-level or user unsubscribed), explicitly try known Gmail special folders.
+      final bool isGmail =
+          (account.provider == 'gmail') || account.imapHost.toLowerCase().contains('gmail');
+      if (isGmail) {
+        String sp = '/';
+        // Ensure INBOX's separator if available
+        if (inbox != null && inbox!.pathSeparator.isNotEmpty) {
+          sp = inbox!.pathSeparator;
+        }
+        final gmailAll = '[Gmail]${sp}All Mail';
+        final gmailSent = '[Gmail]${sp}Sent Mail';
+        bool hasPath(String p) => targets.any((m) => m.encodedPath == p);
+        if (!hasPath(gmailAll)) {
+          targets.add(Mailbox(
+            encodedName: gmailAll,
+            encodedPath: gmailAll,
+            flags: const [],
+            pathSeparator: sp,
+          ));
+        }
+        if (!hasPath(gmailSent)) {
+          targets.add(Mailbox(
+            encodedName: gmailSent,
+            encodedPath: gmailSent,
+            flags: const [],
+            pathSeparator: sp,
+          ));
+        }
+      }
 
       // Deduplicate by encodedPath to avoid selecting the same folder twice.
       final seenPaths = <String>{};
@@ -349,20 +417,29 @@ class EmailImapService {
 
       final all = <MimeMessage>[];
       for (final m in uniqueTargets) {
+        debugPrint('[imap] prefetch: selecting mailbox=${m.name} path=${m.encodedPath}');
         if (inbox != null && m == inbox) {
           await client.selectInbox();
         } else {
-          await client.selectMailbox(m);
+          try {
+            await client.selectMailbox(m);
+          } catch (e) {
+            debugPrint('[imap] prefetch: select failed for ${m.encodedPath}: $e');
+            continue;
+          }
         }
         final sr = await client.searchMessages(searchCriteria: _allQuery());
         final ids = _extractSequenceIds(sr);
+        debugPrint('[imap] prefetch: mailbox=${m.name} ids=${ids.length}');
         if (ids.isEmpty) continue;
         final recent = ids.reversed.take(perBoxLimit).toList();
         final fetched = await client.fetchMessages(
           MessageSequence.fromIds(recent),
           'BODY.PEEK[HEADER.FIELDS (Message-ID In-Reply-To References Subject From Date)]',
         );
-        all.addAll(_messagesFromFetch(fetched));
+        final msgs = _messagesFromFetch(fetched);
+        debugPrint('[imap] prefetch: mailbox=${m.name} fetched=${msgs.length}');
+        all.addAll(msgs);
       }
       return all;
     } finally {
@@ -394,8 +471,8 @@ class EmailImapService {
         }
       }
       final targets = <Mailbox>[
-        if (allMail != null) allMail!,
-        if (inbox != null) inbox!,
+        if (allMail != null) allMail,
+        if (inbox != null) inbox,
         ...sentCandidates,
       ];
       // Build combined OR criteria up to maxProbe
@@ -645,9 +722,9 @@ class EmailImapService {
     }
 
     final List<Mailbox> searchTargets = <Mailbox>[
-      if (allMail != null) allMail!,
-      if (allMail == null && inbox != null) inbox!,
-      if (allMail == null && sent != null) sent!,
+      if (allMail != null) allMail,
+      if (allMail == null && inbox != null) inbox,
+      if (allMail == null && sent != null) sent,
     ];
     if (searchTargets.isEmpty && inbox == null) {
       // As a last fallback, try selecting INBOX logically
@@ -691,7 +768,7 @@ class EmailImapService {
     }
 
     final Map<String, Set<int>> uidsPerBox = {};
-    final Set<String> mids = {anchor};
+    // Anchor is used to seed search criteria; a separate set of expanded IDs is computed later
 
     // Step 1: direct relations for anchor in every mailbox
     for (final m in searchTargets) {

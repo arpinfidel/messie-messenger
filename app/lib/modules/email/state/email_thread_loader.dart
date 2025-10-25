@@ -19,7 +19,7 @@ class EmailThreadExtraController extends StateNotifier<Map<String, List<EmailHea
   final Ref _ref;
   bool _warmed = false;
 
-  Future<void> loadByBaseId(String baseId, {String? subjectHint, String? messageIdHint}) async {
+  Future<void> loadByBaseId(String baseId, {String? subjectHint, String? messageIdHint, bool force = false}) async {
     debugPrint('[email-thread-extra] start baseId=$baseId');
     final accounts = await _ref.read(emailAccountsProvider.future);
     if (accounts.isEmpty) return;
@@ -33,7 +33,7 @@ class EmailThreadExtraController extends StateNotifier<Map<String, List<EmailHea
 
     // Web/backend-inspired: prefetch rich headers across All Mail/INBOX/Sent in one session,
     // group into threads, cache them, and compute completeness.
-    if (!_warmed) {
+    if (!_warmed || force) {
       debugPrint('[email-thread-extra] warm cache via multi-mailbox prefetch');
       try {
         final msgs = await svc.prefetchRichHeadersMultiMailbox(account: acctRefreshed, perBoxLimit: 1000);
@@ -148,7 +148,14 @@ class EmailThreadExtraController extends StateNotifier<Map<String, List<EmailHea
     // Ensure requested baseId is present in state (normalize to our key form)
     final baseKey = baseId.trim().toLowerCase();
     final current = state[baseKey] ?? const <EmailHeader>[];
-    debugPrint('[email-thread-extra] mapped=${current.length}');
+    try {
+      final me = acctRefreshed.email.toLowerCase();
+      final sentCount = current.where((h) => h.from.toLowerCase().contains(me)).length;
+      final recvCount = current.length - sentCount;
+      debugPrint('[email-thread-extra] mapped=${current.length} (sent=$sentCount recv=$recvCount)');
+    } catch (_) {
+      debugPrint('[email-thread-extra] mapped=${current.length}');
+    }
     // store under provided key too for convenience (if different)
     state = {...state, baseKey: current};
 

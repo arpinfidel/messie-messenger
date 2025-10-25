@@ -25,7 +25,7 @@ class _EmailDetailPageState extends ConsumerState<EmailDetailPage> {
     Future.microtask(() async {
       setState(() => _extraLoading = true);
       try {
-        await ref.read(emailThreadExtraProvider.notifier).loadByBaseId(baseId);
+        await ref.read(emailThreadExtraProvider.notifier).loadByBaseId(baseId, force: true);
       } finally {
         if (mounted) setState(() => _extraLoading = false);
       }

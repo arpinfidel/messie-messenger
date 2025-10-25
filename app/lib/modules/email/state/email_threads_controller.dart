@@ -59,7 +59,8 @@ final emailHeadersProvider = FutureProvider<EmailHeadersBundle>((ref) async {
   var refreshed = await controller.ensureFreshAccessToken(acct);
   final svc = EmailImapService();
   try {
-    final List<MimeMessage> allMsgs = await svc.fetchInboxHeaders(account: refreshed, limit: 200);
+    // Web-style prefetch for All: include All Mail + INBOX + Sent variants in a single session
+    final List<MimeMessage> allMsgs = await svc.prefetchRichHeadersMultiMailbox(account: refreshed, perBoxLimit: 1000);
     final List<MimeMessage> importantMsgs = await svc.fetchImportantHeaders(account: refreshed, limit: 200);
     List<EmailHeader> map(List<MimeMessage> list) => list.map(_mapMimeToHeader).toList();
     return EmailHeadersBundle(all: map(allMsgs), important: map(importantMsgs));
