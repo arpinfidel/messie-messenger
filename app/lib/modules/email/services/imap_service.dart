@@ -311,6 +311,122 @@ class EmailImapService {
     return messages;
   }
 
+  // Web/backend-inspired: fetch rich headers across multiple mailboxes in a single session.
+  // Returns minimal headers for last [perBoxLimit] messages per mailbox.
+  Future<List<MimeMessage>> prefetchRichHeadersMultiMailbox({
+    required EmailAccountConfig account,
+    int perBoxLimit = 1000,
+  }) async {
+    final client = await _connect(account);
+    try {
+      final boxes = await client.listMailboxes();
+      Mailbox? inbox;
+      Mailbox? allMail;
+      final List<Mailbox> sentCandidates = [];
+      for (final m in boxes) {
+        final n = m.name.toLowerCase();
+        if (n == 'inbox') inbox = m;
+        if (n.contains('all mail') || (n.contains('[gmail]') && n.contains('all mail')) || m.isArchive) {
+          allMail ??= m;
+        }
+        if (n.contains('sent')) {
+          sentCandidates.add(m);
+        }
+      }
+
+      final targets = <Mailbox>[
+        if (allMail != null) allMail!,
+        if (inbox != null) inbox!,
+        ...sentCandidates,
+      ];
+
+      // Deduplicate by encodedPath to avoid selecting the same folder twice.
+      final seenPaths = <String>{};
+      final uniqueTargets = <Mailbox>[];
+      for (final m in targets) {
+        if (seenPaths.add(m.encodedPath)) uniqueTargets.add(m);
+      }
+
+      final all = <MimeMessage>[];
+      for (final m in uniqueTargets) {
+        if (inbox != null && m == inbox) {
+          await client.selectInbox();
+        } else {
+          await client.selectMailbox(m);
+        }
+        final sr = await client.searchMessages(searchCriteria: _allQuery());
+        final ids = _extractSequenceIds(sr);
+        if (ids.isEmpty) continue;
+        final recent = ids.reversed.take(perBoxLimit).toList();
+        final fetched = await client.fetchMessages(
+          MessageSequence.fromIds(recent),
+          'BODY.PEEK[HEADER.FIELDS (Message-ID In-Reply-To References Subject From Date)]',
+        );
+        all.addAll(_messagesFromFetch(fetched));
+      }
+      return all;
+    } finally {
+      await client.logout();
+    }
+  }
+
+  // Probe: do we find any of these Message-IDs across typical mailboxes?
+  Future<bool> existsAnyMessageIds({
+    required EmailAccountConfig account,
+    required List<String> messageIds,
+    int maxProbe = 8,
+  }) async {
+    if (messageIds.isEmpty) return false;
+    final client = await _connect(account);
+    try {
+      final boxes = await client.listMailboxes();
+      Mailbox? inbox;
+      Mailbox? allMail;
+      final List<Mailbox> sentCandidates = [];
+      for (final m in boxes) {
+        final n = m.name.toLowerCase();
+        if (n == 'inbox') inbox = m;
+        if (n.contains('all mail') || (n.contains('[gmail]') && n.contains('all mail')) || m.isArchive) {
+          allMail ??= m;
+        }
+        if (n.contains('sent')) {
+          sentCandidates.add(m);
+        }
+      }
+      final targets = <Mailbox>[
+        if (allMail != null) allMail!,
+        if (inbox != null) inbox!,
+        ...sentCandidates,
+      ];
+      // Build combined OR criteria up to maxProbe
+      String header(String v) => 'HEADER Message-ID "${v.trim()}"';
+      String or2(String a, String b) => '(OR $a $b)';
+      final probe = messageIds.take(maxProbe).toList();
+      String criteria;
+      if (probe.length == 1) {
+        criteria = header(probe.first);
+      } else {
+        criteria = header(probe.first);
+        for (var i = 1; i < probe.length; i++) {
+          criteria = or2(criteria, header(probe[i]));
+        }
+      }
+      for (final m in targets) {
+        if (inbox != null && m == inbox) {
+          await client.selectInbox();
+        } else {
+          await client.selectMailbox(m);
+        }
+        final sr = await client.searchMessages(searchCriteria: criteria);
+        final ids = _extractSequenceIds(sr);
+        if (ids.isNotEmpty) return true;
+      }
+      return false;
+    } finally {
+      await client.logout();
+    }
+  }
+
   // Single-attempt robust fetch using IMAP THREAD (REFERENCES) anchored by a known Message-ID.
   Future<List<MimeMessage>> fetchThreadByReferencesThreading({
     required EmailAccountConfig account,
@@ -505,6 +621,135 @@ class EmailImapService {
     final parts = text.split(RegExp(r'\s+'));
     final token = parts.isNotEmpty ? parts.first : '';
     return token.trim().toLowerCase();
+  }
+
+  // Fast, IMAP-first, no-THREAD: search limited mailboxes (INBOX + Sent or All Mail) for
+  // messages related to the anchor Message-ID, then expand one step via parsed headers.
+  Future<List<MimeMessage>> fetchThreadByAnchorFast({
+    required EmailAccountConfig account,
+    required String anchorMessageId,
+    int maxExpandMids = 20,
+  }) async {
+    final client = await _connect(account);
+
+    // Resolve mailboxes: prefer All Mail on Gmail, otherwise INBOX + a 'Sent' mailbox.
+    final mailboxes = await client.listMailboxes();
+    Mailbox? inbox;
+    Mailbox? allMail;
+    Mailbox? sent;
+    for (final m in mailboxes) {
+      final n = m.name.toLowerCase();
+      if (n == 'inbox') inbox = m;
+      if (n.contains('all mail') || (n.contains('[gmail]') && n.contains('all mail'))) allMail = m;
+      if (n.contains('sent')) sent ??= m;
+    }
+
+    final List<Mailbox> searchTargets = <Mailbox>[
+      if (allMail != null) allMail!,
+      if (allMail == null && inbox != null) inbox!,
+      if (allMail == null && sent != null) sent!,
+    ];
+    if (searchTargets.isEmpty && inbox == null) {
+      // As a last fallback, try selecting INBOX logically
+      await client.selectInbox();
+      searchTargets.add(Mailbox( // virtual INBOX
+        encodedName: 'INBOX',
+        encodedPath: 'INBOX',
+        flags: const [],
+        pathSeparator: '/',
+      ));
+    }
+
+    String norm(String v) => v.contains('<') ? v.trim() : '<${v.trim()}>';
+    final anchor = norm(anchorMessageId);
+
+    Future<List<int>> uidSearchMailbox(Mailbox m, String criteria) async {
+      if (inbox != null && m == inbox) {
+        await client.selectInbox();
+      } else {
+        await client.selectMailbox(m);
+      }
+      final sr = await client.uidSearchMessages(searchCriteria: criteria);
+      return _extractSequenceIds(sr);
+    }
+
+    String or2(String a, String b) => '(OR $a $b)';
+    String header(String name, String v) => 'HEADER $name "$v"';
+
+    Future<List<MimeMessage>> fetchHeadersMailbox(Mailbox m, List<int> uids) async {
+      if (uids.isEmpty) return const <MimeMessage>[];
+      if (inbox != null && m == inbox) {
+        await client.selectInbox();
+      } else {
+        await client.selectMailbox(m);
+      }
+      final fetched = await client.uidFetchMessages(
+        MessageSequence.fromIds(uids, isUid: true),
+        'BODY.PEEK[HEADER.FIELDS (Message-ID References In-Reply-To Subject From Date)]',
+      );
+      return _messagesFromFetch(fetched);
+    }
+
+    final Map<String, Set<int>> uidsPerBox = {};
+    final Set<String> mids = {anchor};
+
+    // Step 1: direct relations for anchor in every mailbox
+    for (final m in searchTargets) {
+      final crit = or2(or2(header('References', anchor), header('In-Reply-To', anchor)), header('Message-ID', anchor));
+      final ids = await uidSearchMailbox(m, crit);
+      uidsPerBox.putIfAbsent(m.encodedPath, () => <int>{}).addAll(ids);
+    }
+
+    // Step 2: expand mids from fetched headers
+    final Set<String> newMids = {};
+    for (final m in searchTargets) {
+      final set = uidsPerBox[m.encodedPath];
+      if (set == null || set.isEmpty) continue;
+      final sample = set.toList()..sort();
+      final sampleLast = sample.reversed.take(maxExpandMids).toList();
+      final msgs = await fetchHeadersMailbox(m, sampleLast);
+      for (final msg in msgs) {
+        try {
+          final rid = msg.decodeHeaderValue('message-id');
+          if (rid != null && rid.trim().isNotEmpty) newMids.add(norm(rid));
+          final refs = msg.decodeHeaderValue('references');
+          if (refs != null && refs.trim().isNotEmpty) {
+            final first = _firstMessageIdFromHeader(refs);
+            if (first != null && first.isNotEmpty) newMids.add(first);
+          }
+          final irt = msg.decodeHeaderValue('in-reply-to');
+          if (irt != null && irt.trim().isNotEmpty) {
+            final parent = _firstMessageIdFromHeader(irt);
+            if (parent != null && parent.isNotEmpty) newMids.add(parent);
+          }
+        } catch (_) {}
+      }
+    }
+
+    final List<String> expandList = newMids.take(maxExpandMids).toList();
+    if (expandList.isNotEmpty) {
+      final combined = expandList
+          .map((mid) => header('Message-ID', mid))
+          .reduce((a, b) => or2(a, b));
+      for (final m in searchTargets) {
+        final ids = await uidSearchMailbox(m, combined);
+        if (ids.isNotEmpty) {
+          uidsPerBox.putIfAbsent(m.encodedPath, () => <int>{}).addAll(ids);
+        }
+      }
+    }
+
+    // Final fetch per mailbox
+    final List<MimeMessage> all = [];
+    for (final m in searchTargets) {
+      final set = uidsPerBox[m.encodedPath];
+      if (set == null || set.isEmpty) continue;
+      final uids = set.toList()..sort();
+      final msgs = await fetchHeadersMailbox(m, uids);
+      all.addAll(msgs);
+    }
+    await client.logout();
+    return all;
   }
 
   // Traverses a SequenceNode tree and finds the list of UIDs in the thread that contains [anchorUid].
