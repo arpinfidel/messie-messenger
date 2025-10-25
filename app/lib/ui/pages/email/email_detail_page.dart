@@ -21,25 +21,11 @@ class _EmailDetailPageState extends ConsumerState<EmailDetailPage> {
     final baseId = widget.threadId.startsWith(kEmailThreadPrefix)
         ? Uri.decodeComponent(widget.threadId.substring(kEmailThreadPrefix.length))
         : widget.threadId;
-    // Derive a subject hint from the currently available base list
-    String? subjectHint;
-    String? messageIdHint;
-    try {
-      final baseList = ref.read(emailThreadByIdProvider(widget.threadId));
-      if (baseList.isNotEmpty && baseList.first.subject.isNotEmpty) {
-        subjectHint = baseList.first.subject;
-      }
-      if (baseList.isNotEmpty && (baseList.first.messageId ?? '').isNotEmpty) {
-        messageIdHint = baseList.first.messageId;
-      }
-    } catch (_) {}
     // Fire and track loading
     Future.microtask(() async {
       setState(() => _extraLoading = true);
       try {
-        await ref
-            .read(emailThreadExtraProvider.notifier)
-            .loadByBaseId(baseId, subjectHint: subjectHint, messageIdHint: messageIdHint);
+        await ref.read(emailThreadExtraProvider.notifier).loadByBaseId(baseId);
       } finally {
         if (mounted) setState(() => _extraLoading = false);
       }
