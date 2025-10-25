@@ -2,13 +2,53 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../modules/email/state/email_threads_controller.dart';
+import '../../../modules/email/state/email_thread_loader.dart';
 
-class EmailDetailPage extends ConsumerWidget {
+class EmailDetailPage extends ConsumerStatefulWidget {
   final String threadId;
   const EmailDetailPage({super.key, required this.threadId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<EmailDetailPage> createState() => _EmailDetailPageState();
+}
+
+class _EmailDetailPageState extends ConsumerState<EmailDetailPage> {
+  bool _extraLoading = false;
+  @override
+  void initState() {
+    super.initState();
+    // Kick off targeted fetch to complete the thread
+    final baseId = widget.threadId.startsWith(kEmailThreadPrefix)
+        ? Uri.decodeComponent(widget.threadId.substring(kEmailThreadPrefix.length))
+        : widget.threadId;
+    // Derive a subject hint from the currently available base list
+    String? subjectHint;
+    String? messageIdHint;
+    try {
+      final baseList = ref.read(emailThreadByIdProvider(widget.threadId));
+      if (baseList.isNotEmpty && baseList.first.subject.isNotEmpty) {
+        subjectHint = baseList.first.subject;
+      }
+      if (baseList.isNotEmpty && (baseList.first.messageId ?? '').isNotEmpty) {
+        messageIdHint = baseList.first.messageId;
+      }
+    } catch (_) {}
+    // Fire and track loading
+    Future.microtask(() async {
+      setState(() => _extraLoading = true);
+      try {
+        await ref
+            .read(emailThreadExtraProvider.notifier)
+            .loadByBaseId(baseId, subjectHint: subjectHint, messageIdHint: messageIdHint);
+      } finally {
+        if (mounted) setState(() => _extraLoading = false);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final threadId = widget.threadId;
     late final String title;
     if (threadId == kEmailImportantId) {
       title = 'Important';
@@ -24,19 +64,26 @@ class EmailDetailPage extends ConsumerWidget {
     } else if (threadId == kEmailAllMailId) {
       messages = ref.watch(emailAllMailProvider);
     } else {
-      messages = ref.watch(emailThreadByIdProvider(threadId));
+      messages = ref.watch(resolvedEmailThreadByIdProvider(threadId));
     }
 
     return Scaffold(
       appBar: AppBar(title: Text(title)),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(12),
-        itemBuilder: (context, index) {
-          final m = messages[index];
-          return _EmailTile(message: m);
-        },
-        separatorBuilder: (_, __) => const Divider(height: 1),
-        itemCount: messages.length,
+      body: Column(
+        children: [
+          if (_extraLoading) const LinearProgressIndicator(minHeight: 2),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.all(12),
+              itemBuilder: (context, index) {
+                final m = messages[index];
+                return _EmailTile(message: m);
+              },
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemCount: messages.length,
+            ),
+          ),
+        ],
       ),
     );
   }

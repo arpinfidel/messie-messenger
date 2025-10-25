@@ -152,24 +152,6 @@ class _EmailImapOAuthConnectPageState extends ConsumerState<EmailImapOAuthConnec
     });
   }
 
-  Future<void> _handleRedirect(String url) async {
-    if (_exchanging) return;
-    final p = _provider;
-    if (p == null) return;
-    try {
-      final uri = Uri.parse(url);
-      final code = uri.queryParameters['code'];
-      final state = uri.queryParameters['state'];
-      if (code == null || state != _state) {
-        setState(() => _error = 'Invalid OAuth redirect');
-        return;
-      }
-      await _exchangeCodeForToken(code);
-    } catch (e) {
-      setState(() { _error = 'OAuth failed: $e'; _exchanging = false; });
-    }
-  }
-
   Future<void> _exchangeCodeForToken(String code) async {
     final p = _provider!;
     setState(() { _exchanging = true; _error = null; });
@@ -243,6 +225,13 @@ class _EmailImapOAuthConnectPageState extends ConsumerState<EmailImapOAuthConnec
         if (fetched != null && fetched.isNotEmpty) email = fetched;
       } catch (_) {}
     }
+    if (email.isEmpty) {
+      setState(() {
+        _error = 'OAuth succeeded but no email address was returned.';
+        _exchanging = false;
+      });
+      return;
+    }
     final cfg = EmailAccountConfig(
       label: email.isNotEmpty ? email : p.label,
       email: email,
@@ -250,7 +239,8 @@ class _EmailImapOAuthConnectPageState extends ConsumerState<EmailImapOAuthConnec
       imapPort: p.imapPort,
       imapSecure: p.imapSecure,
       // Gmail expects the email address as the username for IMAP XOAUTH2
-      username: email.isNotEmpty ? email : clientId,
+      // IMAP XOAUTH2 username must be the email address for Gmail
+      username: email,
       password: '',
       smtpHost: p.smtpHost,
       smtpPort: p.smtpPort,
@@ -261,6 +251,8 @@ class _EmailImapOAuthConnectPageState extends ConsumerState<EmailImapOAuthConnec
       oauthRefreshToken: data['refresh_token'] as String?,
       oauthExpiryEpochMs: DateTime.now().add(Duration(seconds: (data['expires_in'] as num?)?.toInt() ?? 3600)).millisecondsSinceEpoch,
       oauthIdToken: idToken,
+      oauthClientId: clientId,
+      oauthTokenEndpoint: tokenEndpoint,
     );
     await ref.read(emailAccountsControllerProvider).addAccount(cfg);
     if (!mounted) return;

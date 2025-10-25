@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/feed/module_types.dart';
 import '../state/email_accounts_controller.dart';
 import '../services/imap_service.dart';
+import 'email_thread_loader.dart';
 import 'package:enough_mail/enough_mail.dart' show MimeMessage;
 
 /// Constants aligned with web app identifiers
@@ -53,14 +54,30 @@ final emailHeadersProvider = FutureProvider<EmailHeadersBundle>((ref) async {
     (a) => a.authType == 'oauth2' && (a.oauthAccessToken ?? '').isNotEmpty && a.username.isNotEmpty,
     orElse: () => accounts.first,
   );
+  // Ensure token is fresh before accessing IMAP
+  final controller = ref.read(emailAccountsControllerProvider);
+  var refreshed = await controller.ensureFreshAccessToken(acct);
   final svc = EmailImapService();
   try {
-    final List<MimeMessage> allMsgs = await svc.fetchInboxHeaders(account: acct, limit: 200);
-    final List<MimeMessage> importantMsgs = await svc.fetchImportantHeaders(account: acct, limit: 200);
+    final List<MimeMessage> allMsgs = await svc.fetchInboxHeaders(account: refreshed, limit: 200);
+    final List<MimeMessage> importantMsgs = await svc.fetchImportantHeaders(account: refreshed, limit: 200);
     List<EmailHeader> map(List<MimeMessage> list) => list.map(_mapMimeToHeader).toList();
     return EmailHeadersBundle(all: map(allMsgs), important: map(importantMsgs));
   } catch (e) {
     debugPrint('[email] fetch failed: $e');
+    final msg = e.toString().toLowerCase();
+    if (msg.contains('authenticationfailed') || msg.contains('invalid credentials')) {
+      try {
+        debugPrint('[email] auth failed; forcing token refresh and retry');
+        refreshed = await controller.ensureFreshAccessToken(refreshed, force: true);
+        final List<MimeMessage> allMsgs = await svc.fetchInboxHeaders(account: refreshed, limit: 200);
+        final List<MimeMessage> importantMsgs = await svc.fetchImportantHeaders(account: refreshed, limit: 200);
+        List<EmailHeader> map(List<MimeMessage> list) => list.map(_mapMimeToHeader).toList();
+        return EmailHeadersBundle(all: map(allMsgs), important: map(importantMsgs));
+      } catch (_) {
+        // fall through to empty bundle
+      }
+    }
     return EmailHeadersBundle(all: const [], important: const []);
   }
 });
@@ -270,4 +287,29 @@ final emailThreadByIdProvider = Provider.family<List<EmailHeader>, String>((ref,
   }
   msgs.sort((a, b) => b.date.compareTo(a.date));
   return msgs;
+});
+
+/// Merged thread messages: base list from inbox fetch plus any extra fetched on demand
+final resolvedEmailThreadByIdProvider = Provider.family<List<EmailHeader>, String>((ref, threadId) {
+  final base = ref.watch(emailThreadByIdProvider(threadId));
+  String baseId;
+  if (threadId.startsWith(kEmailThreadPrefix)) {
+    baseId = Uri.decodeComponent(threadId.substring(kEmailThreadPrefix.length));
+  } else {
+    baseId = threadId;
+  }
+  final extrasMap = ref.watch(emailThreadExtraProvider);
+  final extras = extrasMap[baseId] ?? const <EmailHeader>[];
+  final seen = <String>{};
+  final merged = <EmailHeader>[];
+  for (final e in [...extras, ...base]) {
+    final key = (e.messageId != null && e.messageId!.isNotEmpty)
+        ? e.messageId!
+        : '${e.subject.toLowerCase().trim()}|${e.date.millisecondsSinceEpoch}';
+    if (seen.contains(key)) continue;
+    seen.add(key);
+    merged.add(e);
+  }
+  merged.sort((a, b) => b.date.compareTo(a.date));
+  return merged;
 });

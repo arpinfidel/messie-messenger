@@ -18,6 +18,8 @@ class EmailAccountConfig {
     this.oauthRefreshToken,
     this.oauthExpiryEpochMs,
     this.oauthIdToken,
+    this.oauthClientId,
+    this.oauthTokenEndpoint,
   })  : smtpUsername = smtpUsername ?? username,
         smtpPassword = (smtpPassword ?? password ?? '');
 
@@ -39,6 +41,55 @@ class EmailAccountConfig {
   final String? oauthRefreshToken;
   final int? oauthExpiryEpochMs;
   final String? oauthIdToken;
+  // Optional: persist exact OAuth client + token endpoint used to acquire the tokens.
+  final String? oauthClientId;
+  final String? oauthTokenEndpoint;
+
+  EmailAccountConfig copyWith({
+    String? label,
+    String? email,
+    String? imapHost,
+    int? imapPort,
+    bool? imapSecure,
+    String? username,
+    String? password,
+    String? smtpHost,
+    int? smtpPort,
+    bool? smtpSecure,
+    String? smtpUsername,
+    String? smtpPassword,
+    String? authType,
+    String? provider,
+    String? oauthAccessToken,
+    String? oauthRefreshToken,
+    int? oauthExpiryEpochMs,
+    String? oauthIdToken,
+    String? oauthClientId,
+    String? oauthTokenEndpoint,
+  }) {
+    return EmailAccountConfig(
+      label: label ?? this.label,
+      email: email ?? this.email,
+      imapHost: imapHost ?? this.imapHost,
+      imapPort: imapPort ?? this.imapPort,
+      imapSecure: imapSecure ?? this.imapSecure,
+      username: username ?? this.username,
+      password: password ?? this.password,
+      smtpHost: smtpHost ?? this.smtpHost,
+      smtpPort: smtpPort ?? this.smtpPort,
+      smtpSecure: smtpSecure ?? this.smtpSecure,
+      smtpUsername: smtpUsername ?? this.smtpUsername,
+      smtpPassword: smtpPassword ?? this.smtpPassword,
+      authType: authType ?? this.authType,
+      provider: provider ?? this.provider,
+      oauthAccessToken: oauthAccessToken ?? this.oauthAccessToken,
+      oauthRefreshToken: oauthRefreshToken ?? this.oauthRefreshToken,
+      oauthExpiryEpochMs: oauthExpiryEpochMs ?? this.oauthExpiryEpochMs,
+      oauthIdToken: oauthIdToken ?? this.oauthIdToken,
+      oauthClientId: oauthClientId ?? this.oauthClientId,
+      oauthTokenEndpoint: oauthTokenEndpoint ?? this.oauthTokenEndpoint,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'label': label,
@@ -60,6 +111,8 @@ class EmailAccountConfig {
         'oauthRefreshToken': oauthRefreshToken,
         'oauthExpiryEpochMs': oauthExpiryEpochMs,
         'oauthIdToken': oauthIdToken,
+        'oauthClientId': oauthClientId,
+        'oauthTokenEndpoint': oauthTokenEndpoint,
       };
 
   static EmailAccountConfig fromJson(Map<String, dynamic> json) => EmailAccountConfig(
@@ -81,5 +134,7 @@ class EmailAccountConfig {
         oauthRefreshToken: json['oauthRefreshToken'] as String?,
         oauthExpiryEpochMs: (json['oauthExpiryEpochMs'] as num?)?.toInt(),
         oauthIdToken: json['oauthIdToken'] as String?,
+        oauthClientId: json['oauthClientId'] as String?,
+        oauthTokenEndpoint: json['oauthTokenEndpoint'] as String?,
       );
 }
