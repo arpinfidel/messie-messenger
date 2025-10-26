@@ -16,6 +16,7 @@ use matrix_sdk::{
 // use matrix_sdk::config::SyncSettings;
 use matrix_sdk::ruma::api::client::sync::sync_events::v5 as http;
 use once_cell::sync::Lazy;
+use tokio::sync::Semaphore as AsyncSemaphore;
 use serde::Serialize;
 use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use tokio_util::sync::CancellationToken;
@@ -26,6 +27,10 @@ use std::path::PathBuf;
 
 static CONTROLLERS: Lazy<AsyncRwLock<HashMap<String, Arc<SlidingSyncController>>>> =
     Lazy::new(|| AsyncRwLock::new(HashMap::new()));
+
+// Background message-timestamp probe concurrency gate
+static PROBE_SEMAPHORE: Lazy<AsyncSemaphore> = Lazy::new(|| AsyncSemaphore::new(4));
+static PROBE_INFLIGHT: Lazy<AsyncRwLock<HashSet<String>>> = Lazy::new(|| AsyncRwLock::new(HashSet::new()));
 
 #[derive(Debug, Clone, Copy)]
 pub struct SlidingSyncConfig {
@@ -289,6 +294,8 @@ impl SlidingSyncController {
         self.broadcast(update).await?;
         // Warm-up pass to allow latest_event to settle in cache; no extra network.
         self.spawn_warmup_broadcast(rooms);
+        // Schedule background probes for rooms missing message-like timestamps.
+        self.spawn_message_ts_probes().await;
         Ok(())
     }
 
@@ -341,6 +348,68 @@ impl SlidingSyncController {
             let payload = SlidingSyncUpdate { kind: "sliding_sync_update", lists: vec!["all".to_string()], rooms: rooms.clone(), summaries };
             let _ = this.broadcast(payload).await;
         });
+    }
+
+    async fn spawn_message_ts_probes(self: &Arc<Self>) {
+        let controller = Arc::clone(self);
+        // Choose top candidates from persisted cache where latest_event_ts is missing
+        let candidates = load_persisted_room_list().unwrap_or_default();
+        if candidates.is_empty() { return; }
+        // Sort by bump_ts/recency descending (newest first)
+        let mut missing: Vec<_> = candidates
+            .into_iter()
+            .filter(|r| r.latest_event_ts.is_none())
+            .collect();
+        if missing.is_empty() { return; }
+        missing.sort_by(|a, b| {
+            let ascore = a.bump_ts.unwrap_or(0);
+            let bscore = b.bump_ts.unwrap_or(0);
+            bscore.cmp(&ascore)
+        });
+        // Queue all missing rooms; concurrency is limited by PROBE_SEMAPHORE
+        for room in missing.into_iter() {
+            let room_id = room.room_id.clone();
+            // de-dupe
+            {
+                let mut inflight = PROBE_INFLIGHT.write().await;
+                if inflight.contains(&room_id) { continue; }
+                inflight.insert(room_id.clone());
+            }
+            let this = Arc::clone(&controller);
+            runtime().spawn(async move {
+                let permit = PROBE_SEMAPHORE.acquire().await.expect("semaphore");
+                let _guard = permit; // held for task lifetime
+                let Some(client) = crate::client() else { let _ = remove_inflight(&room_id).await; return; };
+                let Some(rid) = room_id.parse::<matrix_sdk::ruma::OwnedRoomId>().ok() else { let _ = remove_inflight(&room_id).await; return; };
+                let Some(room) = client.get_room(&rid) else { let _ = remove_inflight(&room_id).await; return; };
+                if let Some(ts) = latest_message_ts_online(&room).await {
+                    // Merge and broadcast a minimal update for this room
+                    let display_name = match room.display_name().await {
+                        Ok(RoomDisplayName::Named(n))
+                        | Ok(RoomDisplayName::Calculated(n))
+                        | Ok(RoomDisplayName::Aliased(n))
+                        | Ok(RoomDisplayName::EmptyWas(n)) => n,
+                        Ok(RoomDisplayName::Empty) => room_id.as_str().to_owned(),
+                        Err(_) => room_id.as_str().to_owned(),
+                    };
+                    let overview = crate::RoomOverview {
+                        room_id: room_id.clone(),
+                        name: display_name,
+                        avatar_url: room.avatar_url().map(|u| u.to_string()),
+                        bump_ts: room.recency_stamp(),
+                        latest_event_ts: Some(ts),
+                        notification_count: room.unread_notification_counts().notification_count,
+                        highlight_count: room.unread_notification_counts().highlight_count,
+                        is_marked_unread: room.is_marked_unread(),
+                        is_muted: crate::is_room_muted(room.room_id().as_str()),
+                    };
+                    let _ = merge_persisted_room_list(&[overview.clone()]);
+                    let payload = SlidingSyncUpdate { kind: "sliding_sync_update", lists: vec!["all".to_string()], rooms: vec![room_id.clone()], summaries: vec![overview] };
+                    let _ = this.broadcast(payload).await;
+                }
+                let _ = remove_inflight(&room_id).await;
+            });
+        }
     }
 
     // No targeted backfill; rely solely on Sliding Sync timelines.
@@ -420,6 +489,11 @@ fn maybe_wipe_legacy_room_list_cache() {
         let _ = std::fs::remove_file(&path);
         log::debug!("[ss] wiped legacy room_list_cache.json missing latest_event_ts");
     }
+}
+
+async fn remove_inflight(room_id: &str) {
+    let mut inflight = PROBE_INFLIGHT.write().await;
+    inflight.remove(room_id);
 }
 
 fn load_persisted_room_list() -> Option<Vec<crate::RoomOverview>> {
@@ -571,14 +645,6 @@ async fn build_summaries(room_ids: &[String]) -> Vec<crate::RoomOverview> {
                     };
                     if !remote_is_message_like {
                         if let Some(ts) = latest_message_ts_from_timeline_cache(room_id.as_str()) { latest_event_ts = Some(ts); }
-                    }
-                    // As a last resort, do a light online probe for message-like ts
-                    if latest_event_ts.is_none() || !remote_is_message_like {
-                        if let Some(client) = crate::client() {
-                            if let Some(r) = client.get_room(&room_id) {
-                                if let Some(ts) = latest_message_ts_online(&r).await { latest_event_ts = Some(ts); }
-                            }
-                        }
                     }
                     let is_marked_unread = room.is_marked_unread();
                     let is_muted = crate::is_room_muted(room_id.as_str());
