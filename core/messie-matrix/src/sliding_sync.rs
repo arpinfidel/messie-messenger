@@ -11,11 +11,14 @@ use matrix_sdk::{
     sliding_sync::{SlidingSync, SlidingSyncList, SlidingSyncMode, UpdateSummary, Version},
     Client, RoomDisplayName, RoomState,
 };
+// use matrix_sdk::config::SyncSettings;
 use matrix_sdk::ruma::api::client::sync::sync_events::v5 as http;
+use matrix_sdk::room::MessagesOptions;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 use tokio_util::sync::CancellationToken;
+use tokio::time::{sleep, Duration};
 
 use crate::{client, runtime, active_base_path};
 use std::path::PathBuf;
@@ -118,6 +121,8 @@ struct SlidingSyncController {
     room_ids: AsyncRwLock<HashSet<String>>,
     command_tx: mpsc::UnboundedSender<Command>,
     cancel_token: CancellationToken,
+    /// Config used to build this controller; reused for per-room subscriptions
+    config: SlidingSyncConfig,
 }
 
 impl SlidingSyncController {
@@ -137,7 +142,10 @@ impl SlidingSyncController {
             room_ids: AsyncRwLock::new(HashSet::new()),
             command_tx,
             cancel_token: cancel_token.clone(),
+            config,
         });
+
+        // No extra seeding; rely entirely on Sliding Sync.
 
         controller.spawn_background(command_rx, cancel_token);
         Ok(controller)
@@ -184,7 +192,7 @@ impl SlidingSyncController {
         });
     }
 
-    async fn register_listener(&self, port: i64) -> Result<()> {
+    async fn register_listener(self: &Arc<Self>, port: i64) -> Result<()> {
         self.listeners.lock().await.insert(port);
         // If a persisted room-list cache exists, emit it immediately so the UI
         // can render offline after app restart.
@@ -216,11 +224,13 @@ impl SlidingSyncController {
         }
         let live = build_summaries(&rooms).await;
         if !live.is_empty() { let _ = persist_room_list(&live); }
-        let json = serde_json::to_string(&SlidingSyncUpdate { kind: "sliding_sync_update", lists: vec!["all".to_string()], rooms, summaries: live })?;
+        let json = serde_json::to_string(&SlidingSyncUpdate { kind: "sliding_sync_update", lists: vec!["all".to_string()], rooms: rooms.clone(), summaries: live })?;
         if !Self::post_to_port(port, json) {
             self.listeners.lock().await.remove(&port);
             return Ok(());
         }
+        // Warm-up pass: allow event cache to compute latest_event, then re-emit.
+        self.spawn_warmup_broadcast(rooms.clone());
         let ready = serde_json::to_string(&serde_json::json!({ "kind": "sliding_sync_ready" }))?;
         if !Self::post_to_port(port, ready) { self.listeners.lock().await.remove(&port); }
         Ok(())
@@ -235,7 +245,7 @@ impl SlidingSyncController {
         Ok(())
     }
 
-    async fn publish_summary(&self, summary: UpdateSummary) -> Result<()> {
+    async fn publish_summary(self: &Arc<Self>, summary: UpdateSummary) -> Result<()> {
         let UpdateSummary { lists, rooms } = summary;
         let rooms: Vec<String> = rooms.into_iter().map(|room| room.to_string()).collect();
 
@@ -273,8 +283,11 @@ impl SlidingSyncController {
         let summaries: Vec<crate::RoomOverview> = build_summaries(&rooms).await;
         // Merge into persisted cache so restarts show recent data offline.
         if !summaries.is_empty() { let _ = merge_persisted_room_list(&summaries); }
-        let update = SlidingSyncUpdate { kind: "sliding_sync_update", lists, rooms: rooms.clone(), summaries };
-        self.broadcast(update).await
+        let update = SlidingSyncUpdate { kind: "sliding_sync_update", lists: lists.clone(), rooms: rooms.clone(), summaries };
+        self.broadcast(update).await?;
+        // Warm-up pass to allow latest_event to settle in cache; no extra network.
+        self.spawn_warmup_broadcast(rooms);
+        Ok(())
     }
 
     async fn broadcast_error(&self, message: impl ToString) -> Result<()> {
@@ -316,6 +329,20 @@ impl SlidingSyncController {
         self.room_ids.read().await.iter().cloned().collect()
     }
 
+    fn spawn_warmup_broadcast(self: &Arc<Self>, rooms: Vec<String>) {
+        let this = Arc::clone(self);
+        runtime().spawn(async move {
+            // Small delay to let cache settle
+            sleep(Duration::from_millis(450)).await;
+            let summaries = build_summaries(&rooms).await;
+            if !summaries.is_empty() { let _ = merge_persisted_room_list(&summaries); }
+            let payload = SlidingSyncUpdate { kind: "sliding_sync_update", lists: vec!["all".to_string()], rooms: rooms.clone(), summaries };
+            let _ = this.broadcast(payload).await;
+        });
+    }
+
+    // No targeted backfill; rely solely on Sliding Sync timelines.
+
     async fn build_sliding_sync(
         client: &Client,
         handle: &str,
@@ -330,11 +357,11 @@ impl SlidingSyncController {
             .with_all_extensions()
             .without_to_device_extension();
 
+        let hp_u32: u32 = config.hp_size.max(1);
+        let hp_end: u32 = hp_u32.saturating_sub(1);
         let list = SlidingSyncList::builder("all")
-            .sync_mode(
-                SlidingSyncMode::new_growing(config.lp_batch.max(1))
-                    .maximum_number_of_rooms_to_fetch(10_000),
-            )
+            // Use Selective with explicit ranges; Growing mode doesn't expose add_range on our SDK version.
+            .sync_mode(SlidingSyncMode::new_selective().add_range(0..=hp_end))
             .timeline_limit(config.lp_timeline.max(1))
             .required_state(vec![
                 ("m.room.name".into(), "".to_string()),
@@ -344,11 +371,18 @@ impl SlidingSyncController {
                 ("com.beeper.room_type.v2".into(), "".to_string()),
             ]);
 
-        builder
+        let sliding = builder
             .add_list(list)
             .build()
             .await
             .context("failed to build sliding sync instance")
+            ?;
+
+        // Ensure event cache is active so latest_event can be computed from
+        // the sliding sync timeline items without additional network calls.
+        let _ = client.event_cache().subscribe();
+
+        Ok(sliding)
     }
 }
 
@@ -390,12 +424,45 @@ fn merge_persisted_room_list(updated: &[crate::RoomOverview]) -> anyhow::Result<
         .collect();
     for r in updated { map.insert(r.room_id.clone(), r.clone()); }
     let mut all: Vec<_> = map.into_values().collect();
-    // Sort desc by bump_ts; fallback by name for stable output
+    // Sort desc by real latest_event_ts when available, else bump_ts; fallback by name
     all.sort_by(|a,b| {
-        let at = a.bump_ts.unwrap_or(0); let bt = b.bump_ts.unwrap_or(0);
-        bt.cmp(&at).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        let ascore = a.latest_event_ts.or(a.bump_ts).unwrap_or(0);
+        let bscore = b.latest_event_ts.or(b.bump_ts).unwrap_or(0);
+        bscore.cmp(&ascore).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
     persist_room_list(&all)
+}
+
+fn timeline_cache_path_for(room_id: &str) -> PathBuf {
+    let base = active_base_path().unwrap_or_else(|| PathBuf::from(".messie_store_v2"));
+    let store_root = base.join("matrix_store");
+    let cache_dir = store_root.join("timeline_cache");
+    let _ = std::fs::create_dir_all(&cache_dir);
+    let fname = sanitize_room_id(room_id) + ".json";
+    cache_dir.join(fname)
+}
+
+fn sanitize_room_id(id: &str) -> String {
+    id.chars()
+        .map(|c| match c {
+            ':' | '!' | '$' | '/' | '\\' | '?' | '#' | '*' | ' ' => '_',
+            _ => c,
+        })
+        .collect()
+}
+
+fn latest_ts_from_timeline_cache(room_id: &str) -> Option<u64> {
+    let path = timeline_cache_path_for(room_id);
+    if !path.exists() { return None; }
+    let bytes = std::fs::read(path).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let arr = if let Some(a) = v.as_array() { a.clone() } else { v.get("events")?.as_array()?.clone() };
+    for item in arr.iter().rev() {
+        let raw = item.as_str()?;
+        let ev: serde_json::Value = serde_json::from_str(raw).ok()?;
+        if let Some(ts) = ev.get("origin_server_ts").and_then(|x| x.as_u64()) { return Some(ts); }
+    }
+    None
 }
 
 async fn build_summaries(room_ids: &[String]) -> Vec<crate::RoomOverview> {
@@ -414,6 +481,22 @@ async fn build_summaries(room_ids: &[String]) -> Vec<crate::RoomOverview> {
                     };
                     let avatar_url = room.avatar_url().map(|u| u.to_string());
                     let bump_ts = room.recency_stamp();
+                    // Only use remote origin_server_ts for display; ignore local
+                    // sending variants to avoid "future" timestamps.
+                    let latest_event_ts = match room.new_latest_event() {
+                        matrix_sdk::latest_events::LatestEventValue::Remote(remote) => {
+                            remote
+                                .raw()
+                                .deserialize()
+                                .ok()
+                                .map(|e| u64::from(e.origin_server_ts().get()))
+                        }
+                        matrix_sdk::latest_events::LatestEventValue::LocalIsSending(_)
+                        | matrix_sdk::latest_events::LatestEventValue::LocalCannotBeSent(_) => None,
+                        matrix_sdk::latest_events::LatestEventValue::None => None,
+                    }
+                    // Safe offline fallback: only origin_server_ts from cached remote events.
+                    .or_else(|| latest_ts_from_timeline_cache(room_id.as_str()));
                     let is_marked_unread = room.is_marked_unread();
                     let is_muted = crate::is_room_muted(room_id.as_str());
                     let counts = room.unread_notification_counts();
@@ -422,6 +505,7 @@ async fn build_summaries(room_ids: &[String]) -> Vec<crate::RoomOverview> {
                         name: display_name,
                         avatar_url,
                         bump_ts,
+                        latest_event_ts,
                         notification_count: counts.notification_count,
                         highlight_count: counts.highlight_count,
                         is_marked_unread,
@@ -434,7 +518,7 @@ async fn build_summaries(room_ids: &[String]) -> Vec<crate::RoomOverview> {
     summaries
 }
 
-pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) -> Result<AckResponse> {
+pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, reset: bool) -> Result<AckResponse> {
     let controllers = CONTROLLERS.read().await;
     let controller = controllers
         .get(handle)
@@ -476,6 +560,10 @@ pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) 
 
             // Provide a RoomSubscription with required_state to satisfy Synapse.
             let mut sub = http::request::RoomSubscription::default();
+            // Ensure a few timeline events are included per subscribed room so the
+            // SDK can compute a proper latest_event timestamp without extra calls.
+            let tl = controller.config.lp_timeline.max(1);
+            sub.timeline_limit = matrix_sdk::ruma::UInt::from(tl);
             sub.required_state = vec![
                 ("m.room.name".into(), "".to_string()),
                 ("m.room.avatar".into(), "".to_string()),
@@ -483,8 +571,8 @@ pub async fn subscribe_rooms(handle: &str, room_ids: Vec<String>, _reset: bool) 
             ];
             controller
                 .sliding_sync
-                .subscribe_to_rooms(&room_id_refs, Some(sub), true);
-            debug!("[ss] subscribed: {} rooms", room_id_refs.len());
+                .subscribe_to_rooms(&room_id_refs, Some(sub), reset);
+            debug!("[ss] subscribed: {} rooms (reset={})", room_id_refs.len(), reset);
         } else {
             debug!("[ss] no valid room ids to subscribe to");
         }

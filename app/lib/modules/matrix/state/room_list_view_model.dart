@@ -13,8 +13,13 @@ const _slidingSyncHandle = 'primary';
 const String _envForceOffline = String.fromEnvironment('MESSIE_FORCE_OFFLINE', defaultValue: '');
 const _defaultHpSize = 12;
 const _defaultLpBatch = 40;
-const _defaultHpTimeline = 5;
-const _defaultLpTimeline = 1;
+// Request a few events per room so the SDK can compute a proper
+// latest_event (with a real origin_server_ts). A value of 5 keeps
+// bandwidth modest while ensuring a message-like event is usually present.
+// Request a deeper timeline by default to help the SDK compute latest events
+// reliably without extra calls.
+const _defaultHpTimeline = 20;
+const _defaultLpTimeline = 20;
 const _kNoUpdate = Object();
 
 final roomListControllerProvider =
@@ -167,6 +172,7 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
                     name: id,
                     avatarUrl: null,
                     bumpTs: null,
+                    recency: null,
                     notificationCount: 0,
                     highlightCount: 0,
                     isMarkedUnread: false,
@@ -205,6 +211,7 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
         name: p.name,
         avatarUrl: p.avatarUrl,
         bumpTs: p.bumpTs,
+        recency: p.recency,
         notificationCount: c.notification,
         highlightCount: c.highlight,
         isMarkedUnread: p.isMarkedUnread,
@@ -213,8 +220,10 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
     }).toList();
 
     previews.sort((a, b) {
-      final aTs = a.bumpTs ?? 0;
-      final bTs = b.bumpTs ?? 0;
+      // Sort by real Unix ms bumpTs when present; fallback to recency score
+      // (Matrix recency, non-epoch) only for ordering/subscription decisions.
+      final aTs = (a.bumpTs ?? a.recency ?? 0);
+      final bTs = (b.bumpTs ?? b.recency ?? 0);
       final cmp = bTs.compareTo(aTs);
       if (cmp != 0) return cmp;
       return a.name.toLowerCase().compareTo(b.name.toLowerCase());
@@ -231,6 +240,7 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
     };
 
     if (setEquals(next, _lastSubscribed)) return;
+    final isInitial = _lastSubscribed.isEmpty;
     _lastSubscribed = next;
 
     try {
@@ -238,7 +248,8 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
       final res = await rustSlidingSyncSubscribeRooms(
         handle: _slidingSyncHandle,
         roomIds: next.toList(growable: false),
-        reset: true,
+        // Avoid thrashing resets; use reset only for the initial subscribe.
+        reset: isInitial,
       );
       if (!res.isOk) {
         debugPrint('[RoomListController] subscribe_rooms failed: ${res.error}');
@@ -259,6 +270,7 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
                 'name': p.name,
                 'avatar_url': p.avatarUrl,
                 'bump_ts': p.bumpTs,
+                'recency': p.recency,
                 'notification_count': p.notificationCount,
                 'highlight_count': p.highlightCount,
                 'is_marked_unread': p.isMarkedUnread,
@@ -301,16 +313,17 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
         name: p.name,
         avatarUrl: p.avatarUrl,
         bumpTs: p.bumpTs,
+        recency: p.recency,
         notificationCount: c.notification,
         highlightCount: c.highlight,
         isMarkedUnread: p.isMarkedUnread,
         isMuted: p.isMuted,
       );
     }).toList();
-    // Sort by bumpTs desc, fallback to name.
+    // Sort by Unix ms when present; fallback to recency score.
     previews.sort((a, b) {
-      final aTs = a.bumpTs ?? 0;
-      final bTs = b.bumpTs ?? 0;
+      final aTs = (a.bumpTs ?? a.recency ?? 0);
+      final bTs = (b.bumpTs ?? b.recency ?? 0);
       final cmp = bTs.compareTo(aTs);
       if (cmp != 0) return cmp;
       return a.name.toLowerCase().compareTo(b.name.toLowerCase());
@@ -396,6 +409,7 @@ class RoomPreview {
     required this.name,
     required this.avatarUrl,
     required this.bumpTs,
+    required this.recency,
     required this.notificationCount,
     required this.highlightCount,
     required this.isMarkedUnread,
@@ -408,6 +422,7 @@ class RoomPreview {
       name: data.name,
       avatarUrl: data.avatarUrl,
       bumpTs: data.bumpTs,
+      recency: data.recency,
       notificationCount: data.notificationCount,
       highlightCount: data.highlightCount,
       isMarkedUnread: data.isMarkedUnread,
@@ -419,6 +434,7 @@ class RoomPreview {
   final String name;
   final String? avatarUrl;
   final int? bumpTs;
+  final int? recency; // matrix recency score (non-epoch)
   final int notificationCount;
   final int highlightCount;
   final bool isMarkedUnread;

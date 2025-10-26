@@ -857,7 +857,7 @@ class _RoomListSection extends ConsumerWidget {
   }
 }
 
-class _RoomTile extends StatelessWidget {
+  class _RoomTile extends StatelessWidget {
   const _RoomTile({
     required this.room,
     required this.onTap,
@@ -888,6 +888,11 @@ class _RoomTile extends StatelessWidget {
         ),
         leading: _AvatarPlaceholder(name: room.name, avatarUrl: room.avatarUrl),
         title: Text(room.name),
+        subtitle: Text(
+          (room.bumpTs == null || (room.bumpTs ?? 0) <= 0)
+              ? 'ts=—'
+              : 'ts=${room.bumpTs}',
+        ),
         selected: isActive,
         onTap: onTap,
         selectedTileColor: scheme.secondaryContainer,

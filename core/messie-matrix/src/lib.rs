@@ -28,6 +28,7 @@ use tokio::{
 };
 use url::Url;
 use matrix_sdk::ruma::UInt;
+use matrix_sdk::latest_events::LatestEventValue; // for method availability
 use matrix_sdk::ruma::api::client::read_marker::set_read_marker::v3 as read_marker;
 
 mod sliding_sync;
@@ -1027,6 +1028,7 @@ pub fn room_overview(room_id: &str) -> Result<RoomOverview> {
             name: room_id.as_str().to_owned(),
             avatar_url: None,
             bump_ts: None,
+            latest_event_ts: None,
             notification_count: 0,
             highlight_count: 0,
             is_marked_unread: false,
@@ -1044,6 +1046,9 @@ pub struct RoomOverview {
     pub name: String,
     pub avatar_url: Option<String>,
     pub bump_ts: Option<u64>,
+    /// Milliseconds since Unix epoch of the latest event, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_event_ts: Option<u64>,
     pub notification_count: u64,
     pub highlight_count: u64,
     pub is_marked_unread: bool,
@@ -1078,6 +1083,40 @@ async fn build_room_overview(room: &MatrixRoom) -> Result<RoomOverview> {
 
     let avatar_url = room.avatar_url().map(|url| url.to_string());
     let bump_ts = room.recency_stamp();
+    let latest_event_ts = match room.new_latest_event() {
+        LatestEventValue::Remote(remote) => {
+            // Deserialize to access origin_server_ts (MilliSecondsSinceUnixEpoch)
+            remote
+                .raw()
+                .deserialize()
+                .ok()
+                .map(|e| u64::from(e.origin_server_ts().get()))
+        }
+        // Do not surface local timestamps as display timestamps; they are not
+        // server origin times and can appear newer than reality.
+        LatestEventValue::LocalIsSending(_) | LatestEventValue::LocalCannotBeSent(_) => None,
+        LatestEventValue::None => None,
+    }
+    // Offline fallback: read origin_server_ts from our local timeline cache.
+    .or_else(|| {
+        let rid = room.room_id().as_str();
+        let base = active_base_path().unwrap_or_else(|| PathBuf::from(".messie_store_v2"));
+        let store_root = base.join("matrix_store");
+        let cache_dir = store_root.join("timeline_cache");
+        let _ = std::fs::create_dir_all(&cache_dir);
+        let fname: String = rid.chars().map(|c| match c { ':'|'!'|'$'|'/'|'\\'|'?'|'#'|'*'|' ' => '_', _ => c }).collect();
+        let path = cache_dir.join(format!("{}.json", fname));
+        if !path.exists() { return None; }
+        let bytes = std::fs::read(path).ok()?;
+        let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+        let arr = if let Some(a) = v.as_array() { a.clone() } else { v.get("events")?.as_array()?.clone() };
+        for item in arr.iter().rev() {
+            let raw = item.as_str()?;
+            let ev: serde_json::Value = serde_json::from_str(raw).ok()?;
+            if let Some(ts) = ev.get("origin_server_ts").and_then(|x| x.as_u64()) { return Some(ts); }
+        }
+        None
+    });
     // PROPER FIX: Wait for Sliding Sync room update before reading notification counts
     // The issue is we're reading counts immediately without waiting for sliding sync
     // to deliver the server notification data to the room.
@@ -1123,6 +1162,7 @@ async fn build_room_overview(room: &MatrixRoom) -> Result<RoomOverview> {
         name: display_name,
         avatar_url,
         bump_ts,
+        latest_event_ts,
         notification_count,
         highlight_count,
         is_marked_unread,

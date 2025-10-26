@@ -88,7 +88,7 @@ jira-push:
 .PHONY: v2-help \
         v2-build-ffi-host \
         v2-flutter-login-sync v2-flutter-backup v2-flutter-all \
-        v2-rust-test v2-rust-test-ignored
+        v2-rust-test v2-rust-test-ignored matrix-latest-event-test
 
 flutter-run-android:
 	# Ensure Rust Android FFI is built and copied into app/android
@@ -458,7 +458,18 @@ flutter-bridge-all: flutter-bridge-build-lib
 	cd app && \
 	  RUST_LOG="$(RUST_LOG)" \
 	  MESSIE_FFI_LIB_PATH=../$(FFI_LIB) \
-	  flutter test test/bridge
+	flutter test test/bridge
+
+# -------- Headless Rust matrix tests --------
+# Run the latest-event headless test (ignored by default). Requires env vars:
+#  - MESSIE_MATRIX_HOMESERVER
+#  - MESSIE_MATRIX_USERNAME
+#  - MESSIE_MATRIX_PASSWORD
+.PHONY: matrix-latest-event-test
+matrix-latest-event-test:
+	cd core && \
+	  RUST_LOG="$(RUST_LOG)" \
+	  cargo test --test latest_event -- --nocapture --ignored
 
 
 # swallow extra targets so make doesn’t complain or rerun them

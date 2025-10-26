@@ -905,6 +905,7 @@ class RoomOverviewData {
     required this.name,
     required this.avatarUrl,
     required this.bumpTs,
+    required this.recency,
     required this.notificationCount,
     required this.highlightCount,
     required this.isMarkedUnread,
@@ -934,8 +935,10 @@ class RoomOverviewData {
       return false;
     }
 
-    final bump = asInt(
-        json['bump_ts'] ?? json['bumpTs'] ?? json['ts'] ?? json['last_ts']);
+    // Use only real Unix ms timestamps for display/order across modules.
+    // Do NOT fall back to recency/bump stamps here; they are not Unix time.
+    int? bump = asInt(json['latest_event_ts'] ?? json['latestEventTs']);
+    final int? recency = asInt(json['bump_ts'] ?? json['bumpTs']);
     final notif =
         asInt(json['notification_count'] ?? json['notificationCount']) ?? 0;
     final highlight =
@@ -946,6 +949,7 @@ class RoomOverviewData {
       name: json['name'] as String? ?? '',
       avatarUrl: json['avatar_url'] as String? ?? json['avatarUrl'] as String?,
       bumpTs: bump,
+      recency: recency,
       notificationCount: notif,
       highlightCount: highlight,
       isMarkedUnread:
@@ -958,6 +962,7 @@ class RoomOverviewData {
   final String name;
   final String? avatarUrl;
   final int? bumpTs;
+  final int? recency;
   final int notificationCount;
   final int highlightCount;
   final bool isMarkedUnread;

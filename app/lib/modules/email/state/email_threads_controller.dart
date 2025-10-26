@@ -232,6 +232,12 @@ final emailHomeThreadsProvider = Provider<List<HomeThread>>((ref) {
     if (cmp != 0) return cmp;
     return a.name.toLowerCase().compareTo(b.name.toLowerCase());
   });
+  assert(() {
+    final head = items.take(8).map((t) => 'email:${t.name} ts=${t.bumpTs ?? 0}').join(' | ');
+    // ignore: avoid_print
+    print('[email-home] ordered=${items.length} first=${head}');
+    return true;
+  }());
   return items;
 });
 
@@ -261,8 +267,19 @@ final emailAllMailProvider = Provider<List<EmailHeader>>((ref) {
         data: (b) => b,
         orElse: () => EmailHeadersBundle(all: const [], important: const []),
       );
-  final sorted = bundle.all.toList()..sort((a, b) => b.date.compareTo(a.date));
-  return sorted;
+  // Dedupe like web adapter: prefer messageId when available
+  final seen = <String>{};
+  final result = <EmailHeader>[];
+  for (final m in bundle.all) {
+    final key = (m.messageId != null && m.messageId!.isNotEmpty)
+        ? m.messageId!
+        : '${m.subject.toLowerCase().trim()}|${m.date.millisecondsSinceEpoch}';
+    if (seen.contains(key)) continue;
+    seen.add(key);
+    result.add(m);
+  }
+  result.sort((a, b) => b.date.compareTo(a.date));
+  return result;
 });
 
 /// Detail data for a specific email thread

@@ -17,9 +17,20 @@ final homeThreadsProvider = Provider<List<HomeThread>>((ref) {
   all.sort((a, b) {
     final at = a.bumpTs ?? 0;
     final bt = b.bumpTs ?? 0;
-    final cmp = bt.compareTo(at);
+    final cmp = bt.compareTo(at); // newest first
     if (cmp != 0) return cmp;
     return a.name.toLowerCase().compareTo(b.name.toLowerCase());
   });
+  // Debug: log first few items to verify ordering
+  assert(() {
+    String fmtTs(int? v) => v == null ? '-' : v.toString();
+    final preview = all
+        .take(8)
+        .map((t) => '${t.module}:${t.name} ts=${fmtTs(t.bumpTs)}')
+        .join(' | ');
+    // ignore: avoid_print
+    print('[home] ordered=${all.length} first=${preview}');
+    return true;
+  }());
   return all;
 });
