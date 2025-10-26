@@ -936,9 +936,20 @@ class RoomOverviewData {
     }
 
     // Use only real Unix ms timestamps for display/order across modules.
-    // Do NOT fall back to recency/bump stamps here; they are not Unix time.
+    // Primary source: latest_event_ts (Unix ms from origin_server_ts).
     int? bump = asInt(json['latest_event_ts'] ?? json['latestEventTs']);
     final int? recency = asInt(json['bump_ts'] ?? json['bumpTs']);
+
+    // Back-compat: older persisted snapshots (v1) stored the real timestamp under
+    // 'bump_ts' and also included a separate 'recency' field. If latest_event_ts
+    // is missing but a 'recency' key exists, treat bump_ts as the real timestamp.
+    if (bump == null) {
+      final hasRecencyKey = json.containsKey('recency');
+      if (hasRecencyKey) {
+        final maybeRealTs = asInt(json['bump_ts'] ?? json['bumpTs']);
+        if (maybeRealTs != null) bump = maybeRealTs;
+      }
+    }
     final notif =
         asInt(json['notification_count'] ?? json['notificationCount']) ?? 0;
     final highlight =

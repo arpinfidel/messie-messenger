@@ -24,10 +24,9 @@ final homeThreadsProvider = Provider<List<HomeThread>>((ref) {
   // Debug: log first few items to verify ordering
   assert(() {
     String fmtTs(int? v) => v == null ? '-' : v.toString();
-    final preview = all
-        .take(8)
-        .map((t) => '${t.module}:${t.name} ts=${fmtTs(t.bumpTs)}')
-        .join(' | ');
+    final preview = all.take(12).map((t) {
+      return '${t.module}:${t.name} ts=${fmtTs(t.bumpTs)}';
+    }).join(' | ');
     // ignore: avoid_print
     print('[home] ordered=${all.length} first=${preview}');
     return true;

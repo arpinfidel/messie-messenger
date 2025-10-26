@@ -269,7 +269,11 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
                 'room_id': p.roomId,
                 'name': p.name,
                 'avatar_url': p.avatarUrl,
-                'bump_ts': p.bumpTs,
+                // Persist both fields with correct semantics:
+                // - latest_event_ts: real Unix ms timestamp of latest event
+                // - bump_ts: Matrix recency score (non-epoch)
+                'latest_event_ts': p.bumpTs,
+                'bump_ts': p.recency,
                 'recency': p.recency,
                 'notification_count': p.notificationCount,
                 'highlight_count': p.highlightCount,

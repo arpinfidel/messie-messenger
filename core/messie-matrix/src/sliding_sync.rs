@@ -10,10 +10,11 @@ use log::{debug, warn, trace};
 use matrix_sdk::{
     sliding_sync::{SlidingSync, SlidingSyncList, SlidingSyncMode, UpdateSummary, Version},
     Client, RoomDisplayName, RoomState,
+    room::Room as MatrixRoom,
+    room::MessagesOptions,
 };
 // use matrix_sdk::config::SyncSettings;
 use matrix_sdk::ruma::api::client::sync::sync_events::v5 as http;
-use matrix_sdk::room::MessagesOptions;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
@@ -196,6 +197,7 @@ impl SlidingSyncController {
         self.listeners.lock().await.insert(port);
         // If a persisted room-list cache exists, emit it immediately so the UI
         // can render offline after app restart.
+        maybe_wipe_legacy_room_list_cache();
         if let Some(persisted) = load_persisted_room_list() {
             let rooms: Vec<String> = persisted.iter().map(|s| s.room_id.clone()).collect();
             let payload = SlidingSyncUpdate { kind: "sliding_sync_update", lists: vec!["all".to_string()], rooms, summaries: persisted };
@@ -403,6 +405,23 @@ fn persist_room_list(summaries: &[crate::RoomOverview]) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Detect and wipe old room_list_cache that was persisted without
+/// `latest_event_ts` (older builds). Those snapshots cause incorrect
+/// ordering on startup until a fresh live snapshot replaces them.
+fn maybe_wipe_legacy_room_list_cache() {
+    let path = room_list_cache_path();
+    if !path.exists() { return; }
+    let bytes = match std::fs::read(&path) { Ok(b) => b, Err(_) => return };
+    let v: serde_json::Value = match serde_json::from_slice(&bytes) { Ok(v) => v, Err(_) => return };
+    let Some(arr) = v.get("rooms").and_then(|x| x.as_array()) else { return };
+    let mut total = 0usize; let mut missing = 0usize;
+    for item in arr { if let Some(obj) = item.as_object() { total += 1; if !obj.contains_key("latest_event_ts") { missing += 1; } } }
+    if total > 0 && missing * 2 >= total { // majority missing -> legacy snapshot
+        let _ = std::fs::remove_file(&path);
+        log::debug!("[ss] wiped legacy room_list_cache.json missing latest_event_ts");
+    }
+}
+
 fn load_persisted_room_list() -> Option<Vec<crate::RoomOverview>> {
     let path = room_list_cache_path();
     if !path.exists() { return None; }
@@ -465,6 +484,49 @@ fn latest_ts_from_timeline_cache(room_id: &str) -> Option<u64> {
     None
 }
 
+/// Returns the latest origin_server_ts of a message-like event from the
+/// offline timeline cache. Treats encrypted events as message-like so E2EE
+/// rooms are correctly ordered by the most recent message.
+fn latest_message_ts_from_timeline_cache(room_id: &str) -> Option<u64> {
+    let path = timeline_cache_path_for(room_id);
+    if !path.exists() { return None; }
+    let bytes = std::fs::read(path).ok()?;
+    let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    let arr = if let Some(a) = v.as_array() { a.clone() } else { v.get("events")?.as_array()?.clone() };
+    for item in arr.iter().rev() {
+        let raw = item.as_str()?;
+        let ev: serde_json::Value = serde_json::from_str(raw).ok()?;
+        let ety = ev.get("type").and_then(|x| x.as_str()).unwrap_or("");
+        // Consider normal messages, stickers, and encrypted payloads as message-like
+        let is_message_like = matches!(ety,
+            "m.room.message" | "m.sticker" | "m.room.encrypted" | "m.image" | "m.video" | "m.audio" | "m.file"
+        );
+        if !is_message_like { continue; }
+        if let Some(ts) = ev.get("origin_server_ts").and_then(|x| x.as_u64()) { return Some(ts); }
+    }
+    None
+}
+
+/// Light online probe to find the latest message-like event timestamp without
+/// opening full timelines in the UI. This uses a small backward pagination and
+/// stops at the first message-like event.
+async fn latest_message_ts_online(room: &MatrixRoom) -> Option<u64> {
+    use matrix_sdk::ruma::UInt;
+    // Keep it modest to reduce bandwidth; we only need the latest page.
+    let mut opts = MessagesOptions::backward();
+    opts.limit = UInt::from(20u32);
+    let messages = match room.messages(opts).await { Ok(m) => m, Err(_) => return None };
+    for ev in messages.chunk.iter().rev() { // newest last; iterate reversed
+        let ety = ev.raw().get_field::<String>("type").ok().flatten().unwrap_or_default();
+        let is_message_like = matches!(ety.as_str(),
+            "m.room.message" | "m.sticker" | "m.room.encrypted" | "m.image" | "m.video" | "m.audio" | "m.file"
+        );
+        if !is_message_like { continue; }
+        if let Ok(Some(ts)) = ev.raw().get_field::<u64>("origin_server_ts") { return Some(ts); }
+    }
+    None
+}
+
 async fn build_summaries(room_ids: &[String]) -> Vec<crate::RoomOverview> {
     let mut summaries: Vec<crate::RoomOverview> = Vec::new();
     if let Some(client) = crate::client() {
@@ -481,22 +543,43 @@ async fn build_summaries(room_ids: &[String]) -> Vec<crate::RoomOverview> {
                     };
                     let avatar_url = room.avatar_url().map(|u| u.to_string());
                     let bump_ts = room.recency_stamp();
-                    // Only use remote origin_server_ts for display; ignore local
-                    // sending variants to avoid "future" timestamps.
-                    let latest_event_ts = match room.new_latest_event() {
+                    // Prefer a message-like timestamp from cache when available
+                    // to better match Element's behavior of sorting by last
+                    // message activity. Fallback to the SDK's latest event.
+                    let (remote_ts, remote_type): (Option<u64>, Option<String>) = match room.new_latest_event() {
                         matrix_sdk::latest_events::LatestEventValue::Remote(remote) => {
-                            remote
+                            let ty = remote.raw().get_field::<String>("type").ok().flatten();
+                            let ts = remote
                                 .raw()
                                 .deserialize()
                                 .ok()
-                                .map(|e| u64::from(e.origin_server_ts().get()))
+                                .map(|e| u64::from(e.origin_server_ts().get()));
+                            (ts, ty)
                         }
                         matrix_sdk::latest_events::LatestEventValue::LocalIsSending(_)
-                        | matrix_sdk::latest_events::LatestEventValue::LocalCannotBeSent(_) => None,
-                        matrix_sdk::latest_events::LatestEventValue::None => None,
+                        | matrix_sdk::latest_events::LatestEventValue::LocalCannotBeSent(_) => (None, None),
+                        matrix_sdk::latest_events::LatestEventValue::None => (None, None),
                     }
-                    // Safe offline fallback: only origin_server_ts from cached remote events.
-                    .or_else(|| latest_ts_from_timeline_cache(room_id.as_str()));
+                    // Safe offline fallback: only origin_server_ts from cached events.
+                    ;
+                    let mut latest_event_ts = remote_ts.or_else(|| latest_ts_from_timeline_cache(room_id.as_str()));
+                    // If the remote latest event isn't a message-like type, try to
+                    // replace it with a message-like timestamp to better match clients.
+                    let remote_is_message_like = match remote_type.as_deref() {
+                        Some("m.room.message" | "m.sticker" | "m.room.encrypted" | "m.image" | "m.video" | "m.audio" | "m.file") => true,
+                        _ => false,
+                    };
+                    if !remote_is_message_like {
+                        if let Some(ts) = latest_message_ts_from_timeline_cache(room_id.as_str()) { latest_event_ts = Some(ts); }
+                    }
+                    // As a last resort, do a light online probe for message-like ts
+                    if latest_event_ts.is_none() || !remote_is_message_like {
+                        if let Some(client) = crate::client() {
+                            if let Some(r) = client.get_room(&room_id) {
+                                if let Some(ts) = latest_message_ts_online(&r).await { latest_event_ts = Some(ts); }
+                            }
+                        }
+                    }
                     let is_marked_unread = room.is_marked_unread();
                     let is_muted = crate::is_room_muted(room_id.as_str());
                     let counts = room.unread_notification_counts();

@@ -13,7 +13,9 @@ final matrixHomeThreadsProvider = Provider<List<HomeThread>>((ref) {
             threadId: r.roomId,
             name: r.name,
             avatarUrl: r.avatarUrl,
-            bumpTs: r.bumpTs,
+            // Prefer real latest_event_ts; fall back to Matrix recency when missing.
+            // This keeps ordering close to Element during initial hydration.
+            bumpTs: r.bumpTs ?? r.recency,
             notificationCount: r.notificationCount,
             highlightCount: r.highlightCount,
             isMuted: r.isMuted,

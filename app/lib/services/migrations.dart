@@ -7,7 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 /// migrations to bump to the current version.
 class MigrationManager {
   static const _versionKey = 'messie.storage.version';
-  static const int currentVersion = 2;
+  static const int currentVersion = 3;
 
   final FlutterSecureStorage _store;
 
@@ -24,6 +24,11 @@ class MigrationManager {
     if (version < 2) {
       await _toV2();
       version = 2;
+    }
+
+    if (version < 3) {
+      await _toV3();
+      version = 3;
     }
 
     try {
@@ -51,5 +56,19 @@ class MigrationManager {
       debugPrint('[Migration] v2 failed: $e');
     }
   }
-}
 
+  /// v3: Clear outdated room list snapshot to ensure latest_event_ts flows.
+  /// Prior to v3, we persisted the real timestamp under `bump_ts`, which
+  /// conflicted with the new semantics where `bump_ts` is a recency score.
+  /// Removing the cached snapshot forces a clean rebuild from Sliding Sync
+  /// with `latest_event_ts` populated, fixing Home ordering/merges.
+  Future<void> _toV3() async {
+    const snapshotKey = 'messie.room_list.snapshot.v1';
+    try {
+      await _store.delete(key: snapshotKey);
+      debugPrint('[Migration] v3 complete: cleared room list snapshot');
+    } catch (e) {
+      debugPrint('[Migration] v3 failed: $e');
+    }
+  }
+}
