@@ -14,13 +14,37 @@ final todoListsStreamProvider = StreamProvider.autoDispose<List<api.TodoList>>((
   final controller = StreamController<List<api.TodoList>>();
 
   Timer? timer;
+  List<api.TodoList>? last;
+
+  bool listsEqual(List<api.TodoList> a, List<api.TodoList> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      final x = a[i];
+      final y = b[i];
+      if (x.id != y.id) return false;
+      if (x.title != y.title) return false;
+      final xts = (x.updatedAt ?? x.createdAt)?.millisecondsSinceEpoch ?? 0;
+      final yts = (y.updatedAt ?? y.createdAt)?.millisecondsSinceEpoch ?? 0;
+      if (xts != yts) return false;
+    }
+    return true;
+  }
   Future<void> tick() async {
     try {
       // Ensure a session exists and JWT is present
       await ref.read(authControllerProvider.notifier).ensureBackendJwt();
       final lists = await repo.getListsForCurrentUser();
-      debugPrint('[todo] fetched ${lists.length} lists');
+      // Backend returns lists sorted; only publish if order/content changed.
+      final changed = last == null ? true : !listsEqual(lists, last!);
+      if (!changed) {
+        debugPrint('[todo] lists unchanged (${lists.length}); skip update');
+        last = lists;
+        return;
+      }
+      debugPrint('[todo] fetched ${lists.length} lists (changed)');
       ref.read(todoLastErrorProvider.notifier).state = null;
+      last = lists;
       controller.add(lists);
     } catch (_) {
       final err = _;

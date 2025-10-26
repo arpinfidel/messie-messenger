@@ -34,6 +34,7 @@ export MESSIE_GROUP_ROOM ?= !WHJjpbPRQHMZAjbIAM:messie.localhost
 export MESSIE_DM_ROOM ?= !lOCTzMDIPbNkteJDKI:messie.localhost
 export MESSIE_SENDER_USERNAME ?= bridge-tester-2
 export MESSIE_SENDER_PASSWORD ?= bridgeTesterPass!
+REPORTER ?= compact
 
 # Backend API base URL for Flutter (used via --dart-define)
 # For Android emulator, 10.0.2.2 points to host loopback. Override for iOS/desktop if needed.
@@ -84,7 +85,7 @@ jira-push:
 	@echo "Pushing local YAML changes to Jira (then refreshing YAML)..."
 	cd backend && go run ./cmd/jira-sync push
 
-.PHONY: test-e2e-codegen matrix-init matrix-up matrix-down matrix-register matrix-seed matrix-setup matrix-cleanup flutter-bridge-build-lib flutter-bridge-test bridge-generate bridge-build-android bridge-build-ios flutter-run-android flutter-run-ios
+.PHONY: test-e2e-codegen matrix-init matrix-up matrix-down matrix-register matrix-seed matrix-setup matrix-cleanup flutter-bridge-build-lib flutter-bridge-test bridge-generate bridge-build-android bridge-build-ios flutter-run-android flutter-run-ios flutter-feed-order-test
 .PHONY: v2-help \
         v2-build-ffi-host \
         v2-flutter-login-sync v2-flutter-backup v2-flutter-all \
@@ -459,6 +460,32 @@ flutter-bridge-all: flutter-bridge-build-lib
 	  RUST_LOG="$(RUST_LOG)" \
 	  MESSIE_FFI_LIB_PATH=../$(FFI_LIB) \
 	flutter test test/bridge
+
+.PHONY: flutter-bridge-order
+flutter-bridge-order: flutter-bridge-build-lib
+	cd app && flutter pub get
+	cd app && \
+	  RUST_LOG="messie_matrix=warn" \
+	  MESSIE_FFI_LIB_PATH=../$(FFI_LIB) \
+	  MESSIE_SEED_STATE_FILE=$(SEED_STATE_DIR_ABS)/seed_state.json \
+	  flutter $(if $(VERBOSE),-v,) test -r $(REPORTER) --dart-define=FEED_TEST_LOG=false test/bridge/home_order_live_test.dart
+
+.PHONY: flutter-bridge-order-smoke
+flutter-bridge-order-smoke: flutter-bridge-build-lib
+	cd app && flutter pub get
+	cd app && \
+	  RUST_LOG="messie_matrix=warn" \
+	  MESSIE_FFI_LIB_PATH=../$(FFI_LIB) \
+	  MESSIE_SEED_STATE_FILE=$(SEED_STATE_DIR_ABS)/seed_state.json \
+	  flutter pub run bin/order_smoke.dart
+
+# Validate that Home ordering (by real timestamp) matches our bumpTs mapping.
+.PHONY: flutter-feed-order-test
+flutter-feed-order-test:
+	cd app && flutter pub get
+	cd app && \
+	  RUST_LOG="messie_matrix=warn" \
+	  flutter $(if $(VERBOSE),-v,) test -r $(REPORTER) --dart-define=FEED_TEST_LOG=false --dart-define=MESSIE_API_BASE_URL=$(APP_API_BASE_URL) test/feed/home_order_test.dart
 
 # -------- Headless Rust matrix tests --------
 # Run the latest-event headless test (ignored by default). Requires env vars:

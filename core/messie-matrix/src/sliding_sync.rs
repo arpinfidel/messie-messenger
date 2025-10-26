@@ -362,8 +362,8 @@ impl SlidingSyncController {
             .collect();
         if missing.is_empty() { return; }
         missing.sort_by(|a, b| {
-            let ascore = a.bump_ts.unwrap_or(0);
-            let bscore = b.bump_ts.unwrap_or(0);
+            let ascore = a.latest_event_ts.or(a.bump_ts).unwrap_or(0);
+            let bscore = b.latest_event_ts.or(b.bump_ts).unwrap_or(0);
             bscore.cmp(&ascore)
         });
         // Queue all missing rooms; concurrency is limited by PROBE_SEMAPHORE
@@ -636,16 +636,16 @@ async fn build_summaries(room_ids: &[String]) -> Vec<crate::RoomOverview> {
                     }
                     // Safe offline fallback: only origin_server_ts from cached events.
                     ;
-                    let mut latest_event_ts = remote_ts.or_else(|| latest_ts_from_timeline_cache(room_id.as_str()));
-                    // If the remote latest event isn't a message-like type, try to
-                    // replace it with a message-like timestamp to better match clients.
+                    // Prefer message-like timestamp from cache if present, then remote,
+                    // then generic cache fallback.
+                    let mut latest_event_ts = latest_message_ts_from_timeline_cache(room_id.as_str())
+                        .or(remote_ts)
+                        .or_else(|| latest_ts_from_timeline_cache(room_id.as_str()));
+                    // Track whether the remote latest event was message-like.
                     let remote_is_message_like = match remote_type.as_deref() {
                         Some("m.room.message" | "m.sticker" | "m.room.encrypted" | "m.image" | "m.video" | "m.audio" | "m.file") => true,
                         _ => false,
                     };
-                    if !remote_is_message_like {
-                        if let Some(ts) = latest_message_ts_from_timeline_cache(room_id.as_str()) { latest_event_ts = Some(ts); }
-                    }
                     let is_marked_unread = room.is_marked_unread();
                     let is_muted = crate::is_room_muted(room_id.as_str());
                     let counts = room.unread_notification_counts();

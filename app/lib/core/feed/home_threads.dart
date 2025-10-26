@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'module_registry.dart';
@@ -8,7 +9,8 @@ import 'module_types.dart';
 // ---- Module thread adapters ----
 
 /// Aggregated Home threads from all registered modules, sorted by bumpTs desc then name.
-final homeThreadsProvider = Provider<List<HomeThread>>((ref) {
+/// This is the immediate (non-debounced) source.
+final rawHomeThreadsProvider = Provider<List<HomeThread>>((ref) {
   final modules = ref.watch(moduleRegistryProvider);
   final all = <HomeThread>[];
   for (final m in modules) {
@@ -33,3 +35,40 @@ final homeThreadsProvider = Provider<List<HomeThread>>((ref) {
   }());
   return all;
 });
+
+/// Trailing debounce of Home threads so rapid module updates don't thrash the UI.
+/// Publishes updates 250ms after the latest change (no leading call).
+class _HomeThreadsDebouncer extends StateNotifier<List<HomeThread>> {
+  _HomeThreadsDebouncer(this._ref) : super(const <HomeThread>[]) {
+    // Schedule initial publish after debounce window
+    _schedule(_ref.read(rawHomeThreadsProvider));
+    // Listen for changes in the raw provider and debounce updates
+    _sub = _ref.listen<List<HomeThread>>(rawHomeThreadsProvider, (prev, next) {
+      _schedule(next);
+    });
+  }
+
+  final Ref _ref;
+  Timer? _timer;
+  ProviderSubscription<List<HomeThread>>? _sub;
+
+  void _schedule(List<HomeThread> value) {
+    _timer?.cancel();
+    _timer = Timer(const Duration(milliseconds: 250), () {
+      state = value;
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _sub?.close();
+    super.dispose();
+  }
+}
+
+/// Debounced Home threads provider consumed by the UI.
+final homeThreadsProvider =
+    StateNotifierProvider<_HomeThreadsDebouncer, List<HomeThread>>(
+  (ref) => _HomeThreadsDebouncer(ref),
+);

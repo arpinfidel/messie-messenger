@@ -1016,6 +1016,54 @@ void main() {
       expect(s['is_muted'], isA<bool>(), reason: 'is_muted must be bool');
     }
   });
+
+  test('home order equals latest_event_ts on live stream', () async {
+    // Reuse the roomListStream registered in setUpAll; it has already received
+    // updates in this suite, so we shouldn't need extra nudge.
+    final payload = await _waitForPayload(
+      roomListStream!,
+      <String>{'sliding_sync_update'},
+      timeout: const Duration(seconds: 60),
+      label: 'home-order',
+    );
+
+    final raw = payload['summaries'];
+    final summaries = (raw is List)
+        ? raw.cast<Map<dynamic, dynamic>>()
+            .map((e) => e.cast<String, dynamic>())
+            .toList()
+        : const <Map<String, dynamic>>[];
+    expect(summaries, isNotEmpty, reason: 'no summaries in payload');
+
+    // Build rows with both ts variants
+    final rows = <({String name, int? realTs, int? mappedTs})>[];
+    for (final s in summaries) {
+      final name = (s['name'] as String?) ?? '';
+      if (name.isEmpty) continue;
+      final realTs = (s['latest_event_ts'] as num?)?.toInt();
+      final mappedTs = RoomOverviewData.fromJson(s).bumpTs;
+      rows.add((name: name, realTs: realTs, mappedTs: mappedTs));
+    }
+    final filtered = rows.where((r) => r.realTs != null).toList(growable: false);
+    expect(filtered, isNotEmpty, reason: 'no rows with real timestamps');
+
+    List<String> orderBy(List<({String name, int? realTs, int? mappedTs})> list,
+        int? Function(({String name, int? realTs, int? mappedTs}) r) pick) {
+      final copy = List.of(list);
+      copy.sort((a, b) {
+        final at = (pick(a) ?? 0);
+        final bt = (pick(b) ?? 0);
+        final cmp = bt.compareTo(at);
+        if (cmp != 0) return cmp;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+      return copy.map((e) => e.name).toList(growable: false);
+    }
+
+    final expected = orderBy(filtered, (r) => r.realTs);
+    final actual = orderBy(filtered, (r) => r.mappedTs);
+    expect(actual, equals(expected));
+  });
 }
 
 // Utility: wait up to a few seconds for the peer to write its device id file.
