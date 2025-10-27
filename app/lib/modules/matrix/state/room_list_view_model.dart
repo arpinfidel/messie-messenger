@@ -4,7 +4,6 @@ import 'dart:isolate';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../../bridge/messie_bridge.dart';
 import '../../../services/counts_sync_service.dart';
@@ -31,7 +30,6 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
   RoomListViewModel(this._ref) : super(RoomListState.initial());
 
   final Ref _ref;
-  final FlutterSecureStorage _secure = const FlutterSecureStorage();
 
   ReceivePort? _receivePort;
   StreamSubscription<dynamic>? _subscription;
@@ -69,8 +67,7 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
       if (_started) _rebuildFromCache();
     });
 
-    // Prime from persisted snapshot immediately so UI renders offline.
-    _primeFromPersistedSnapshot();
+    // Keep it simple: no offline snapshot priming. Rely on live Sliding Sync.
 
     // Allow forcing offline in tests via --dart-define=MESSIE_FORCE_OFFLINE=true
     final forceOffline = _envForceOffline == '1' || _envForceOffline.toLowerCase() == 'true';
@@ -111,6 +108,21 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
       }
 
       // Room data will arrive via sliding sync snapshots/updates.
+
+      // Align with the test flow: explicitly subscribe to a window of joined
+      // rooms so per-room timelines flow promptly. This avoids waiting for
+      // the SDK cache to hydrate before we see latest_event_ts.
+      try {
+        final rooms = await rustListJoinedRooms();
+        if (rooms.isOk && rooms.data != null && rooms.data!.rooms.isNotEmpty) {
+          final ids = rooms.data!.rooms.take(64).toList(growable: false);
+          await rustSlidingSyncSubscribeRooms(
+            handle: _slidingSyncHandle,
+            roomIds: ids,
+            reset: true,
+          );
+        }
+      } catch (_) {}
     });
   }
 
@@ -181,13 +193,43 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
               .toList();
         }
 
-        // Merge behavior: update upserts.
+        // Merge behavior: update upserts but never downgrade a real timestamp
+        // to an empty one. If we already have a positive Unix ms for a room,
+        // keep it unless the incoming preview provides a newer positive value.
         for (final p in previews) {
-          _roomCache[p.roomId] = p;
+          final existing = _roomCache[p.roomId];
+          if (existing == null) {
+            _roomCache[p.roomId] = p;
+            continue;
+          }
+          final int oldTs = existing.bumpTs ?? 0;
+          final int newTs = p.bumpTs ?? 0;
+          final merged = RoomPreview(
+            roomId: p.roomId,
+            name: p.name,
+            avatarUrl: p.avatarUrl,
+            bumpTs: (newTs > 0) ? newTs : oldTs,
+            recency: p.recency ?? existing.recency,
+            notificationCount: p.notificationCount,
+            highlightCount: p.highlightCount,
+            isMarkedUnread: p.isMarkedUnread,
+            isMuted: p.isMuted,
+          );
+          _roomCache[p.roomId] = merged;
         }
+        // Diagnostics: count rooms that carry a real latest_event_ts (bumpTs)
+        assert(() {
+          final withTs = _roomCache.values.where((p) => (p.bumpTs ?? 0) > 0).length;
+          String fmtTs(int? v) => v == null || v <= 0 ? '-' : v.toString();
+          final sample = _roomCache.values
+              .take(8)
+              .map((p) => '${p.name} ts=${fmtTs(p.bumpTs)}')
+              .join(' | ');
+          // ignore: avoid_print
+          print('[room-list] cache=${_roomCache.length} with_ts=$withTs sample=[ $sample ]');
+          return true;
+        }());
         _rebuildFromCache();
-        // Persist snapshot so next app start can render immediately offline.
-        unawaited(_persistSnapshot());
         // Refresh subscriptions based on the latest ordering.
         unawaited(_refreshRooms());
       } else if (kind == 'sliding_sync_ready') {
@@ -220,10 +262,10 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
     }).toList();
 
     previews.sort((a, b) {
-      // Sort by real Unix ms bumpTs when present; fallback to recency score
-      // (Matrix recency, non-epoch) only for ordering/subscription decisions.
-      final aTs = (a.bumpTs ?? a.recency ?? 0);
-      final bTs = (b.bumpTs ?? b.recency ?? 0);
+      // Sort strictly by real Unix ms timestamps. Do not use Matrix recency
+      // here, as it is not an epoch and causes "x1000"-looking values in UI.
+      final aTs = a.bumpTs ?? 0;
+      final bTs = b.bumpTs ?? 0;
       final cmp = bTs.compareTo(aTs);
       if (cmp != 0) return cmp;
       return a.name.toLowerCase().compareTo(b.name.toLowerCase());
@@ -259,53 +301,7 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
     }
   }
 
-  // ---- Persistence (secure storage) ----
-  String get _snapshotKey => 'messie.room_list.snapshot.v1';
-
-  Future<void> _persistSnapshot() async {
-    try {
-      final list = _roomCache.values
-          .map((p) => {
-                'room_id': p.roomId,
-                'name': p.name,
-                'avatar_url': p.avatarUrl,
-                // Persist both fields with correct semantics:
-                // - latest_event_ts: real Unix ms timestamp of latest event
-                // - bump_ts: Matrix recency score (non-epoch)
-                'latest_event_ts': p.bumpTs,
-                'bump_ts': p.recency,
-                'recency': p.recency,
-                'notification_count': p.notificationCount,
-                'highlight_count': p.highlightCount,
-                'is_marked_unread': p.isMarkedUnread,
-                'is_muted': p.isMuted,
-              })
-          .toList(growable: false);
-      await _secure.write(key: _snapshotKey, value: jsonEncode({'rooms': list}));
-    } catch (_) {}
-  }
-
-  Future<void> _primeFromPersistedSnapshot() async {
-    try {
-      final raw = await _secure.read(key: _snapshotKey);
-      if (raw == null || raw.isEmpty) return;
-      final map = jsonDecode(raw) as Map<String, dynamic>;
-      final arr = (map['rooms'] as List?)?.cast<Map<String, dynamic>>();
-      if (arr == null) return;
-      debugPrint('[RoomListController] loaded ${arr.length} rooms from persisted snapshot');
-      _roomCache
-        ..clear()
-        ..addEntries(arr.map((e) {
-          final p = RoomOverviewData.fromJson(e);
-          return MapEntry(
-              p.roomId,
-              RoomPreview.fromOverview(p));
-        }));
-      _rebuildFromCache();
-    } catch (_) {
-      // ignore
-    }
-  }
+  // No persistence: keep runtime-only state for clarity during debugging.
 
   void _rebuildFromCache() {
     final counts = _ref.read(countsSyncProvider);
@@ -324,10 +320,10 @@ class RoomListViewModel extends StateNotifier<RoomListState> {
         isMuted: p.isMuted,
       );
     }).toList();
-    // Sort by Unix ms when present; fallback to recency score.
+    // Sort strictly by Unix ms; never use recency for ordering/display.
     previews.sort((a, b) {
-      final aTs = (a.bumpTs ?? a.recency ?? 0);
-      final bTs = (b.bumpTs ?? b.recency ?? 0);
+      final aTs = a.bumpTs ?? 0;
+      final bTs = b.bumpTs ?? 0;
       final cmp = bTs.compareTo(aTs);
       if (cmp != 0) return cmp;
       return a.name.toLowerCase().compareTo(b.name.toLowerCase());

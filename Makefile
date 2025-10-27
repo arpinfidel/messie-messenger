@@ -89,7 +89,8 @@ jira-push:
 .PHONY: v2-help \
         v2-build-ffi-host \
         v2-flutter-login-sync v2-flutter-backup v2-flutter-all \
-        v2-rust-test v2-rust-test-ignored matrix-latest-event-test
+        v2-rust-test v2-rust-test-ignored matrix-latest-event-test \
+        flutter-bridge-summary-ts
 
 flutter-run-android:
 	# Ensure Rust Android FFI is built and copied into app/android
@@ -470,6 +471,16 @@ flutter-bridge-order: flutter-bridge-build-lib
 	  MESSIE_SEED_STATE_FILE=$(SEED_STATE_DIR_ABS)/seed_state.json \
 	  flutter $(if $(VERBOSE),-v,) test -r $(REPORTER) --dart-define=FEED_TEST_LOG=false test/bridge/home_order_live_test.dart
 
+# Verify Sliding Sync summaries expose latest_event_ts and our mapping uses it verbatim.
+.PHONY: flutter-bridge-summary-ts
+flutter-bridge-summary-ts: flutter-bridge-build-lib
+	cd app && flutter pub get
+	cd app && \
+	  RUST_LOG="$(RUST_LOG)" \
+	  MESSIE_FFI_LIB_PATH=../$(FFI_LIB) \
+	  MESSIE_SEED_STATE_FILE=$(SEED_STATE_DIR_ABS)/seed_state.json \
+	  flutter $(if $(VERBOSE),-v,) test -r $(REPORTER) test/bridge/summary_latest_event_test.dart
+
 .PHONY: flutter-bridge-order-smoke
 flutter-bridge-order-smoke: flutter-bridge-build-lib
 	cd app && flutter pub get
@@ -497,6 +508,13 @@ matrix-latest-event-test:
 	cd core && \
 	  RUST_LOG="$(RUST_LOG)" \
 	  cargo test --test latest_event -- --nocapture --ignored
+
+# One-shot Sliding Sync list request (like curl) returns timeline ts
+.PHONY: matrix-ss-list-ts-test
+matrix-ss-list-ts-test:
+	cd core && \
+	  RUST_LOG="$(RUST_LOG)" \
+	  cargo test --test ss_list_timeline -- --nocapture
 
 
 # swallow extra targets so make doesn’t complain or rerun them

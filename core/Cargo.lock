@@ -2217,6 +2217,7 @@ dependencies = [
  "matrix-sdk",
  "matrix-sdk-common",
  "once_cell",
+ "rand 0.8.5",
  "reqwest 0.11.27",
  "serde",
  "serde_json",

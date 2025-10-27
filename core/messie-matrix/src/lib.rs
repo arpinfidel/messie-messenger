@@ -1029,6 +1029,7 @@ pub fn room_overview(room_id: &str) -> Result<RoomOverview> {
             avatar_url: None,
             bump_ts: None,
             latest_event_ts: None,
+            debug_ts_source: None,
             notification_count: 0,
             highlight_count: 0,
             is_marked_unread: false,
@@ -1049,6 +1050,9 @@ pub struct RoomOverview {
     /// Milliseconds since Unix epoch of the latest event, when known.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_event_ts: Option<u64>,
+    /// Debug-only: where latest_event_ts came from. Not used by app logic.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub debug_ts_source: Option<String>,
     pub notification_count: u64,
     pub highlight_count: u64,
     pub is_marked_unread: bool,
@@ -1163,6 +1167,7 @@ async fn build_room_overview(room: &MatrixRoom) -> Result<RoomOverview> {
         avatar_url,
         bump_ts,
         latest_event_ts,
+        debug_ts_source: None,
         notification_count,
         highlight_count,
         is_marked_unread,
