@@ -4,4 +4,4 @@ COPY infra/mautrix-whatsapp/config.yaml /opt/wa-config/config.yaml
 COPY infra/mautrix-whatsapp/registration.yaml /opt/wa-config/registration.yaml
 
 ENTRYPOINT ["/bin/sh", "-c"]
-CMD ["cp /opt/wa-config/config.yaml /data/config.yaml && cp /opt/wa-config/registration.yaml /data/registration.yaml && exec mautrix-whatsapp -c /data/config.yaml"]
+CMD ["MATRIX_IP=$(nslookup matrix 127.0.0.11 2>/dev/null | awk '/^Address: / { ip=$2 } END { print ip }') && if [ -n \"$MATRIX_IP\" ]; then printf '%s\\tmatrix\\n' \"$MATRIX_IP\" >> /etc/hosts; fi && printf 'nameserver 1.1.1.1\\nnameserver 8.8.8.8\\noptions ndots:0\\n' > /etc/resolv.conf && cp /opt/wa-config/config.yaml /data/config.yaml && cp /opt/wa-config/registration.yaml /data/registration.yaml && exec mautrix-whatsapp -c /data/config.yaml"]

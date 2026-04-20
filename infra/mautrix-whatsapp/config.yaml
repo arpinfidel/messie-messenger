@@ -316,8 +316,8 @@ appservice:
     # Localpart template of MXIDs for remote users.
     # {{.}} is replaced with the internal ID of the user.
     username_template: whatsapp_{{.}}
-    as_token: "{{AS_TOKEN}}"
-    hs_token: "{{HS_TOKEN}}"
+    as_token: "V3zzNId0kv3HWdkm4TyPcERcdGh47OAQMjaLGztmLdiEG9NRZ3N5yYEsSjSKu3I1"
+    hs_token: "iH6ZFu6BF3MWi5IJKY6BtkUYZACSxd14TeZPIjkBI4uEpaiYrdRgLACEy5A3iCsK"
 
 # Config options that affect the Matrix connector of the bridge.
 matrix:
