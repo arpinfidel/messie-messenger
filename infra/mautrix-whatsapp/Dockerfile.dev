@@ -1,0 +1,7 @@
+FROM dock.mau.dev/mautrix/whatsapp:latest
+
+COPY infra/mautrix-whatsapp/config.yaml /opt/wa-config/config.yaml
+COPY infra/mautrix-whatsapp/registration.yaml /opt/wa-config/registration.yaml
+
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["cp /opt/wa-config/config.yaml /data/config.yaml && cp /opt/wa-config/registration.yaml /data/registration.yaml && exec mautrix-whatsapp -c /data/config.yaml"]

@@ -9,4 +9,3 @@ namespaces:
   users:
     - regex: '@.*:messie\.localhost'
       exclusive: false
-

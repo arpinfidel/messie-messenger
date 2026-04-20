@@ -13,6 +13,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
+    working_dir: /backend
+    command: ["air", "-c", "/backend/.air.toml"]
     environment:
       PORT: ${BACKEND_PORT:-8080}
       DATABASE_URL: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-todo_db}?sslmode=disable
@@ -23,7 +25,6 @@ services:
       WA_BRIDGE_BASE_URL: ${WA_BRIDGE_BASE_URL:-http://mautrix-whatsapp:29319}
       WA_BRIDGE_SHARED_SECRET: ${WA_BRIDGE_SHARED_SECRET:-TqVJ7k4v2YcZp3xJw9Lm6sAbN2qR8fH5dC1eG7yK0mP4rU6t}
     volumes:
-      - ./backend:/backend
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
     healthcheck:
@@ -65,6 +66,9 @@ services:
       dockerfile: Dockerfile.dev
     ports:
       - "${NGINX_PORT:-8080}:80"
+      - "${MATRIX_WEB_PORT:-80}:80"
+      - "${MATRIX_TLS_PORT:-443}:443"
+      - "${MATRIX_FED_PORT:-8448}:8448"
     depends_on:
       backend:
         condition: service_healthy
@@ -73,7 +77,9 @@ services:
     restart: unless-stopped
 
   matrix:
-    image: matrixdotorg/synapse:v1.114.0
+    build:
+      context: .
+      dockerfile: infra/matrix/Dockerfile.dev
     profiles: ["matrix"]
     environment:
       SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME:-messie.localhost}
@@ -81,21 +87,12 @@ services:
       SYNAPSE_NO_TLS: "true"
       SYNAPSE_ENABLE_REGISTRATION: ${MATRIX_ENABLE_REGISTRATION:-true}
       SYNAPSE_REGISTRATION_SHARED_SECRET: ${MATRIX_REGISTRATION_SHARED_SECRET:-dev_matrix_shared_secret}
-      SYNAPSE_ADDITIONAL_CONFIG_DIR: /etc/synapse/conf.d
+      SYNAPSE_ADDITIONAL_CONFIG_DIR: /opt/matrix-config/conf.d
       UID: "991"
       GID: "991"
-      # Ensure local spam-checker module is importable regardless of python_paths merge order
       PYTHONPATH: /data/custom_modules
     volumes:
       - matrix_data:/data
-      # Mount explicit homeserver config to avoid generation merge issues
-      - ./infra/matrix/homeserver.dev.yaml:/data/homeserver.yaml:ro
-      - ./infra/matrix/conf.d:/etc/synapse/conf.d:ro
-      # Custom Synapse modules mounted under /data for python_paths
-      - ./infra/matrix/modules:/data/custom_modules:ro
-      # Appservice registrations are mounted inside /data/appservices
-      - ./infra/mautrix-whatsapp/registration.yaml:/data/appservices/whatsapp-registration.yaml:ro
-      - ./infra/matrix/appservices/doublepuppet-registration.yaml:/data/appservices/doublepuppet-registration.yaml:ro
     ports:
       - "${MATRIX_PORT:-8008}:8008"
     restart: unless-stopped
@@ -105,12 +102,13 @@ services:
           - ${MATRIX_SERVER_NAME:-messie.localhost}
 
   mautrix-whatsapp:
-    image: dock.mau.dev/mautrix/whatsapp:latest
+    build:
+      context: .
+      dockerfile: infra/mautrix-whatsapp/Dockerfile.dev
     profiles: ["matrix"]
     environment:
       # Do not bind to host; only internal container-to-container access.
       LOG_LEVEL: ${WHATSAPP_LOG_LEVEL:-INFO}
-    command: ["mautrix-whatsapp", "-c", "/data/config.yaml"]
     volumes:
       - whatsapp_data:/data
     depends_on:

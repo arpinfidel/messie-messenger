@@ -89,8 +89,10 @@ func (r *todoListRepository) DeleteTodoList(ctx context.Context, id string) erro
 func (r *todoListRepository) GetCollaboratorDetails(ctx context.Context, listID string) ([]entity.TodoListCollaboratorDetail, error) {
 	var collaborators []entity.TodoListCollaboratorDetail
 	err := r.db.WithContext(ctx).
-		Model(&entity.TodoListCollaborator{}).
-		Where("todo_list_id = ?", listID).
+		Table("todo_list_collaborators").
+		Select("todo_list_collaborators.todo_list_id, todo_list_collaborators.collaborator_id, todo_list_collaborators.created_at, todo_list_collaborators.updated_at, users.id, users.username, users.matrix_id, users.email, users.created_at, users.updated_at").
+		Joins("JOIN users ON users.id = todo_list_collaborators.collaborator_id").
+		Where("todo_list_collaborators.todo_list_id = ?", listID).
 		Find(&collaborators).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get collaborators for todo list %s: %w", listID, err)

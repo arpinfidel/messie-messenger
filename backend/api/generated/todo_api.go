@@ -137,8 +137,14 @@ type CollaboratorDetail struct {
 	// CollaboratorId ID of the collaborator user
 	CollaboratorId openapi_types.UUID `json:"collaborator_id"`
 
+	// DisplayName Human-friendly collaborator name when available
+	DisplayName *string `json:"display_name"`
+
 	// ListId ID of the todo list
 	ListId openapi_types.UUID `json:"list_id"`
+
+	// MatrixId Matrix ID of the collaborator
+	MatrixId string `json:"matrix_id"`
 
 	// Username Collaborator username
 	Username string `json:"username"`
@@ -397,6 +403,12 @@ type BridgeWhoamiParams struct {
 type GetTodoListsByUserIdParams struct {
 	// UserId ID of the user to retrieve todo lists for
 	UserId openapi_types.UUID `form:"userId" json:"userId"`
+}
+
+// GetUserByMatrixIdParams defines parameters for GetUserByMatrixId.
+type GetUserByMatrixIdParams struct {
+	// MatrixId Matrix user ID
+	MatrixId string `form:"matrixId" json:"matrixId"`
 }
 
 // PostMatrixAuthJSONRequestBody defines body for PostMatrixAuth for application/json ContentType.
@@ -679,6 +691,9 @@ type ServerInterface interface {
 	// Update a todo item
 	// (PUT /todolists/{listId}/items/{itemId})
 	UpdateTodoItem(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID, itemId openapi_types.UUID)
+	// Get user by Matrix ID
+	// (GET /users/by-matrix-id)
+	GetUserByMatrixId(w http.ResponseWriter, r *http.Request, params GetUserByMatrixIdParams)
 	// Get current user profile
 	// (GET /users/me)
 	GetUsersMe(w http.ResponseWriter, r *http.Request)
@@ -856,6 +871,12 @@ func (_ Unimplemented) GetTodoItemById(w http.ResponseWriter, r *http.Request, l
 // Update a todo item
 // (PUT /todolists/{listId}/items/{itemId})
 func (_ Unimplemented) UpdateTodoItem(w http.ResponseWriter, r *http.Request, listId openapi_types.UUID, itemId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get user by Matrix ID
+// (GET /users/by-matrix-id)
+func (_ Unimplemented) GetUserByMatrixId(w http.ResponseWriter, r *http.Request, params GetUserByMatrixIdParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1708,6 +1729,46 @@ func (siw *ServerInterfaceWrapper) UpdateTodoItem(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// GetUserByMatrixId operation middleware
+func (siw *ServerInterfaceWrapper) GetUserByMatrixId(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetUserByMatrixIdParams
+
+	// ------------- Required query parameter "matrixId" -------------
+
+	if paramValue := r.URL.Query().Get("matrixId"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "matrixId"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "matrixId", r.URL.Query(), &params.MatrixId)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "matrixId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUserByMatrixId(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetUsersMe operation middleware
 func (siw *ServerInterfaceWrapper) GetUsersMe(w http.ResponseWriter, r *http.Request) {
 
@@ -1955,6 +2016,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/todolists/{listId}/items/{itemId}", wrapper.UpdateTodoItem)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/users/by-matrix-id", wrapper.GetUserByMatrixId)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/users/me", wrapper.GetUsersMe)

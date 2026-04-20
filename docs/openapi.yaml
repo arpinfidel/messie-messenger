@@ -129,6 +129,38 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /users/by-matrix-id:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get user by Matrix ID
+      operationId: getUserByMatrixId
+      parameters:
+        - in: query
+          name: matrixId
+          schema:
+            type: string
+          required: true
+          description: Matrix user ID
+      responses:
+        "200":
+          description: User found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "404":
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /email/login-test:
     post:
       summary: Test email login and fetch recent message headers
@@ -925,6 +957,7 @@ components:
         - list_id
         - collaborator_id
         - username
+        - matrix_id
       properties:
         list_id:
           type: string
@@ -939,6 +972,15 @@ components:
           format: uuid
           description: ID of the collaborator user
           example: "123e4567-e89b-12d3-a456-426614174000"
+        matrix_id:
+          type: string
+          description: Matrix ID of the collaborator
+          example: "@alice:messie.localhost"
+        display_name:
+          type: string
+          nullable: true
+          description: Human-friendly collaborator name when available
+          example: "Alice"
     RegisterRequest:
       type: object
       required:

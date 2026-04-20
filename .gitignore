@@ -31,6 +31,7 @@ frontend/.svelte-kit/
 
 # Local SDK config
 frontend/android/local.properties
+api-gateway/certs/
 
 .venv-matrix-seed/
 __pycache__/

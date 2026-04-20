@@ -1,2 +1,4 @@
 FROM nginx:alpine
 COPY ./nginx.dev.conf /etc/nginx/nginx.conf
+COPY ./certs/messie.localhost.pem /etc/nginx/certs/messie.localhost.pem
+COPY ./certs/messie.localhost-key.pem /etc/nginx/certs/messie.localhost-key.pem

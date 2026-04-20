@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,6 +20,7 @@ type AuthUsecase interface {
 	LoginUser(ctx context.Context, email, password string) (*userentity.User, string, error)
 	GetUserByID(ctx context.Context, id uuid.UUID) (*userentity.User, error)
 	GetUserByEmail(ctx context.Context, email string) (*userentity.User, error)
+	GetUserByMatrixID(ctx context.Context, mxid string) (*userentity.User, error)
 	CreateOrGetMatrixUser(ctx context.Context, mxid string) (*userentity.User, string, error)
 }
 
@@ -108,6 +110,17 @@ func (uc *authUsecase) GetUserByEmail(ctx context.Context, email string) (*usere
 	return user, nil
 }
 
+func (uc *authUsecase) GetUserByMatrixID(ctx context.Context, mxid string) (*userentity.User, error) {
+	user, err := uc.userRepo.GetUserByMatrixID(ctx, mxid)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user by Matrix ID: %w", err)
+	}
+	if user == nil {
+		return nil, fmt.Errorf("user not found")
+	}
+	return user, nil
+}
+
 func (uc *authUsecase) CreateOrGetMatrixUser(ctx context.Context, mxid string) (*userentity.User, string, error) {
 	// Check for existing Matrix user
 	user, err := uc.userRepo.GetUserByMatrixID(ctx, mxid)
@@ -128,7 +141,7 @@ func (uc *authUsecase) CreateOrGetMatrixUser(ctx context.Context, mxid string) (
 	newUser := &userentity.User{
 		ID:        uuid.New(),
 		MatrixID:  mxid,
-		Email:     mxid + "@matrix-user", // Temporary email placeholder
+		Email:     matrixUserEmail(mxid),
 		CreatedAt: time.Now().UTC(),
 		UpdatedAt: time.Now().UTC(),
 	}
@@ -143,4 +156,15 @@ func (uc *authUsecase) CreateOrGetMatrixUser(ctx context.Context, mxid string) (
 	}
 
 	return newUser, token, nil
+}
+
+func matrixUserEmail(mxid string) string {
+	local := strings.TrimPrefix(mxid, "@")
+	local = strings.ReplaceAll(local, ":", ".")
+	local = strings.ReplaceAll(local, "/", ".")
+	local = strings.ReplaceAll(local, "+", ".")
+	if local == "" {
+		local = "matrix-user"
+	}
+	return local + "@matrix.local"
 }

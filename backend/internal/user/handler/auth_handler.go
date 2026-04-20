@@ -5,13 +5,15 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/mail"
+	"os"
 	"strings"
-    "os"
 
 	"github.com/google/uuid"
 	"github.com/oapi-codegen/runtime/types"
 
 	"messenger/backend/api/generated"
+	userentity "messenger/backend/internal/user/entity"
 	userusecase "messenger/backend/internal/user/usecase"
 	"messenger/backend/pkg/middleware"
 )
@@ -26,6 +28,31 @@ func NewAuthHandler(authUsecase userusecase.AuthUsecase) *AuthHandler {
 	return &AuthHandler{
 		authUsecase: authUsecase,
 	}
+}
+
+func userToResponse(user *userentity.User) generated.User {
+	return generated.User{
+		Id:        user.ID,
+		Email:     types.Email(sanitizeUserEmail(user.Email, user.MatrixID)),
+		MatrixId:  user.MatrixID,
+		CreatedAt: &user.CreatedAt,
+		UpdatedAt: &user.UpdatedAt,
+	}
+}
+
+func sanitizeUserEmail(email, matrixID string) string {
+	if _, err := mail.ParseAddress(email); err == nil {
+		return email
+	}
+
+	local := strings.TrimPrefix(matrixID, "@")
+	local = strings.ReplaceAll(local, ":", ".")
+	local = strings.ReplaceAll(local, "/", ".")
+	local = strings.ReplaceAll(local, "+", ".")
+	if local == "" {
+		local = "matrix-user"
+	}
+	return local + "@matrix.local"
 }
 
 // PostMatrixAuth handles Matrix OpenID token verification and authentication
@@ -92,16 +119,11 @@ func (h *AuthHandler) PostRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := generated.AuthResponse{
-		User: generated.User{
-			Id:        user.ID,
-			Email:     types.Email(user.Email),
-			MatrixId:  user.MatrixID,
-			CreatedAt: &user.CreatedAt,
-			UpdatedAt: &user.UpdatedAt,
-		},
+		User:  userToResponse(user),
 		Token: token,
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(res)
 }
@@ -121,16 +143,11 @@ func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res := generated.AuthResponse{
-		User: generated.User{
-			Id:        user.ID,
-			Email:     types.Email(user.Email),
-			MatrixId:  user.MatrixID,
-			CreatedAt: &user.CreatedAt,
-			UpdatedAt: &user.UpdatedAt,
-		},
+		User:  userToResponse(user),
 		Token: token,
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(res)
 }
@@ -144,14 +161,9 @@ func (h *AuthHandler) GetUsersId(w http.ResponseWriter, r *http.Request, id uuid
 		return
 	}
 
-	res := generated.User{
-		Id:        user.ID,
-		Email:     types.Email(user.Email),
-		MatrixId:  user.MatrixID,
-		CreatedAt: &user.CreatedAt,
-		UpdatedAt: &user.UpdatedAt,
-	}
+	res := userToResponse(user)
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(res)
 }
@@ -183,14 +195,9 @@ func (h *AuthHandler) GetUsersMe(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("User retrieved: %+v", user)
 
-	res := generated.User{
-		Id:        user.ID,
-		Email:     types.Email(user.Email),
-		MatrixId:  user.MatrixID,
-		CreatedAt: &user.CreatedAt,
-		UpdatedAt: &user.UpdatedAt,
-	}
+	res := userToResponse(user)
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(res); err != nil {
 		log.Printf("Error encoding response: %v", err)
@@ -200,20 +207,42 @@ func (h *AuthHandler) GetUsersMe(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Successfully returned user profile for ID: %s", userID)
 }
 
+// GetUserByMatrixId handles getting a user by Matrix ID.
+func (h *AuthHandler) GetUserByMatrixId(
+	w http.ResponseWriter,
+	r *http.Request,
+	params generated.GetUserByMatrixIdParams,
+) {
+	user, err := h.authUsecase.GetUserByMatrixID(r.Context(), params.MatrixId)
+	if err != nil {
+		log.Printf("Error getting user by Matrix ID: %v", err)
+		http.Error(w, generated.Error{Message: err.Error()}.Message, http.StatusNotFound)
+		return
+	}
+
+	res := userToResponse(user)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(res)
+}
+
 // resolveFederationBase determines the federation base URL for a Matrix homeserver
 func resolveFederationBase(serverName string) (string, error) {
-    // Dev override: allow targeting a known homeserver inside docker-compose
-    if devSrv := os.Getenv("DEV_MATRIX_SERVER_NAME"); devSrv != "" && serverName == devSrv {
-        if base := os.Getenv("DEV_MATRIX_FED_BASE"); base != "" {
-            return base, nil
-        }
-        return "http://matrix:8008", nil
-    }
-    // Heuristic: local dev domains
-    if strings.HasSuffix(serverName, ".localhost") {
-        if base := os.Getenv("DEV_MATRIX_FED_BASE"); base != "" { return base, nil }
-        return "http://matrix:8008", nil
-    }
+	// Dev override: allow targeting a known homeserver inside docker-compose
+	if devSrv := os.Getenv("DEV_MATRIX_SERVER_NAME"); devSrv != "" && serverName == devSrv {
+		if base := os.Getenv("DEV_MATRIX_FED_BASE"); base != "" {
+			return base, nil
+		}
+		return "http://matrix:8008", nil
+	}
+	// Heuristic: local dev domains
+	if strings.HasSuffix(serverName, ".localhost") {
+		if base := os.Getenv("DEV_MATRIX_FED_BASE"); base != "" {
+			return base, nil
+		}
+		return "http://matrix:8008", nil
+	}
 	wellKnownURL := fmt.Sprintf("https://%s/.well-known/matrix/server", serverName)
 	resp, err := http.Get(wellKnownURL)
 	if err != nil {

@@ -154,7 +154,7 @@ func (h *TodoHandler) UpdateTodoList(w http.ResponseWriter, r *http.Request, lis
 		return
 	}
 
-		title := updateTodoList.Title
+	title := updateTodoList.Title
 	description := updateTodoList.Description
 
 	todoList, err := h.Usecases.UpdateTodoList(r.Context(), listId.String(), title, description, userID)
@@ -271,7 +271,7 @@ func (h *TodoHandler) CreateTodoItem(w http.ResponseWriter, r *http.Request, lis
 
 	todoItem, err := h.Usecases.CreateTodoItem(r.Context(), userID, entity.TodoItem{
 		Completed:   newTodoItem.Completed,
-		Title: 	 newTodoItem.Title,
+		Title:       newTodoItem.Title,
 		ListID:      listId.String(),
 		Description: newTodoItem.Description,
 		Deadline:    newTodoItem.DueDate,
@@ -291,7 +291,7 @@ func (h *TodoHandler) CreateTodoItem(w http.ResponseWriter, r *http.Request, lis
 	responseTodoItem := generated.TodoItem{
 		Id:          openapi_types.UUID(uuid.MustParse(todoItem.ID)),
 		ListId:      openapi_types.UUID(uuid.MustParse(todoItem.ListID)),
-		Title: 	 todoItem.Title,
+		Title:       todoItem.Title,
 		Description: todoItem.Description,
 		Completed:   todoItem.Completed,
 		DueDate:     todoItem.Deadline,
@@ -328,8 +328,8 @@ func (h *TodoHandler) GetTodoItemsByListId(w http.ResponseWriter, r *http.Reques
 		responseTodoItems[i] = generated.TodoItem{
 			Id:          openapi_types.UUID(uuid.MustParse(item.ID)),
 			ListId:      openapi_types.UUID(uuid.MustParse(item.ListID)),
-			Position:   item.Position,
-			Title: 	 item.Title,
+			Position:    item.Position,
+			Title:       item.Title,
 			Description: item.Description,
 			Completed:   item.Completed,
 			DueDate:     item.Deadline,
@@ -366,7 +366,7 @@ func (h *TodoHandler) GetTodoItemById(w http.ResponseWriter, r *http.Request, li
 		Id:          openapi_types.UUID(uuid.MustParse(todoItem.ID)),
 		ListId:      openapi_types.UUID(uuid.MustParse(todoItem.ListID)),
 		Position:    todoItem.Position,
-		Title: 	 todoItem.Title,
+		Title:       todoItem.Title,
 		Description: todoItem.Description, // entity.TodoItem.Description is string, generated.TodoItem.Description is *string
 		Completed:   todoItem.Completed,
 		DueDate:     todoItem.Deadline,
@@ -393,7 +393,7 @@ func (h *TodoHandler) UpdateTodoItem(w http.ResponseWriter, r *http.Request, lis
 
 	todoItem, err := h.Usecases.UpdateTodoItem(r.Context(), itemId.String(), listId.String(), userID, &entity.TodoItem{
 		Position:    updateTodoItem.Position,
-		Title: 	 updateTodoItem.Title,
+		Title:       updateTodoItem.Title,
 		Description: updateTodoItem.Description,
 		Deadline:    updateTodoItem.DueDate,
 		Completed:   updateTodoItem.Completed,
@@ -412,7 +412,7 @@ func (h *TodoHandler) UpdateTodoItem(w http.ResponseWriter, r *http.Request, lis
 	responseTodoItem := generated.TodoItem{
 		Id:          openapi_types.UUID(uuid.MustParse(todoItem.ID)),
 		ListId:      openapi_types.UUID(uuid.MustParse(todoItem.ListID)),
-		Title: 	 todoItem.Title,
+		Title:       todoItem.Title,
 		Position:    todoItem.Position,
 		Description: todoItem.Description,
 		Completed:   todoItem.Completed,
@@ -468,10 +468,13 @@ func (h *TodoHandler) GetCollaborators(w http.ResponseWriter, r *http.Request, l
 
 	responseCollaborators := make([]generated.CollaboratorDetail, len(collaborators))
 	for i, collab := range collaborators {
+		displayName := collab.Username
 		responseCollaborators[i] = generated.CollaboratorDetail{
 			ListId:         openapi_types.UUID(uuid.MustParse(collab.TodoListID)),
 			CollaboratorId: openapi_types.UUID(uuid.MustParse(collab.CollaboratorID)),
 			Username:       collab.Username,
+			MatrixId:       collab.MatrixID,
+			DisplayName:    &displayName,
 		}
 	}
 
