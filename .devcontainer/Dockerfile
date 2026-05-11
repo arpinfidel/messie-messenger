@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     build-essential \
     git \
+    openssh-client \
     unzip \
     python3 \
     python3-pip \

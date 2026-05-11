@@ -37,6 +37,18 @@ export interface CollaboratorDetail {
    * @memberof CollaboratorDetail
    */
   collaboratorId: string;
+  /**
+   * Matrix ID of the collaborator
+   * @type {string}
+   * @memberof CollaboratorDetail
+   */
+  matrixId: string;
+  /**
+   * Human-friendly collaborator name when available
+   * @type {string}
+   * @memberof CollaboratorDetail
+   */
+  displayName?: string | null;
 }
 
 /**
@@ -46,6 +58,7 @@ export function instanceOfCollaboratorDetail(value: object): value is Collaborat
   if (!('listId' in value) || value['listId'] === undefined) return false;
   if (!('username' in value) || value['username'] === undefined) return false;
   if (!('collaboratorId' in value) || value['collaboratorId'] === undefined) return false;
+  if (!('matrixId' in value) || value['matrixId'] === undefined) return false;
   return true;
 }
 
@@ -64,6 +77,8 @@ export function CollaboratorDetailFromJSONTyped(
     listId: json['list_id'],
     username: json['username'],
     collaboratorId: json['collaborator_id'],
+    matrixId: json['matrix_id'],
+    displayName: json['display_name'] == null ? undefined : json['display_name'],
   };
 }
 
@@ -83,5 +98,7 @@ export function CollaboratorDetailToJSONTyped(
     list_id: value['listId'],
     username: value['username'],
     collaborator_id: value['collaboratorId'],
+    matrix_id: value['matrixId'],
+    display_name: value['displayName'],
   };
 }

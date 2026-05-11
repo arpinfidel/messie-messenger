@@ -20,7 +20,7 @@ network:
     # {{.Phone}}         - phone number (international format)
     # {{.RedactedPhone}} - phone number with middle digits replaced by "∙"
     # {{.FullName}}      - Name you set in the contacts list
-    displayname_template: '{{or .BusinessName .PushName .Phone .RedactedPhone "Unknown user"}} (WA)'
+    displayname_template: '{{or .BusinessName .PushName .Phone .RedactedPhone "Unknown user"}}'
     
     # Should incoming calls send a message to the Matrix room?
     call_start_notices: true
@@ -123,7 +123,7 @@ bridge:
     # The prefix for commands. Only required in non-management rooms.
     command_prefix: '!wa'
     # Should the bridge create a space for each login containing the rooms that account is in?
-    personal_filtering_spaces: true
+    personal_filtering_spaces: false
     # Whether the bridge should set names and avatars explicitly for DM portals.
     # This is only necessary when using clients that don't support MSC4171.
     private_chat_portal_meta: true

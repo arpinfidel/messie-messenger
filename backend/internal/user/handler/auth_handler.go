@@ -9,13 +9,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/oapi-codegen/runtime/types"
 
 	"messenger/backend/api/generated"
 	userentity "messenger/backend/internal/user/entity"
 	userusecase "messenger/backend/internal/user/usecase"
-	"messenger/backend/pkg/middleware"
 )
 
 // AuthHandler implements the generated.ServerInterface.
@@ -102,109 +100,6 @@ func (h *AuthHandler) PostMatrixAuth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
-}
-
-// PostRegister handles user registration.
-func (h *AuthHandler) PostRegister(w http.ResponseWriter, r *http.Request) {
-	var req generated.RegisterRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, generated.Error{Message: "Invalid request body"}.Message, http.StatusBadRequest)
-		return
-	}
-
-	user, token, err := h.authUsecase.CreateUser(r.Context(), string(req.Email), req.Password)
-	if err != nil {
-		http.Error(w, generated.Error{Message: err.Error()}.Message, http.StatusConflict)
-		return
-	}
-
-	res := generated.AuthResponse{
-		User:  userToResponse(user),
-		Token: token,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(res)
-}
-
-// PostLogin handles user login.
-func (h *AuthHandler) PostLogin(w http.ResponseWriter, r *http.Request) {
-	var req generated.LoginRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, generated.Error{Message: "Invalid request body"}.Message, http.StatusBadRequest)
-		return
-	}
-
-	user, token, err := h.authUsecase.LoginUser(r.Context(), string(req.Email), req.Password)
-	if err != nil {
-		http.Error(w, generated.Error{Message: err.Error()}.Message, http.StatusUnauthorized)
-		return
-	}
-
-	res := generated.AuthResponse{
-		User:  userToResponse(user),
-		Token: token,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(res)
-}
-
-// GetUsersId handles getting a user by ID.
-func (h *AuthHandler) GetUsersId(w http.ResponseWriter, r *http.Request, id uuid.UUID) {
-	user, err := h.authUsecase.GetUserByID(r.Context(), id)
-	if err != nil {
-		log.Printf("Error getting user by ID: %v", err)
-		http.Error(w, generated.Error{Message: err.Error()}.Message, http.StatusNotFound)
-		return
-	}
-
-	res := userToResponse(user)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(res)
-}
-
-// GetUsersMe handles getting the current user's profile.
-func (h *AuthHandler) GetUsersMe(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Attempting to get current user profile")
-	userID, ok := r.Context().Value(middleware.ContextKeyUserID).(string)
-	if !ok {
-		log.Printf("Error: User ID not found in context")
-		writeJSONError(w, "User ID not found in context", http.StatusInternalServerError)
-		return
-	}
-	log.Printf("User ID from context: %s", userID)
-
-	userUUID, err := uuid.Parse(userID)
-	if err != nil {
-		log.Printf("Error: Invalid user ID format in context: %v", err)
-		writeJSONError(w, "Invalid user ID format in context", http.StatusInternalServerError)
-		return
-	}
-	log.Printf("Parsed User UUID: %s", userUUID)
-
-	user, err := h.authUsecase.GetUserByID(r.Context(), userUUID)
-	if err != nil {
-		log.Printf("Error getting user by ID: %v", err)
-		writeJSONError(w, err.Error(), http.StatusNotFound)
-		return
-	}
-	log.Printf("User retrieved: %+v", user)
-
-	res := userToResponse(user)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(res); err != nil {
-		log.Printf("Error encoding response: %v", err)
-		writeJSONError(w, "Failed to encode response", http.StatusInternalServerError)
-		return
-	}
-	log.Printf("Successfully returned user profile for ID: %s", userID)
 }
 
 // GetUserByMatrixId handles getting a user by Matrix ID.

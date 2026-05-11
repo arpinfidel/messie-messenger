@@ -13,6 +13,9 @@
     "nginx"
   ],
   "overrideCommand": true,
+  "mounts": [
+    "source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind"
+  ],
   "customizations": {
     "vscode": {
       "extensions": [
@@ -28,10 +31,14 @@
     }
   },
   "postCreateCommand": "sudo mkdir -p /go/pkg/mod /root/.cache/go-build && sudo chown -R vscode:vscode /go/pkg/mod /root/.cache/go-build && cd backend && go mod download && cd ../frontend && npm install",
+  "postStartCommand": "mkdir -p ~/.ssh && touch ~/.ssh/known_hosts && (ssh-keygen -F github.com >/dev/null || ssh-keyscan -H github.com >> ~/.ssh/known_hosts 2>/dev/null || true)",
   "forwardPorts": [
     8080,
     5173,
     5432
   ],
+  "remoteEnv": {
+    "SSH_AUTH_SOCK": "/ssh-agent"
+  },
   "remoteUser": "vscode"
 }

@@ -9,6 +9,7 @@ Roadmap sections
 - Matrix module: `docs/roadmap/matrix.md`
 - Email module: `docs/roadmap/email.md`
 - Todo module: `docs/roadmap/todo.md`
+- Calendar module: `docs/roadmap/calendar.md`
 - Shared platform & UX: `docs/roadmap/shared.md`
 
 How to use

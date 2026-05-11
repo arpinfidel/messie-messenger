@@ -25,7 +25,7 @@ matrix:
 bridge:
   # Share group portals across users (default)
   split_portals: false
-  personal_filtering_spaces: true
+  personal_filtering_spaces: false
   permissions:
     "messie.localhost": user
   encryption:
@@ -33,6 +33,7 @@ bridge:
     default: true
 
 network:
+  displayname_template: '{{or .BusinessName .PushName .Phone .RedactedPhone "Unknown user"}}'
   history_sync:
     max_initial_conversations: -1
     request_full_sync: true

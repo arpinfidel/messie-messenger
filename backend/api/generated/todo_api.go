@@ -54,12 +54,11 @@ const (
 	BridgeSubmitLoginStepParamsActionUserInput      BridgeSubmitLoginStepParamsAction = "user_input"
 )
 
-// AuthResponse defines model for AuthResponse.
-type AuthResponse struct {
-	// Token JWT token
-	Token string `json:"token"`
-	User  User   `json:"user"`
-}
+// Defines values for GetCalendarEventsParamsDirection.
+const (
+	After  GetCalendarEventsParamsDirection = "after"
+	Before GetCalendarEventsParamsDirection = "before"
+)
 
 // BridgeAccount defines model for BridgeAccount.
 type BridgeAccount struct {
@@ -104,6 +103,16 @@ type BridgeName struct {
 	NetworkUrl       string  `json:"network_url"`
 }
 
+// BridgeRoomMapping defines model for BridgeRoomMapping.
+type BridgeRoomMapping struct {
+	LoginId   string  `json:"login_id"`
+	LoginName *string `json:"login_name,omitempty"`
+	Preferred *bool   `json:"preferred,omitempty"`
+	Provider  string  `json:"provider"`
+	RoomId    string  `json:"room_id"`
+	SpaceRoom *string `json:"space_room"`
+}
+
 // BridgeWhoamiLogin Minimal info about an individual login
 type BridgeWhoamiLogin struct {
 	// Id Unique login ID defined by the bridge
@@ -130,6 +139,51 @@ type BridgeWhoamiResponse struct {
 
 	// Network Info about the bridged network
 	Network *BridgeName `json:"network,omitempty"`
+}
+
+// CalendarEvent defines model for CalendarEvent.
+type CalendarEvent struct {
+	AllDay            bool               `json:"all_day"`
+	CreatedAt         *time.Time         `json:"created_at,omitempty"`
+	Description       string             `json:"description"`
+	EndsAt            time.Time          `json:"ends_at"`
+	ExternalUid       string             `json:"external_uid"`
+	Id                openapi_types.UUID `json:"id"`
+	Location          string             `json:"location"`
+	RecurrenceSummary *string            `json:"recurrence_summary"`
+	SourceDisplayName string             `json:"source_display_name"`
+	SourceId          openapi_types.UUID `json:"source_id"`
+	StartsAt          time.Time          `json:"starts_at"`
+	Status            string             `json:"status"`
+	Timezone          string             `json:"timezone"`
+	Title             string             `json:"title"`
+	UpdatedAt         *time.Time         `json:"updated_at,omitempty"`
+}
+
+// CalendarImportResponse defines model for CalendarImportResponse.
+type CalendarImportResponse struct {
+	ImportedEventCount int32          `json:"imported_event_count"`
+	Source             CalendarSource `json:"source"`
+}
+
+// CalendarSource defines model for CalendarSource.
+type CalendarSource struct {
+	Category             string             `json:"category"`
+	CreatedAt            *time.Time         `json:"created_at,omitempty"`
+	DisplayName          string             `json:"display_name"`
+	Etag                 *string            `json:"etag"`
+	Id                   openapi_types.UUID `json:"id"`
+	ImportMode           string             `json:"import_mode"`
+	Kind                 string             `json:"kind"`
+	LastModified         *time.Time         `json:"last_modified,omitempty"`
+	LastRefreshAttemptAt *time.Time         `json:"last_refresh_attempt_at,omitempty"`
+	LastRefreshError     *string            `json:"last_refresh_error"`
+	LastSyncedAt         *time.Time         `json:"last_synced_at,omitempty"`
+	NextRefreshAt        *time.Time         `json:"next_refresh_at,omitempty"`
+	RefreshState         string             `json:"refresh_state"`
+	SourceUrl            *string            `json:"source_url"`
+	UpdatedAt            *time.Time         `json:"updated_at,omitempty"`
+	UserId               openapi_types.UUID `json:"user_id"`
 }
 
 // CollaboratorDetail defines model for CollaboratorDetail.
@@ -205,18 +259,15 @@ type Error struct {
 	Message string `json:"message"`
 }
 
-// LoginRequest defines model for LoginRequest.
-type LoginRequest struct {
-	Email    openapi_types.Email `json:"email"`
-	Password string              `json:"password"`
-}
-
 // LoginStepComplete defines model for LoginStepComplete.
 type LoginStepComplete struct {
 	Complete struct {
 		UserLoginId *string `json:"user_login_id,omitempty"`
 	} `json:"complete"`
-	Type LoginStepCompleteType `json:"type"`
+	LoginId   *string               `json:"login_id,omitempty"`
+	ProcessId *string               `json:"process_id,omitempty"`
+	StepId    *string               `json:"step_id,omitempty"`
+	Type      LoginStepCompleteType `json:"type"`
 }
 
 // LoginStepCompleteType defines model for LoginStepComplete.Type.
@@ -227,7 +278,10 @@ type LoginStepCookies struct {
 	Cookies struct {
 		Names *[]string `json:"names,omitempty"`
 	} `json:"cookies"`
-	Type LoginStepCookiesType `json:"type"`
+	LoginId   *string              `json:"login_id,omitempty"`
+	ProcessId *string              `json:"process_id,omitempty"`
+	StepId    *string              `json:"step_id,omitempty"`
+	Type      LoginStepCookiesType `json:"type"`
 }
 
 // LoginStepCookiesType defines model for LoginStepCookies.Type.
@@ -240,7 +294,10 @@ type LoginStepDisplayAndWait struct {
 		ImageUrl *string `json:"image_url,omitempty"`
 		Message  *string `json:"message,omitempty"`
 	} `json:"display_and_wait"`
-	Type LoginStepDisplayAndWaitType `json:"type"`
+	LoginId   *string                     `json:"login_id,omitempty"`
+	ProcessId *string                     `json:"process_id,omitempty"`
+	StepId    *string                     `json:"step_id,omitempty"`
+	Type      LoginStepDisplayAndWaitType `json:"type"`
 }
 
 // LoginStepDisplayAndWaitType defines model for LoginStepDisplayAndWait.Type.
@@ -248,6 +305,9 @@ type LoginStepDisplayAndWaitType string
 
 // LoginStepUserInput defines model for LoginStepUserInput.
 type LoginStepUserInput struct {
+	LoginId   *string                `json:"login_id,omitempty"`
+	ProcessId *string                `json:"process_id,omitempty"`
+	StepId    *string                `json:"step_id,omitempty"`
 	Type      LoginStepUserInputType `json:"type"`
 	UserInput struct {
 		Fields *[]struct {
@@ -283,6 +343,13 @@ type MatrixOpenIDRequest struct {
 	MatrixServerName string `json:"matrix_server_name"`
 }
 
+// NewCalendarLinkSource defines model for NewCalendarLinkSource.
+type NewCalendarLinkSource struct {
+	Category    string  `json:"category"`
+	DisplayName *string `json:"display_name,omitempty"`
+	Url         string  `json:"url"`
+}
+
 // NewCollaborator defines model for NewCollaborator.
 type NewCollaborator struct {
 	UserId openapi_types.UUID `json:"user_id"`
@@ -302,12 +369,6 @@ type NewTodoItem struct {
 type NewTodoList struct {
 	Description string `json:"description"`
 	Title       string `json:"title"`
-}
-
-// RegisterRequest defines model for RegisterRequest.
-type RegisterRequest struct {
-	Email    openapi_types.Email `json:"email"`
-	Password string              `json:"password"`
 }
 
 // TodoItem defines model for TodoItem.
@@ -333,6 +394,12 @@ type TodoList struct {
 	OwnerId     openapi_types.UUID `json:"owner_id"`
 	Title       string             `json:"title"`
 	UpdatedAt   *time.Time         `json:"updated_at,omitempty"`
+}
+
+// UpdateCalendarSource defines model for UpdateCalendarSource.
+type UpdateCalendarSource struct {
+	Category    string `json:"category"`
+	DisplayName string `json:"display_name"`
 }
 
 // UpdateTodoItem defines model for UpdateTodoItem.
@@ -399,6 +466,42 @@ type BridgeWhoamiParams struct {
 	Provider string `form:"provider" json:"provider"`
 }
 
+// GetBridgeRoomMappingsParams defines parameters for GetBridgeRoomMappings.
+type GetBridgeRoomMappingsParams struct {
+	Provider string `form:"provider" json:"provider"`
+}
+
+// GetCalendarEventsParams defines parameters for GetCalendarEvents.
+type GetCalendarEventsParams struct {
+	From     *time.Time          `form:"from,omitempty" json:"from,omitempty"`
+	To       *time.Time          `form:"to,omitempty" json:"to,omitempty"`
+	SourceId *openapi_types.UUID `form:"sourceId,omitempty" json:"sourceId,omitempty"`
+
+	// Cursor Anchor timestamp for cursor-based schedule pagination.
+	Cursor *time.Time `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Direction Fetch events before or after the cursor.
+	Direction *GetCalendarEventsParamsDirection `form:"direction,omitempty" json:"direction,omitempty"`
+
+	// Limit Maximum number of events to return for cursor-based queries.
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetCalendarEventsParamsDirection defines parameters for GetCalendarEvents.
+type GetCalendarEventsParamsDirection string
+
+// ImportCalendarSourceMultipartBody defines parameters for ImportCalendarSource.
+type ImportCalendarSourceMultipartBody struct {
+	Category    string             `json:"category"`
+	DisplayName *string            `json:"display_name,omitempty"`
+	File        openapi_types.File `json:"file"`
+}
+
+// GetUpcomingCalendarEventsParams defines parameters for GetUpcomingCalendarEvents.
+type GetUpcomingCalendarEventsParams struct {
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // GetTodoListsByUserIdParams defines parameters for GetTodoListsByUserId.
 type GetTodoListsByUserIdParams struct {
 	// UserId ID of the user to retrieve todo lists for
@@ -417,6 +520,15 @@ type PostMatrixAuthJSONRequestBody = MatrixOpenIDRequest
 // BridgeSubmitLoginStepJSONRequestBody defines body for BridgeSubmitLoginStep for application/json ContentType.
 type BridgeSubmitLoginStepJSONRequestBody BridgeSubmitLoginStepJSONBody
 
+// ImportCalendarSourceMultipartRequestBody defines body for ImportCalendarSource for multipart/form-data ContentType.
+type ImportCalendarSourceMultipartRequestBody ImportCalendarSourceMultipartBody
+
+// CreateLinkedCalendarSourceJSONRequestBody defines body for CreateLinkedCalendarSource for application/json ContentType.
+type CreateLinkedCalendarSourceJSONRequestBody = NewCalendarLinkSource
+
+// UpdateCalendarSourceJSONRequestBody defines body for UpdateCalendarSource for application/json ContentType.
+type UpdateCalendarSourceJSONRequestBody = UpdateCalendarSource
+
 // EmailHeadersJSONRequestBody defines body for EmailHeaders for application/json ContentType.
 type EmailHeadersJSONRequestBody = EmailLoginRequest
 
@@ -434,12 +546,6 @@ type EmailLoginTestJSONRequestBody = EmailLoginRequest
 
 // EmailThreadsJSONRequestBody defines body for EmailThreads for application/json ContentType.
 type EmailThreadsJSONRequestBody = EmailLoginRequest
-
-// PostLoginJSONRequestBody defines body for PostLogin for application/json ContentType.
-type PostLoginJSONRequestBody = LoginRequest
-
-// PostRegisterJSONRequestBody defines body for PostRegister for application/json ContentType.
-type PostRegisterJSONRequestBody = RegisterRequest
 
 // CreateTodoListJSONRequestBody defines body for CreateTodoList for application/json ContentType.
 type CreateTodoListJSONRequestBody = NewTodoList
@@ -625,6 +731,39 @@ type ServerInterface interface {
 	// Get provider-specific whoami with logins
 	// (GET /bridge/provision/v3/whoami)
 	BridgeWhoami(w http.ResponseWriter, r *http.Request, params BridgeWhoamiParams)
+	// List bridge room to login mappings for current user
+	// (GET /bridge/room-mappings)
+	GetBridgeRoomMappings(w http.ResponseWriter, r *http.Request, params GetBridgeRoomMappingsParams)
+	// Get imported calendar events for the current user
+	// (GET /calendar/events)
+	GetCalendarEvents(w http.ResponseWriter, r *http.Request, params GetCalendarEventsParams)
+	// Get a calendar event by ID
+	// (GET /calendar/events/{eventId})
+	GetCalendarEventById(w http.ResponseWriter, r *http.Request, eventId openapi_types.UUID)
+	// Get calendar sources for the current user
+	// (GET /calendar/sources)
+	GetCalendarSources(w http.ResponseWriter, r *http.Request)
+	// Import a calendar source from an uploaded ICS file
+	// (POST /calendar/sources/import)
+	ImportCalendarSource(w http.ResponseWriter, r *http.Request)
+	// Add a linked ICS calendar source
+	// (POST /calendar/sources/link)
+	CreateLinkedCalendarSource(w http.ResponseWriter, r *http.Request)
+	// Delete a calendar source and its imported events
+	// (DELETE /calendar/sources/{sourceId})
+	DeleteCalendarSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
+	// Get a calendar source by ID
+	// (GET /calendar/sources/{sourceId})
+	GetCalendarSourceById(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
+	// Rename a calendar source
+	// (PATCH /calendar/sources/{sourceId})
+	UpdateCalendarSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
+	// Refresh a linked calendar source
+	// (POST /calendar/sources/{sourceId}/refresh)
+	RefreshCalendarSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID)
+	// Get upcoming imported calendar events for the current user
+	// (GET /calendar/upcoming)
+	GetUpcomingCalendarEvents(w http.ResponseWriter, r *http.Request, params GetUpcomingCalendarEventsParams)
 	// List bridge connections for current user
 	// (GET /connections)
 	GetConnections(w http.ResponseWriter, r *http.Request)
@@ -646,12 +785,6 @@ type ServerInterface interface {
 	// List recent email threads
 	// (POST /email/threads)
 	EmailThreads(w http.ResponseWriter, r *http.Request)
-	// Log in a user
-	// (POST /login)
-	PostLogin(w http.ResponseWriter, r *http.Request)
-	// Register a new user
-	// (POST /register)
-	PostRegister(w http.ResponseWriter, r *http.Request)
 	// Get todo lists by owner ID
 	// (GET /todolists)
 	GetTodoListsByUserId(w http.ResponseWriter, r *http.Request, params GetTodoListsByUserIdParams)
@@ -694,12 +827,6 @@ type ServerInterface interface {
 	// Get user by Matrix ID
 	// (GET /users/by-matrix-id)
 	GetUserByMatrixId(w http.ResponseWriter, r *http.Request, params GetUserByMatrixIdParams)
-	// Get current user profile
-	// (GET /users/me)
-	GetUsersMe(w http.ResponseWriter, r *http.Request)
-	// Get user by ID
-	// (GET /users/{id})
-	GetUsersId(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -742,6 +869,72 @@ func (_ Unimplemented) BridgeWhoami(w http.ResponseWriter, r *http.Request, para
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// List bridge room to login mappings for current user
+// (GET /bridge/room-mappings)
+func (_ Unimplemented) GetBridgeRoomMappings(w http.ResponseWriter, r *http.Request, params GetBridgeRoomMappingsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get imported calendar events for the current user
+// (GET /calendar/events)
+func (_ Unimplemented) GetCalendarEvents(w http.ResponseWriter, r *http.Request, params GetCalendarEventsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get a calendar event by ID
+// (GET /calendar/events/{eventId})
+func (_ Unimplemented) GetCalendarEventById(w http.ResponseWriter, r *http.Request, eventId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get calendar sources for the current user
+// (GET /calendar/sources)
+func (_ Unimplemented) GetCalendarSources(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Import a calendar source from an uploaded ICS file
+// (POST /calendar/sources/import)
+func (_ Unimplemented) ImportCalendarSource(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Add a linked ICS calendar source
+// (POST /calendar/sources/link)
+func (_ Unimplemented) CreateLinkedCalendarSource(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Delete a calendar source and its imported events
+// (DELETE /calendar/sources/{sourceId})
+func (_ Unimplemented) DeleteCalendarSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get a calendar source by ID
+// (GET /calendar/sources/{sourceId})
+func (_ Unimplemented) GetCalendarSourceById(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Rename a calendar source
+// (PATCH /calendar/sources/{sourceId})
+func (_ Unimplemented) UpdateCalendarSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Refresh a linked calendar source
+// (POST /calendar/sources/{sourceId}/refresh)
+func (_ Unimplemented) RefreshCalendarSource(w http.ResponseWriter, r *http.Request, sourceId openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get upcoming imported calendar events for the current user
+// (GET /calendar/upcoming)
+func (_ Unimplemented) GetUpcomingCalendarEvents(w http.ResponseWriter, r *http.Request, params GetUpcomingCalendarEventsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List bridge connections for current user
 // (GET /connections)
 func (_ Unimplemented) GetConnections(w http.ResponseWriter, r *http.Request) {
@@ -781,18 +974,6 @@ func (_ Unimplemented) EmailLoginTest(w http.ResponseWriter, r *http.Request) {
 // List recent email threads
 // (POST /email/threads)
 func (_ Unimplemented) EmailThreads(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Log in a user
-// (POST /login)
-func (_ Unimplemented) PostLogin(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Register a new user
-// (POST /register)
-func (_ Unimplemented) PostRegister(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -877,18 +1058,6 @@ func (_ Unimplemented) UpdateTodoItem(w http.ResponseWriter, r *http.Request, li
 // Get user by Matrix ID
 // (GET /users/by-matrix-id)
 func (_ Unimplemented) GetUserByMatrixId(w http.ResponseWriter, r *http.Request, params GetUserByMatrixIdParams) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Get current user profile
-// (GET /users/me)
-func (_ Unimplemented) GetUsersMe(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// Get user by ID
-// (GET /users/{id})
-func (_ Unimplemented) GetUsersId(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1160,6 +1329,367 @@ func (siw *ServerInterfaceWrapper) BridgeWhoami(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// GetBridgeRoomMappings operation middleware
+func (siw *ServerInterfaceWrapper) GetBridgeRoomMappings(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetBridgeRoomMappingsParams
+
+	// ------------- Required query parameter "provider" -------------
+
+	if paramValue := r.URL.Query().Get("provider"); paramValue != "" {
+
+	} else {
+		siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "provider"})
+		return
+	}
+
+	err = runtime.BindQueryParameter("form", true, true, "provider", r.URL.Query(), &params.Provider)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBridgeRoomMappings(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCalendarEvents operation middleware
+func (siw *ServerInterfaceWrapper) GetCalendarEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetCalendarEventsParams
+
+	// ------------- Optional query parameter "from" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "from", r.URL.Query(), &params.From)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "from", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "to" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "to", r.URL.Query(), &params.To)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "to", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "sourceId" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "sourceId", r.URL.Query(), &params.SourceId)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "cursor", r.URL.Query(), &params.Cursor)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "direction" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "direction", r.URL.Query(), &params.Direction)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "direction", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCalendarEvents(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCalendarEventById operation middleware
+func (siw *ServerInterfaceWrapper) GetCalendarEventById(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "eventId" -------------
+	var eventId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "eventId", chi.URLParam(r, "eventId"), &eventId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "eventId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCalendarEventById(w, r, eventId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCalendarSources operation middleware
+func (siw *ServerInterfaceWrapper) GetCalendarSources(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCalendarSources(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ImportCalendarSource operation middleware
+func (siw *ServerInterfaceWrapper) ImportCalendarSource(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ImportCalendarSource(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateLinkedCalendarSource operation middleware
+func (siw *ServerInterfaceWrapper) CreateLinkedCalendarSource(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateLinkedCalendarSource(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteCalendarSource operation middleware
+func (siw *ServerInterfaceWrapper) DeleteCalendarSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "sourceId" -------------
+	var sourceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sourceId", chi.URLParam(r, "sourceId"), &sourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteCalendarSource(w, r, sourceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetCalendarSourceById operation middleware
+func (siw *ServerInterfaceWrapper) GetCalendarSourceById(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "sourceId" -------------
+	var sourceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sourceId", chi.URLParam(r, "sourceId"), &sourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetCalendarSourceById(w, r, sourceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateCalendarSource operation middleware
+func (siw *ServerInterfaceWrapper) UpdateCalendarSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "sourceId" -------------
+	var sourceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sourceId", chi.URLParam(r, "sourceId"), &sourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateCalendarSource(w, r, sourceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RefreshCalendarSource operation middleware
+func (siw *ServerInterfaceWrapper) RefreshCalendarSource(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "sourceId" -------------
+	var sourceId openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sourceId", chi.URLParam(r, "sourceId"), &sourceId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sourceId", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RefreshCalendarSource(w, r, sourceId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetUpcomingCalendarEvents operation middleware
+func (siw *ServerInterfaceWrapper) GetUpcomingCalendarEvents(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetUpcomingCalendarEventsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetUpcomingCalendarEvents(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetConnections operation middleware
 func (siw *ServerInterfaceWrapper) GetConnections(w http.ResponseWriter, r *http.Request) {
 
@@ -1255,34 +1785,6 @@ func (siw *ServerInterfaceWrapper) EmailThreads(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.EmailThreads(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PostLogin operation middleware
-func (siw *ServerInterfaceWrapper) PostLogin(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PostLogin(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PostRegister operation middleware
-func (siw *ServerInterfaceWrapper) PostRegister(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PostRegister(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -1769,57 +2271,6 @@ func (siw *ServerInterfaceWrapper) GetUserByMatrixId(w http.ResponseWriter, r *h
 	handler.ServeHTTP(w, r)
 }
 
-// GetUsersMe operation middleware
-func (siw *ServerInterfaceWrapper) GetUsersMe(w http.ResponseWriter, r *http.Request) {
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetUsersMe(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// GetUsersId operation middleware
-func (siw *ServerInterfaceWrapper) GetUsersId(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-
-	// ------------- Path parameter "id" -------------
-	var id openapi_types.UUID
-
-	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
-		return
-	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	r = r.WithContext(ctx)
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetUsersId(w, r, id)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
 type UnescapedCookieParamError struct {
 	ParamName string
 	Err       error
@@ -1952,6 +2403,39 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/bridge/provision/v3/whoami", wrapper.BridgeWhoami)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/bridge/room-mappings", wrapper.GetBridgeRoomMappings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/calendar/events", wrapper.GetCalendarEvents)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/calendar/events/{eventId}", wrapper.GetCalendarEventById)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/calendar/sources", wrapper.GetCalendarSources)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/calendar/sources/import", wrapper.ImportCalendarSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/calendar/sources/link", wrapper.CreateLinkedCalendarSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/calendar/sources/{sourceId}", wrapper.DeleteCalendarSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/calendar/sources/{sourceId}", wrapper.GetCalendarSourceById)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/calendar/sources/{sourceId}", wrapper.UpdateCalendarSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/calendar/sources/{sourceId}/refresh", wrapper.RefreshCalendarSource)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/calendar/upcoming", wrapper.GetUpcomingCalendarEvents)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/connections", wrapper.GetConnections)
 	})
 	r.Group(func(r chi.Router) {
@@ -1971,12 +2455,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/email/threads", wrapper.EmailThreads)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/login", wrapper.PostLogin)
-	})
-	r.Group(func(r chi.Router) {
-		r.Post(options.BaseURL+"/register", wrapper.PostRegister)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/todolists", wrapper.GetTodoListsByUserId)
@@ -2019,12 +2497,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/users/by-matrix-id", wrapper.GetUserByMatrixId)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/users/me", wrapper.GetUsersMe)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/users/{id}", wrapper.GetUsersId)
 	})
 
 	return r

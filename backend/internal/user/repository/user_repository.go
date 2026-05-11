@@ -15,7 +15,6 @@ import (
 type UserRepository interface {
 	CreateUser(ctx context.Context, user *userentity.User) error
 	GetUserByID(ctx context.Context, id uuid.UUID) (*userentity.User, error)
-	GetUserByEmail(ctx context.Context, email string) (*userentity.User, error)
 	GetUserByMatrixID(ctx context.Context, mxid string) (*userentity.User, error)
 	UpdateUser(ctx context.Context, user *userentity.User) error
 	DeleteUser(ctx context.Context, id uuid.UUID) error
@@ -82,17 +81,4 @@ func (r *postgresUserRepository) DeleteUser(ctx context.Context, id uuid.UUID) e
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
 	return nil
-}
-
-// GetUserByEmail retrieves a user by their email address.
-func (r *postgresUserRepository) GetUserByEmail(ctx context.Context, email string) (*userentity.User, error) {
-	var user userentity.User
-	err := r.db.WithContext(ctx).Where("email = ?", email).First(&user).Error
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, userentity.ErrNotFound
-		}
-		return nil, fmt.Errorf("failed to get user by email: %w", err)
-	}
-	return &user, nil
 }

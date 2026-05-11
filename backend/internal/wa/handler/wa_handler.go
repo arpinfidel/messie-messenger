@@ -11,6 +11,7 @@ import (
 	brrepo "messenger/backend/internal/bridge/repository"
 	userrepo "messenger/backend/internal/user/repository"
 	waprovider "messenger/backend/internal/wa/provider"
+	roommap "messenger/backend/internal/wa/roommap"
 	middleware "messenger/backend/pkg/middleware"
 
 	"github.com/google/uuid"
@@ -19,12 +20,19 @@ import (
 type WAHandler struct {
 	repo         *brrepo.Repo
 	provider     *waprovider.Adapter
+	roomMapRepo  *roommap.Repository
 	waProviderID uuid.UUID
 	users        userrepo.UserRepository
 }
 
-func NewWAHandler(repo *brrepo.Repo, provider *waprovider.Adapter, waProviderID uuid.UUID, users userrepo.UserRepository) *WAHandler {
-	return &WAHandler{repo: repo, provider: provider, waProviderID: waProviderID, users: users}
+func NewWAHandler(repo *brrepo.Repo, provider *waprovider.Adapter, roomMapRepo *roommap.Repository, waProviderID uuid.UUID, users userrepo.UserRepository) *WAHandler {
+	return &WAHandler{
+		repo:         repo,
+		provider:     provider,
+		roomMapRepo:  roomMapRepo,
+		waProviderID: waProviderID,
+		users:        users,
+	}
 }
 
 func userIDFromCtx(ctx context.Context) (uuid.UUID, bool) {
@@ -263,6 +271,63 @@ func (h *WAHandler) BridgeWhoami(w http.ResponseWriter, r *http.Request, params 
 	}
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+func (h *WAHandler) GetBridgeRoomMappings(
+	w http.ResponseWriter,
+	r *http.Request,
+	params generated.GetBridgeRoomMappingsParams,
+) {
+	w.Header().Set("Content-Type", "application/json")
+	if _, ok := userIDFromCtx(r.Context()); !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "unauthorized"})
+		return
+	}
+	if params.Provider != "whatsapp" {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "unsupported provider"})
+		return
+	}
+	if h.roomMapRepo == nil {
+		w.WriteHeader(http.StatusNotImplemented)
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "bridge room mapping unavailable"})
+		return
+	}
+
+	uid, _ := userIDFromCtx(r.Context())
+	u, err := h.users.GetUserByID(r.Context(), uid)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "failed to load user"})
+		return
+	}
+	mxid := ""
+	if u != nil {
+		mxid = u.MatrixID
+	}
+	mappings, err := h.roomMapRepo.ListRoomMappings(r.Context(), mxid, params.Provider)
+	if err != nil {
+		log.Printf("[bridge room mappings] mxid=%s provider=%s error=%v", mxid, params.Provider, err)
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "failed to load bridge room mappings"})
+		return
+	}
+
+	resp := make([]generated.BridgeRoomMapping, 0, len(mappings))
+	for _, mapping := range mappings {
+		resp = append(resp, generated.BridgeRoomMapping{
+			Provider:  mapping.Provider,
+			RoomId:    mapping.RoomID,
+			LoginId:   mapping.LoginID,
+			LoginName: mapping.LoginName,
+			SpaceRoom: mapping.SpaceRoom,
+			Preferred: &mapping.Preferred,
+		})
+	}
+
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (h *WAHandler) BridgeLogout(w http.ResponseWriter, r *http.Request, loginID string, params generated.BridgeLogoutParams) {

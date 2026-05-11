@@ -24,9 +24,11 @@ services:
       # WhatsApp bridge provisioning API (dev defaults)
       WA_BRIDGE_BASE_URL: ${WA_BRIDGE_BASE_URL:-http://mautrix-whatsapp:29319}
       WA_BRIDGE_SHARED_SECRET: ${WA_BRIDGE_SHARED_SECRET:-TqVJ7k4v2YcZp3xJw9Lm6sAbN2qR8fH5dC1eG7yK0mP4rU6t}
+      WA_BRIDGE_DB_PATH: ${WA_BRIDGE_DB_PATH:-/bridge-data/mautrix-whatsapp.db}
     volumes:
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
+      - whatsapp_data:/bridge-data:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 5s

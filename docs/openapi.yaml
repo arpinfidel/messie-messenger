@@ -5,130 +5,6 @@ info:
 servers:
   - url: http://localhost:8080/api/v1
 paths:
-  /register:
-    post:
-      summary: Register a new user
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/RegisterRequest"
-      responses:
-        "201":
-          description: User registered successfully
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AuthResponse"
-        "400":
-          description: Invalid input
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "409":
-          description: User with email already exists
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "500":
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-  /login:
-    post:
-      summary: Log in a user
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/LoginRequest"
-      responses:
-        "200":
-          description: User logged in successfully
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AuthResponse"
-        "400":
-          description: Invalid input
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "401":
-          description: Invalid credentials
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "500":
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-  /users/{id}:
-    get:
-      security:
-        - bearerAuth: []
-      summary: Get user by ID
-      parameters:
-        - in: path
-          name: id
-          schema:
-            type: string
-            format: uuid
-          required: true
-          description: User ID
-      responses:
-        "200":
-          description: User found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/User"
-        "404":
-          description: User not found
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "500":
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-  /users/me:
-    get:
-      security:
-        - bearerAuth: []
-      summary: Get current user profile
-      responses:
-        "200":
-          description: Current user profile
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/User"
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
-        "500":
-          description: Internal server error
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
   /users/by-matrix-id:
     get:
       security:
@@ -704,6 +580,318 @@ paths:
           description: Collaborator removed successfully
         "404":
           description: Todo list or collaborator not found
+  /calendar/sources/import:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Import a calendar source from an uploaded ICS file
+      operationId: importCalendarSource
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+                - category
+              properties:
+                file:
+                  type: string
+                  format: binary
+                category:
+                  type: string
+                display_name:
+                  type: string
+      responses:
+        "201":
+          description: Calendar source imported successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarImportResponse"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Unauthorized
+  /calendar/sources:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get calendar sources for the current user
+      operationId: getCalendarSources
+      responses:
+        "200":
+          description: Calendar sources
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CalendarSource"
+        "401":
+          description: Unauthorized
+  /calendar/sources/link:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Add a linked ICS calendar source
+      operationId: createLinkedCalendarSource
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewCalendarLinkSource"
+      responses:
+        "201":
+          description: Linked calendar source imported successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarImportResponse"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Unauthorized
+  /calendar/sources/{sourceId}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get a calendar source by ID
+      operationId: getCalendarSourceById
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Calendar source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarSource"
+        "404":
+          description: Calendar source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    patch:
+      security:
+        - bearerAuth: []
+      summary: Rename a calendar source
+      operationId: updateCalendarSource
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateCalendarSource"
+      responses:
+        "200":
+          description: Updated calendar source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarSource"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Calendar source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      security:
+        - bearerAuth: []
+      summary: Delete a calendar source and its imported events
+      operationId: deleteCalendarSource
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "204":
+          description: Calendar source deleted successfully
+        "404":
+          description: Calendar source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /calendar/sources/{sourceId}/refresh:
+    post:
+      security:
+        - bearerAuth: []
+      summary: Refresh a linked calendar source
+      operationId: refreshCalendarSource
+      parameters:
+        - in: path
+          name: sourceId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Calendar source refreshed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarImportResponse"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Calendar source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /calendar/events:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get imported calendar events for the current user
+      operationId: getCalendarEvents
+      parameters:
+        - in: query
+          name: from
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: sourceId
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: cursor
+          required: false
+          description: Anchor timestamp for cursor-based schedule pagination.
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: direction
+          required: false
+          description: Fetch events before or after the cursor.
+          schema:
+            type: string
+            enum: [before, after]
+        - in: query
+          name: limit
+          required: false
+          description: Maximum number of events to return for cursor-based queries.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+      responses:
+        "200":
+          description: Calendar events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CalendarEvent"
+        "401":
+          description: Unauthorized
+        "404":
+          description: Calendar source not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /calendar/events/{eventId}:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get a calendar event by ID
+      operationId: getCalendarEventById
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Calendar event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CalendarEvent"
+        "404":
+          description: Calendar event not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /calendar/upcoming:
+    get:
+      security:
+        - bearerAuth: []
+      summary: Get upcoming imported calendar events for the current user
+      operationId: getUpcomingCalendarEvents
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            format: int32
+      responses:
+        "200":
+          description: Upcoming calendar events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CalendarEvent"
+        "401":
+          description: Unauthorized
   /auth/matrix/openid:
     post:
       summary: Authenticate using Matrix OpenID
@@ -887,6 +1075,31 @@ paths:
         "401":
           description: Unauthorized
 
+  /bridge/room-mappings:
+    get:
+      security:
+        - bearerAuth: []
+      summary: List bridge room to login mappings for current user
+      operationId: getBridgeRoomMappings
+      parameters:
+        - in: query
+          name: provider
+          required: true
+          schema:
+            type: string
+            example: whatsapp
+      responses:
+        "200":
+          description: Room mappings for bridged rooms owned by the current user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BridgeRoomMapping"
+        "401":
+          description: Unauthorized
+
   /bridge/provision/v3/logout/{login_id}:
     post:
       security:
@@ -981,47 +1194,6 @@ components:
           nullable: true
           description: Human-friendly collaborator name when available
           example: "Alice"
-    RegisterRequest:
-      type: object
-      required:
-        - email
-        - password
-      properties:
-        email:
-          type: string
-          format: email
-          example: "newuser@example.com"
-        password:
-          type: string
-          format: password
-          minLength: 8
-          example: "securepassword123"
-    LoginRequest:
-      type: object
-      required:
-        - email
-        - password
-      properties:
-        email:
-          type: string
-          format: email
-          example: "user@example.com"
-        password:
-          type: string
-          format: password
-          example: "securepassword123"
-    AuthResponse:
-      type: object
-      required:
-        - user
-        - token
-      properties:
-        user:
-          $ref: "#/components/schemas/User"
-        token:
-          type: string
-          description: JWT token
-          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
     Error:
       type: object
       required:
@@ -1171,6 +1343,153 @@ components:
         user_id:
           type: string
           format: uuid
+    CalendarSource:
+      type: object
+      required:
+        - id
+        - user_id
+        - kind
+        - display_name
+        - category
+        - import_mode
+        - refresh_state
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          example: ics_file
+        display_name:
+          type: string
+          example: Work Calendar
+        category:
+          type: string
+          example: Work
+        import_mode:
+          type: string
+          example: upload
+        source_url:
+          type: string
+          nullable: true
+          example: https://calendar.example.com/feed.ics
+        refresh_state:
+          type: string
+          example: imported
+        last_synced_at:
+          type: string
+          format: date-time
+        last_refresh_attempt_at:
+          type: string
+          format: date-time
+        last_refresh_error:
+          type: string
+          nullable: true
+        etag:
+          type: string
+          nullable: true
+        last_modified:
+          type: string
+          format: date-time
+        next_refresh_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    NewCalendarLinkSource:
+      type: object
+      required:
+        - url
+        - category
+      properties:
+        url:
+          type: string
+          format: uri
+        category:
+          type: string
+        display_name:
+          type: string
+    UpdateCalendarSource:
+      type: object
+      required:
+        - display_name
+        - category
+      properties:
+        category:
+          type: string
+        display_name:
+          type: string
+    CalendarEvent:
+      type: object
+      required:
+        - id
+        - source_id
+        - external_uid
+        - title
+        - description
+        - location
+        - starts_at
+        - ends_at
+        - all_day
+        - status
+        - timezone
+        - source_display_name
+      properties:
+        id:
+          type: string
+          format: uuid
+        source_id:
+          type: string
+          format: uuid
+        external_uid:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type: string
+          format: date-time
+        all_day:
+          type: boolean
+        status:
+          type: string
+        timezone:
+          type: string
+        recurrence_summary:
+          type: string
+          nullable: true
+        source_display_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CalendarImportResponse:
+      type: object
+      required:
+        - source
+        - imported_event_count
+      properties:
+        source:
+          $ref: "#/components/schemas/CalendarSource"
+        imported_event_count:
+          type: integer
+          format: int32
     MatrixOpenIDRequest:
       type: object
       required:
@@ -1431,6 +1750,29 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/BridgeWhoamiLogin"
+    BridgeRoomMapping:
+      type: object
+      required:
+        - provider
+        - room_id
+        - login_id
+      properties:
+        provider:
+          type: string
+          example: whatsapp
+        room_id:
+          type: string
+          format: matrix_room_id
+        login_id:
+          type: string
+        login_name:
+          type: string
+        space_room:
+          type: string
+          format: matrix_room_id
+          nullable: true
+        preferred:
+          type: boolean
     BridgeName:
       type: object
       description: Info about the bridged network
@@ -1514,6 +1856,12 @@ components:
         type:
           type: string
           enum: [ display_and_wait ]
+        process_id:
+          type: string
+        login_id:
+          type: string
+        step_id:
+          type: string
         display_and_wait:
           type: object
           properties:
@@ -1530,6 +1878,12 @@ components:
         type:
           type: string
           enum: [ user_input ]
+        process_id:
+          type: string
+        login_id:
+          type: string
+        step_id:
+          type: string
         user_input:
           type: object
           properties:
@@ -1553,6 +1907,12 @@ components:
         type:
           type: string
           enum: [ cookies ]
+        process_id:
+          type: string
+        login_id:
+          type: string
+        step_id:
+          type: string
         cookies:
           type: object
           properties:
@@ -1566,6 +1926,12 @@ components:
         type:
           type: string
           enum: [ complete ]
+        process_id:
+          type: string
+        login_id:
+          type: string
+        step_id:
+          type: string
         complete:
           type: object
           properties:

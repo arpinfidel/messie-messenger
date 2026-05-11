@@ -13,13 +13,13 @@
  */
 
 import { mapValues } from '../runtime';
-import type { BridgeConnectionAccount } from './BridgeConnectionAccount';
+import type { BridgeAccount } from './BridgeAccount';
 import {
-  BridgeConnectionAccountFromJSON,
-  BridgeConnectionAccountFromJSONTyped,
-  BridgeConnectionAccountToJSON,
-  BridgeConnectionAccountToJSONTyped,
-} from './BridgeConnectionAccount';
+  BridgeAccountFromJSON,
+  BridgeAccountFromJSONTyped,
+  BridgeAccountToJSON,
+  BridgeAccountToJSONTyped,
+} from './BridgeAccount';
 
 /**
  *
@@ -41,10 +41,10 @@ export interface BridgeConnection {
   status: BridgeConnectionStatusEnum;
   /**
    *
-   * @type {BridgeConnectionAccount}
+   * @type {BridgeAccount}
    * @memberof BridgeConnection
    */
-  account?: BridgeConnectionAccount | null;
+  account?: BridgeAccount;
   /**
    *
    * @type {{ [key: string]: any; }}
@@ -87,7 +87,7 @@ export function BridgeConnectionFromJSONTyped(
   return {
     provider: json['provider'],
     status: json['status'],
-    account: json['account'] == null ? undefined : BridgeConnectionAccountFromJSON(json['account']),
+    account: json['account'] == null ? undefined : BridgeAccountFromJSON(json['account']),
     limits: json['limits'] == null ? undefined : json['limits'],
   };
 }
@@ -107,7 +107,7 @@ export function BridgeConnectionToJSONTyped(
   return {
     provider: value['provider'],
     status: value['status'],
-    account: BridgeConnectionAccountToJSON(value['account']),
+    account: BridgeAccountToJSON(value['account']),
     limits: value['limits'],
   };
 }

@@ -14,20 +14,20 @@
 
 import * as runtime from '../runtime';
 import type {
-  AuthResponse,
   BridgeConnection,
+  BridgeLoginFlowsResponse,
+  BridgeLoginStep,
+  BridgeWhoamiResponse,
   CollaboratorDetail,
   EmailListRequest,
   EmailLoginRequest,
   EmailMessagesResponse,
   EmailRichHeadersResponse,
-  LoginRequest,
   MatrixAuthResponse,
   MatrixOpenIDRequest,
   NewCollaborator,
   NewTodoItem,
   NewTodoList,
-  RegisterRequest,
   TodoItem,
   TodoList,
   UpdateTodoItem,
@@ -35,10 +35,14 @@ import type {
   User,
 } from '../models/index';
 import {
-  AuthResponseFromJSON,
-  AuthResponseToJSON,
   BridgeConnectionFromJSON,
   BridgeConnectionToJSON,
+  BridgeLoginFlowsResponseFromJSON,
+  BridgeLoginFlowsResponseToJSON,
+  BridgeLoginStepFromJSON,
+  BridgeLoginStepToJSON,
+  BridgeWhoamiResponseFromJSON,
+  BridgeWhoamiResponseToJSON,
   CollaboratorDetailFromJSON,
   CollaboratorDetailToJSON,
   EmailListRequestFromJSON,
@@ -49,8 +53,6 @@ import {
   EmailMessagesResponseToJSON,
   EmailRichHeadersResponseFromJSON,
   EmailRichHeadersResponseToJSON,
-  LoginRequestFromJSON,
-  LoginRequestToJSON,
   MatrixAuthResponseFromJSON,
   MatrixAuthResponseToJSON,
   MatrixOpenIDRequestFromJSON,
@@ -61,8 +63,6 @@ import {
   NewTodoItemToJSON,
   NewTodoListFromJSON,
   NewTodoListToJSON,
-  RegisterRequestFromJSON,
-  RegisterRequestToJSON,
   TodoItemFromJSON,
   TodoItemToJSON,
   TodoListFromJSON,
@@ -78,6 +78,32 @@ import {
 export interface AddCollaboratorRequest {
   listId: string;
   newCollaborator: NewCollaborator;
+}
+
+export interface BridgeGetLoginFlowsRequest {
+  provider: string;
+}
+
+export interface BridgeLogoutRequest {
+  loginId: string;
+  provider: string;
+}
+
+export interface BridgeStartLoginRequest {
+  flow: string;
+  provider: string;
+}
+
+export interface BridgeSubmitLoginStepRequest {
+  processId: string;
+  stepId: string;
+  action: BridgeSubmitLoginStepActionEnum;
+  provider: string;
+  requestBody?: { [key: string]: any };
+}
+
+export interface BridgeWhoamiRequest {
+  provider: string;
 }
 
 export interface CreateTodoItemRequest {
@@ -143,16 +169,12 @@ export interface GetTodoListsByUserIdRequest {
   userId: string;
 }
 
-export interface LoginPostRequest {
-  loginRequest: LoginRequest;
+export interface GetUserByMatrixIdRequest {
+  matrixId: string;
 }
 
 export interface PostMatrixAuthRequest {
   matrixOpenIDRequest: MatrixOpenIDRequest;
-}
-
-export interface RegisterPostRequest {
-  registerRequest: RegisterRequest;
 }
 
 export interface RemoveCollaboratorRequest {
@@ -169,10 +191,6 @@ export interface UpdateTodoItemRequest {
 export interface UpdateTodoListRequest {
   listId: string;
   updateTodoList: UpdateTodoList;
-}
-
-export interface UsersIdGetRequest {
-  id: string;
 }
 
 /**
@@ -243,6 +261,349 @@ export class DefaultApi extends runtime.BaseAPI {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<void> {
     await this.addCollaboratorRaw(requestParameters, initOverrides);
+  }
+
+  /**
+   * Get available login flows for a provider
+   */
+  async bridgeGetLoginFlowsRaw(
+    requestParameters: BridgeGetLoginFlowsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<BridgeLoginFlowsResponse>> {
+    if (requestParameters['provider'] == null) {
+      throw new runtime.RequiredError(
+        'provider',
+        'Required parameter "provider" was null or undefined when calling bridgeGetLoginFlows().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    if (requestParameters['provider'] != null) {
+      queryParameters['provider'] = requestParameters['provider'];
+    }
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token('bearerAuth', []);
+
+      if (tokenString) {
+        headerParameters['Authorization'] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/bridge/provision/v3/login/flows`;
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'GET',
+        headers: headerParameters,
+        query: queryParameters,
+      },
+      initOverrides
+    );
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      BridgeLoginFlowsResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   * Get available login flows for a provider
+   */
+  async bridgeGetLoginFlows(
+    requestParameters: BridgeGetLoginFlowsRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<BridgeLoginFlowsResponse> {
+    const response = await this.bridgeGetLoginFlowsRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Log out a specific login or all
+   */
+  async bridgeLogoutRaw(
+    requestParameters: BridgeLogoutRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<void>> {
+    if (requestParameters['loginId'] == null) {
+      throw new runtime.RequiredError(
+        'loginId',
+        'Required parameter "loginId" was null or undefined when calling bridgeLogout().'
+      );
+    }
+
+    if (requestParameters['provider'] == null) {
+      throw new runtime.RequiredError(
+        'provider',
+        'Required parameter "provider" was null or undefined when calling bridgeLogout().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    if (requestParameters['provider'] != null) {
+      queryParameters['provider'] = requestParameters['provider'];
+    }
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token('bearerAuth', []);
+
+      if (tokenString) {
+        headerParameters['Authorization'] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/bridge/provision/v3/logout/{login_id}`;
+    urlPath = urlPath.replace(
+      `{${'login_id'}}`,
+      encodeURIComponent(String(requestParameters['loginId']))
+    );
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'POST',
+        headers: headerParameters,
+        query: queryParameters,
+      },
+      initOverrides
+    );
+
+    return new runtime.VoidApiResponse(response);
+  }
+
+  /**
+   * Log out a specific login or all
+   */
+  async bridgeLogout(
+    requestParameters: BridgeLogoutRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<void> {
+    await this.bridgeLogoutRaw(requestParameters, initOverrides);
+  }
+
+  /**
+   * Start a login process for a provider
+   */
+  async bridgeStartLoginRaw(
+    requestParameters: BridgeStartLoginRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<BridgeLoginStep>> {
+    if (requestParameters['flow'] == null) {
+      throw new runtime.RequiredError(
+        'flow',
+        'Required parameter "flow" was null or undefined when calling bridgeStartLogin().'
+      );
+    }
+
+    if (requestParameters['provider'] == null) {
+      throw new runtime.RequiredError(
+        'provider',
+        'Required parameter "provider" was null or undefined when calling bridgeStartLogin().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    if (requestParameters['provider'] != null) {
+      queryParameters['provider'] = requestParameters['provider'];
+    }
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token('bearerAuth', []);
+
+      if (tokenString) {
+        headerParameters['Authorization'] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/bridge/provision/v3/login/start/{flow}`;
+    urlPath = urlPath.replace(`{${'flow'}}`, encodeURIComponent(String(requestParameters['flow'])));
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'POST',
+        headers: headerParameters,
+        query: queryParameters,
+      },
+      initOverrides
+    );
+
+    return new runtime.JSONApiResponse(response, (jsonValue) => BridgeLoginStepFromJSON(jsonValue));
+  }
+
+  /**
+   * Start a login process for a provider
+   */
+  async bridgeStartLogin(
+    requestParameters: BridgeStartLoginRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<BridgeLoginStep> {
+    const response = await this.bridgeStartLoginRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Submit a login step
+   */
+  async bridgeSubmitLoginStepRaw(
+    requestParameters: BridgeSubmitLoginStepRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<BridgeLoginStep>> {
+    if (requestParameters['processId'] == null) {
+      throw new runtime.RequiredError(
+        'processId',
+        'Required parameter "processId" was null or undefined when calling bridgeSubmitLoginStep().'
+      );
+    }
+
+    if (requestParameters['stepId'] == null) {
+      throw new runtime.RequiredError(
+        'stepId',
+        'Required parameter "stepId" was null or undefined when calling bridgeSubmitLoginStep().'
+      );
+    }
+
+    if (requestParameters['action'] == null) {
+      throw new runtime.RequiredError(
+        'action',
+        'Required parameter "action" was null or undefined when calling bridgeSubmitLoginStep().'
+      );
+    }
+
+    if (requestParameters['provider'] == null) {
+      throw new runtime.RequiredError(
+        'provider',
+        'Required parameter "provider" was null or undefined when calling bridgeSubmitLoginStep().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    if (requestParameters['provider'] != null) {
+      queryParameters['provider'] = requestParameters['provider'];
+    }
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    headerParameters['Content-Type'] = 'application/json';
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token('bearerAuth', []);
+
+      if (tokenString) {
+        headerParameters['Authorization'] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/bridge/provision/v3/login/step/{process_id}/{step_id}/{action}`;
+    urlPath = urlPath.replace(
+      `{${'process_id'}}`,
+      encodeURIComponent(String(requestParameters['processId']))
+    );
+    urlPath = urlPath.replace(
+      `{${'step_id'}}`,
+      encodeURIComponent(String(requestParameters['stepId']))
+    );
+    urlPath = urlPath.replace(
+      `{${'action'}}`,
+      encodeURIComponent(String(requestParameters['action']))
+    );
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'POST',
+        headers: headerParameters,
+        query: queryParameters,
+        body: requestParameters['requestBody'],
+      },
+      initOverrides
+    );
+
+    return new runtime.JSONApiResponse(response, (jsonValue) => BridgeLoginStepFromJSON(jsonValue));
+  }
+
+  /**
+   * Submit a login step
+   */
+  async bridgeSubmitLoginStep(
+    requestParameters: BridgeSubmitLoginStepRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<BridgeLoginStep> {
+    const response = await this.bridgeSubmitLoginStepRaw(requestParameters, initOverrides);
+    return await response.value();
+  }
+
+  /**
+   * Get provider-specific whoami with logins
+   */
+  async bridgeWhoamiRaw(
+    requestParameters: BridgeWhoamiRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<runtime.ApiResponse<BridgeWhoamiResponse>> {
+    if (requestParameters['provider'] == null) {
+      throw new runtime.RequiredError(
+        'provider',
+        'Required parameter "provider" was null or undefined when calling bridgeWhoami().'
+      );
+    }
+
+    const queryParameters: any = {};
+
+    if (requestParameters['provider'] != null) {
+      queryParameters['provider'] = requestParameters['provider'];
+    }
+
+    const headerParameters: runtime.HTTPHeaders = {};
+
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token('bearerAuth', []);
+
+      if (tokenString) {
+        headerParameters['Authorization'] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/bridge/provision/v3/whoami`;
+
+    const response = await this.request(
+      {
+        path: urlPath,
+        method: 'GET',
+        headers: headerParameters,
+        query: queryParameters,
+      },
+      initOverrides
+    );
+
+    return new runtime.JSONApiResponse(response, (jsonValue) =>
+      BridgeWhoamiResponseFromJSON(jsonValue)
+    );
+  }
+
+  /**
+   * Get provider-specific whoami with logins
+   */
+  async bridgeWhoami(
+    requestParameters: BridgeWhoamiRequest,
+    initOverrides?: RequestInit | runtime.InitOverrideFunction
+  ): Promise<BridgeWhoamiResponse> {
+    const response = await this.bridgeWhoamiRaw(requestParameters, initOverrides);
+    return await response.value();
   }
 
   /**
@@ -844,6 +1205,7 @@ export class DefaultApi extends runtime.BaseAPI {
   }
 
   /**
+   * Returns zero or more connection entries per provider. Providers that support multi-account logins will return multiple items with the same `provider` value, one per account.
    * List bridge connections for current user
    */
   async getConnectionsRaw(
@@ -880,6 +1242,7 @@ export class DefaultApi extends runtime.BaseAPI {
   }
 
   /**
+   * Returns zero or more connection entries per provider. Providers that support multi-account logins will return multiple items with the same `provider` value, one per account.
    * List bridge connections for current user
    */
   async getConnections(
@@ -1129,49 +1492,59 @@ export class DefaultApi extends runtime.BaseAPI {
   }
 
   /**
-   * Log in a user
+   * Get user by Matrix ID
    */
-  async loginPostRaw(
-    requestParameters: LoginPostRequest,
+  async getUserByMatrixIdRaw(
+    requestParameters: GetUserByMatrixIdRequest,
     initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<AuthResponse>> {
-    if (requestParameters['loginRequest'] == null) {
+  ): Promise<runtime.ApiResponse<User>> {
+    if (requestParameters['matrixId'] == null) {
       throw new runtime.RequiredError(
-        'loginRequest',
-        'Required parameter "loginRequest" was null or undefined when calling loginPost().'
+        'matrixId',
+        'Required parameter "matrixId" was null or undefined when calling getUserByMatrixId().'
       );
     }
 
     const queryParameters: any = {};
 
+    if (requestParameters['matrixId'] != null) {
+      queryParameters['matrixId'] = requestParameters['matrixId'];
+    }
+
     const headerParameters: runtime.HTTPHeaders = {};
 
-    headerParameters['Content-Type'] = 'application/json';
+    if (this.configuration && this.configuration.accessToken) {
+      const token = this.configuration.accessToken;
+      const tokenString = await token('bearerAuth', []);
 
-    let urlPath = `/login`;
+      if (tokenString) {
+        headerParameters['Authorization'] = `Bearer ${tokenString}`;
+      }
+    }
+
+    let urlPath = `/users/by-matrix-id`;
 
     const response = await this.request(
       {
         path: urlPath,
-        method: 'POST',
+        method: 'GET',
         headers: headerParameters,
         query: queryParameters,
-        body: LoginRequestToJSON(requestParameters['loginRequest']),
       },
       initOverrides
     );
 
-    return new runtime.JSONApiResponse(response, (jsonValue) => AuthResponseFromJSON(jsonValue));
+    return new runtime.JSONApiResponse(response, (jsonValue) => UserFromJSON(jsonValue));
   }
 
   /**
-   * Log in a user
+   * Get user by Matrix ID
    */
-  async loginPost(
-    requestParameters: LoginPostRequest,
+  async getUserByMatrixId(
+    requestParameters: GetUserByMatrixIdRequest,
     initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<AuthResponse> {
-    const response = await this.loginPostRaw(requestParameters, initOverrides);
+  ): Promise<User> {
+    const response = await this.getUserByMatrixIdRaw(requestParameters, initOverrides);
     return await response.value();
   }
 
@@ -1221,53 +1594,6 @@ export class DefaultApi extends runtime.BaseAPI {
     initOverrides?: RequestInit | runtime.InitOverrideFunction
   ): Promise<MatrixAuthResponse> {
     const response = await this.postMatrixAuthRaw(requestParameters, initOverrides);
-    return await response.value();
-  }
-
-  /**
-   * Register a new user
-   */
-  async registerPostRaw(
-    requestParameters: RegisterPostRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<AuthResponse>> {
-    if (requestParameters['registerRequest'] == null) {
-      throw new runtime.RequiredError(
-        'registerRequest',
-        'Required parameter "registerRequest" was null or undefined when calling registerPost().'
-      );
-    }
-
-    const queryParameters: any = {};
-
-    const headerParameters: runtime.HTTPHeaders = {};
-
-    headerParameters['Content-Type'] = 'application/json';
-
-    let urlPath = `/register`;
-
-    const response = await this.request(
-      {
-        path: urlPath,
-        method: 'POST',
-        headers: headerParameters,
-        query: queryParameters,
-        body: RegisterRequestToJSON(requestParameters['registerRequest']),
-      },
-      initOverrides
-    );
-
-    return new runtime.JSONApiResponse(response, (jsonValue) => AuthResponseFromJSON(jsonValue));
-  }
-
-  /**
-   * Register a new user
-   */
-  async registerPost(
-    requestParameters: RegisterPostRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<AuthResponse> {
-    const response = await this.registerPostRaw(requestParameters, initOverrides);
     return await response.value();
   }
 
@@ -1482,100 +1808,15 @@ export class DefaultApi extends runtime.BaseAPI {
     const response = await this.updateTodoListRaw(requestParameters, initOverrides);
     return await response.value();
   }
-
-  /**
-   * Get user by ID
-   */
-  async usersIdGetRaw(
-    requestParameters: UsersIdGetRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<User>> {
-    if (requestParameters['id'] == null) {
-      throw new runtime.RequiredError(
-        'id',
-        'Required parameter "id" was null or undefined when calling usersIdGet().'
-      );
-    }
-
-    const queryParameters: any = {};
-
-    const headerParameters: runtime.HTTPHeaders = {};
-
-    if (this.configuration && this.configuration.accessToken) {
-      const token = this.configuration.accessToken;
-      const tokenString = await token('bearerAuth', []);
-
-      if (tokenString) {
-        headerParameters['Authorization'] = `Bearer ${tokenString}`;
-      }
-    }
-
-    let urlPath = `/users/{id}`;
-    urlPath = urlPath.replace(`{${'id'}}`, encodeURIComponent(String(requestParameters['id'])));
-
-    const response = await this.request(
-      {
-        path: urlPath,
-        method: 'GET',
-        headers: headerParameters,
-        query: queryParameters,
-      },
-      initOverrides
-    );
-
-    return new runtime.JSONApiResponse(response, (jsonValue) => UserFromJSON(jsonValue));
-  }
-
-  /**
-   * Get user by ID
-   */
-  async usersIdGet(
-    requestParameters: UsersIdGetRequest,
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<User> {
-    const response = await this.usersIdGetRaw(requestParameters, initOverrides);
-    return await response.value();
-  }
-
-  /**
-   * Get current user profile
-   */
-  async usersMeGetRaw(
-    initOverrides?: RequestInit | runtime.InitOverrideFunction
-  ): Promise<runtime.ApiResponse<User>> {
-    const queryParameters: any = {};
-
-    const headerParameters: runtime.HTTPHeaders = {};
-
-    if (this.configuration && this.configuration.accessToken) {
-      const token = this.configuration.accessToken;
-      const tokenString = await token('bearerAuth', []);
-
-      if (tokenString) {
-        headerParameters['Authorization'] = `Bearer ${tokenString}`;
-      }
-    }
-
-    let urlPath = `/users/me`;
-
-    const response = await this.request(
-      {
-        path: urlPath,
-        method: 'GET',
-        headers: headerParameters,
-        query: queryParameters,
-      },
-      initOverrides
-    );
-
-    return new runtime.JSONApiResponse(response, (jsonValue) => UserFromJSON(jsonValue));
-  }
-
-  /**
-   * Get current user profile
-   */
-  async usersMeGet(initOverrides?: RequestInit | runtime.InitOverrideFunction): Promise<User> {
-    const response = await this.usersMeGetRaw(initOverrides);
-    return await response.value();
-  }
 }
+
+/**
+ * @export
+ */
+export const BridgeSubmitLoginStepActionEnum = {
+  DisplayAndWait: 'display_and_wait',
+  UserInput: 'user_input',
+  Cookies: 'cookies',
+} as const;
+export type BridgeSubmitLoginStepActionEnum =
+  (typeof BridgeSubmitLoginStepActionEnum)[keyof typeof BridgeSubmitLoginStepActionEnum];
