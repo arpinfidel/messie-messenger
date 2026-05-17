@@ -9,6 +9,36 @@ services:
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
 
+  matrix:
+    build:
+      context: .
+      dockerfile: infra/matrix/Dockerfile.dev
+    environment:
+      SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME:-messie.localhost}
+      SYNAPSE_REPORT_STATS: "no"
+      SYNAPSE_NO_TLS: "true"
+      SYNAPSE_ENABLE_REGISTRATION: ${MATRIX_ENABLE_REGISTRATION:-true}
+      SYNAPSE_REGISTRATION_SHARED_SECRET: ${MATRIX_REGISTRATION_SHARED_SECRET:-dev_matrix_shared_secret}
+      SYNAPSE_ADDITIONAL_CONFIG_DIR: /opt/matrix-config/conf.d
+      UID: "991"
+      GID: "991"
+      PYTHONPATH: /data/custom_modules
+    volumes:
+      - matrix_data:/data
+    ports:
+      - "${MATRIX_PORT:-8008}:8008"
+    restart: unless-stopped
+
+  mautrix-whatsapp:
+    build:
+      context: .
+      dockerfile: infra/mautrix-whatsapp/Dockerfile.dev
+    volumes:
+      - whatsapp_data:/data
+    depends_on:
+      - matrix
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
@@ -21,12 +51,12 @@ services:
       PORT: ${BACKEND_PORT:-8080}
       DATABASE_URL: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-todo_db}?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-supersecretjwtkey}
+      WA_BRIDGE_BASE_URL: ${WA_BRIDGE_BASE_URL:-http://mautrix-whatsapp:29319}
+      WA_BRIDGE_SHARED_SECRET: ${WA_BRIDGE_SHARED_SECRET:-TqVJ7k4v2YcZp3xJw9Lm6sAbN2qR8fH5dC1eG7yK0mP4rU6t}
     expose:
       - "${BACKEND_PORT:-8080}"
     healthcheck:
       test: ["CMD", "true"]
-      # test: ["CMD-SHELL", "cat </dev/null >/dev/tcp/127.0.0.1/8080"]
-      # test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -34,6 +64,7 @@ services:
     restart: unless-stopped
     depends_on:
       - postgres
+      - mautrix-whatsapp
 
   # No separate frontend container in prod; nginx serves SPA build
   nginx:
@@ -41,12 +72,12 @@ services:
       context: .
       dockerfile: ./api-gateway/Dockerfile.prod
     ports:
-      - "${NGINX_PORT:-8080}:80"
+      - "${NGINX_PORT:-18080}:80"
     depends_on:
-      # backend:
-      #   condition: service_healthy
       - backend
     restart: unless-stopped
 
 volumes:
   postgres_data:
+  matrix_data:
+  whatsapp_data:
