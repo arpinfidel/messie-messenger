@@ -50,6 +50,8 @@ services:
       JWT_SECRET: ${JWT_SECRET:-supersecretjwtkey}
       WA_BRIDGE_BASE_URL: ${WA_BRIDGE_BASE_URL:-http://mautrix-whatsapp:29319}
       WA_BRIDGE_SHARED_SECRET: ${WA_BRIDGE_SHARED_SECRET:-TqVJ7k4v2YcZp3xJw9Lm6sAbN2qR8fH5dC1eG7yK0mP4rU6t}
+      DEV_MATRIX_SERVER_NAME: messie.arpinfidel.com
+      DEV_MATRIX_FED_BASE: http://matrix:8008
     expose:
       - "${BACKEND_PORT:-8080}"
     healthcheck:
