@@ -6,9 +6,9 @@ python_paths:
 modules:
   - module: block_bot_dms.BlockBotDMs
     config:
-      bot_mxid: "@whatsappbot:messie.localhost"
+      bot_mxid: "@whatsappbot:messie.arpinfidel.com"
       admins:
-        - "@bridge-admin:messie.localhost"
+        - "@bridge-admin:messie.arpinfidel.com"
       # Block DMs to the bot entirely; still allow group invites.
       block_dm_invites: true
       require_prefix_in_dm: false

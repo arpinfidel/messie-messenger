@@ -1,0 +1,47 @@
+server_name: "messie.arpinfidel.com"
+pid_file: /data/homeserver.pid
+
+report_stats: false
+
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true
+    bind_addresses: ['0.0.0.0']
+    resources:
+      - names: [client]
+        compress: false
+
+database:
+  name: psycopg2
+  args:
+    user: __DB_USER__
+    password: __DB_PASSWORD__
+    database: synapse
+    host: postgres
+    port: 5432
+    cp_min: 5
+    cp_max: 10
+
+media_store_path: /data/media_store
+signing_key_path: "/data/signing.key"
+
+enable_registration: true
+registration_shared_secret: "cc067d1f98664dbc5484612c8ae684d8a7530495606ab7c383d5753f4b203876"
+enable_registration_without_verification: true
+
+app_service_config_files:
+  - /data/appservices/whatsapp-registration.yaml
+  - /data/appservices/doublepuppet-registration.yaml
+
+python_paths:
+  - /data/custom_modules
+
+modules: []
+
+trusted_key_servers: []
+suppress_key_server_warning: true
+
+# Disable federation
+federation_domain_whitelist: []

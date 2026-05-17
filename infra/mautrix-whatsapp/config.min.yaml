@@ -2,7 +2,7 @@
 
 homeserver:
   address: http://matrix:8008
-  domain: messie.localhost
+  domain: messie.arpinfidel.com
 
 appservice:
   address: http://mautrix-whatsapp:29319
@@ -27,7 +27,7 @@ bridge:
   split_portals: false
   personal_filtering_spaces: false
   permissions:
-    "messie.localhost": user
+    "messie.arpinfidel.com": user
   encryption:
     allow: true
     default: true

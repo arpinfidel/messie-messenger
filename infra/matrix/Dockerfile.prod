@@ -1,0 +1,7 @@
+FROM matrixdotorg/synapse:v1.114.0
+
+COPY infra/matrix /opt/matrix-config
+COPY infra/mautrix-whatsapp/registration.yaml /opt/mautrix-whatsapp/registration.yaml
+
+ENTRYPOINT ["/bin/sh", "-c"]
+CMD ["mkdir -p /data/appservices /data/custom_modules && cp /opt/matrix-config/homeserver.prod.yaml /data/homeserver.yaml && sed -i \"s/__DB_USER__/${POSTGRES_USER:-user}/g; s/__DB_PASSWORD__/${POSTGRES_PASSWORD:-password}/g\" /data/homeserver.yaml && cp -r /opt/matrix-config/modules/. /data/custom_modules/ && cp /opt/mautrix-whatsapp/registration.yaml /data/appservices/whatsapp-registration.yaml && cp /opt/matrix-config/appservices/doublepuppet-registration.yaml /data/appservices/doublepuppet-registration.yaml && exec /start.py"]

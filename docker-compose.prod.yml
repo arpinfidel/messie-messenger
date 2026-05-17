@@ -12,21 +12,18 @@ services:
   matrix:
     build:
       context: .
-      dockerfile: infra/matrix/Dockerfile.dev
+      dockerfile: infra/matrix/Dockerfile.prod
     environment:
-      SYNAPSE_SERVER_NAME: ${MATRIX_SERVER_NAME:-messie.localhost}
-      SYNAPSE_REPORT_STATS: "no"
-      SYNAPSE_NO_TLS: "true"
-      SYNAPSE_ENABLE_REGISTRATION: ${MATRIX_ENABLE_REGISTRATION:-true}
-      SYNAPSE_REGISTRATION_SHARED_SECRET: ${MATRIX_REGISTRATION_SHARED_SECRET:-dev_matrix_shared_secret}
-      SYNAPSE_ADDITIONAL_CONFIG_DIR: /opt/matrix-config/conf.d
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
       UID: "991"
       GID: "991"
-      PYTHONPATH: /data/custom_modules
     volumes:
       - matrix_data:/data
     ports:
       - "${MATRIX_PORT:-8008}:8008"
+    depends_on:
+      - postgres
     restart: unless-stopped
 
   mautrix-whatsapp:

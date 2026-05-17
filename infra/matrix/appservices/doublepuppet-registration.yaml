@@ -7,5 +7,5 @@ sender_localpart: dp_dummy
 rate_limited: false
 namespaces:
   users:
-    - regex: '@.*:messie\.localhost'
+    - regex: '@.*:messie\.arpinfidel\.com'
       exclusive: false

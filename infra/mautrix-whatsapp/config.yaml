@@ -241,9 +241,9 @@ bridge:
     #   domain - All users on that homeserver
     #     mxid - Specific user
     permissions:
-        "messie.localhost": user
+        "messie.arpinfidel.com": user
         # Optional: provisioning/admin backdoor (dev only). Remove in prod.
-        "@bridge-admin:messie.localhost": admin
+        "@bridge-admin:messie.arpinfidel.com": admin
 
 # Config for the bridge's database.
 database:
@@ -260,7 +260,7 @@ homeserver:
     # but https also works if they run on different machines.
     address: http://matrix:8008
     # The domain of the homeserver (also known as server_name, used for MXIDs, etc).
-    domain: messie.localhost
+    domain: messie.arpinfidel.com
     
     # What software is the homeserver running?
     # Standard Matrix homeservers like Synapse, Dendrite and Conduit should just use "standard" here.
@@ -445,7 +445,7 @@ double_puppet:
     # See https://docs.mau.fi/bridges/general/double-puppeting.html for instructions.
     secrets:
         # Token from infra/matrix/appservices/doublepuppet-registration.yaml (as_token)
-        messie.localhost: "as_token:dev_dp_as_token_0b1c2d3e4f"
+        messie.arpinfidel.com: "as_token:dev_dp_as_token_0b1c2d3e4f"
         # example.com: "as_token:foobar"
 
 # End-to-bridge encryption support options.
