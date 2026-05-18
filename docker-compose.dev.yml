@@ -28,6 +28,10 @@ services:
     volumes:
       - go-mod-cache:/go/pkg/mod
       - go-build-cache:/root/.cache/go-build
+      # NOTE: This volume contains bridge crypto keys (Megolm sessions) now that
+      # end-to-bridge encryption is enabled. The backend only queries portal/room
+      # mapping tables (read-only). The backend already holds the bridge shared
+      # secret so this doesn't expand the trust boundary.
       - whatsapp_data:/bridge-data:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
@@ -110,7 +114,9 @@ services:
     profiles: ["matrix"]
     environment:
       # Do not bind to host; only internal container-to-container access.
-      LOG_LEVEL: ${WHATSAPP_LOG_LEVEL:-INFO}
+      # WARN in prod to prevent accidental message content logging at DEBUG/INFO.
+      # Override to INFO/DEBUG only for local troubleshooting.
+      LOG_LEVEL: ${WHATSAPP_LOG_LEVEL:-WARN}
     volumes:
       - whatsapp_data:/data
     depends_on:

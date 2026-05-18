@@ -45,3 +45,9 @@ suppress_key_server_warning: true
 
 # Disable federation
 federation_domain_whitelist: []
+
+# Experimental features for bridge E2EE (appservice mode)
+experimental_features:
+  msc3202_transaction_extensions: true
+  msc2409_to_device_messages_enabled: true
+  msc3202_device_masquerading: true

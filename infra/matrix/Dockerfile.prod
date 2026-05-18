@@ -1,4 +1,4 @@
-FROM matrixdotorg/synapse:v1.114.0
+FROM matrixdotorg/synapse:v1.152.1
 
 COPY infra/matrix /opt/matrix-config
 COPY infra/mautrix-whatsapp/registration.yaml /opt/mautrix-whatsapp/registration.yaml

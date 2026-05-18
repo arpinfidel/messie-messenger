@@ -30,6 +30,9 @@ services:
     build:
       context: .
       dockerfile: infra/mautrix-whatsapp/Dockerfile.dev
+    environment:
+      # WARN to prevent accidental message content logging at DEBUG/INFO.
+      LOG_LEVEL: ${WHATSAPP_LOG_LEVEL:-WARN}
     volumes:
       - whatsapp_data:/data
     depends_on:

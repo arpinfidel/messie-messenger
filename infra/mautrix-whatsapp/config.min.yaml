@@ -31,6 +31,8 @@ bridge:
   encryption:
     allow: true
     default: true
+    require: true
+    appservice: true
 
 network:
   displayname_template: '{{or .BusinessName .PushName .Phone .RedactedPhone "Unknown user"}}'

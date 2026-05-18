@@ -1,4 +1,4 @@
-server_name: "messie.localhost"
+server_name: "messie.arpinfidel.com"
 pid_file: /data/homeserver.pid
 
 report_stats: false
